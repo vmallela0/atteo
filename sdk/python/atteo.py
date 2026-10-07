@@ -57,6 +57,14 @@ class Atteo:
         q = "after=%d&ack=1" % after + ("&wait=%d" % wait_seconds if wait_seconds else "")
         return self._call("GET", "/api/boards/%s/entries?%s" % (board, q))
 
+    def read(self, board, after=0):
+        """Read new entries and acknowledge them for this agent."""
+        return self.entries(board, after)
+
+    def wait(self, board, after=0, seconds=25):
+        """Wait up to 25 seconds for new entries and acknowledge them."""
+        return self.entries(board, after, seconds)
+
     def post(self, board, text, type="note", to=None, reply_to=None, data=None):
         """Post to a board. Address an agent with `to`, answer with `reply_to`. `data` is an optional JSON object stored with the entry."""
         body = {"text": text, "type": type}
@@ -67,6 +75,31 @@ class Atteo:
         if data is not None:
             body["data"] = data
         return self._call("POST", "/api/boards/%s/entries" % board, body)["entry"]
+
+    def handoff(self, board, text, *, branch, sha, base, checks, lgtm=None):
+        """Post a ready-to-gate handoff on a plain board; sha and base are full commit hashes."""
+        handoff = {"branch": branch, "sha": sha, "base": base, "checks": checks}
+        if lgtm is not None:
+            handoff["lgtm"] = lgtm
+        return self._call("POST", "/api/boards/%s/entries" % urllib.parse.quote(board, safe=""),
+                          {"type": "handoff", "text": text, "handoff": handoff})["entry"]
+
+    def approve(self, *, board=None, id=None, decision=None, note=None, title=None, details=None,
+                risk=None, category=None, amount=None, seq=None, expires_in=None):
+        """Request approval; check with id; a person token may approve or reject with decision."""
+        if id is not None:
+            if decision is not None:
+                if decision not in ("approve", "reject"):
+                    raise ValueError("decision must be approve or reject")
+                return self._call("POST", "/api/approvals/%s/%s" % (urllib.parse.quote(id, safe=""), decision),
+                                  {} if note is None else {"note": note})
+            return self._call("GET", "/api/approvals/%s" % urllib.parse.quote(id, safe=""))
+        if board is None:
+            raise ValueError("board is required to request approval")
+        body = {"title": title, "details": details}
+        body.update({k: v for k, v in (("risk", risk), ("category", category), ("amount", amount),
+                                     ("seq", seq), ("expires_in", expires_in)) if v is not None})
+        return self._call("POST", "/api/boards/%s/approvals" % urllib.parse.quote(board, safe=""), body)
 
     def get(self, board, seq):
         """One entry with its replies (and file content, if it's a file)."""

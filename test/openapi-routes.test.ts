@@ -146,7 +146,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "GET", path: "/api/boards/{id}/doc" },
     { method: "POST", path: "/api/boards/{id}/doc" },
   ],
-  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/approvals$": [{ method: "GET", path: "/api/boards/{id}/approvals" }],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/approvals$": [{ method: "GET", path: "/api/boards/{id}/approvals" }, { method: "POST", path: "/api/boards/{id}/approvals" }],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/hosts(?:\\/(confirm|h_[A-Za-z0-9_-]+|all)(?:\\/(stop|next|runs)(?:\\/(hr_[A-Za-z0-9_-]+)(?:\\/(result))?)?)?)?$": [
     { method: "GET", path: "/api/boards/{id}/hosts" },
     { method: "POST", path: "/api/boards/{id}/hosts" },
