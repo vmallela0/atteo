@@ -19,6 +19,7 @@ export interface InboxItem {
   kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder" | "report" | "slack_link";
   actor: string;
   actor_via: string | null;
+  actor_name?: string; // the current display name of an agent actor, for app notifications
   entry_type: string;
   excerpt: string;
   created_at: number;
@@ -181,7 +182,7 @@ function approvalFor(i: InboxItem & { approval_id?: string | null }, list: (Appr
   return list.find((a) => (i.approval_id ? a.id === i.approval_id : a.created_at === i.created_at));
 }
 
-export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = [], people: Record<string, string> = {}): Response {
+export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = [], people: Record<string, string> = {}, agents: Record<string, string> = {}): Response {
   const L = viewer.lang,
     T = (x: string, v?: Record<string, string | number>) => tr(L, x, v);
   const unread = items.filter((i) => !i.read_at).length;
@@ -190,9 +191,10 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
   const dmTitle = (t: string) => (t.includes(" ↔ ") ? t.split(" ↔ ").map((h) => (h === viewer.name ? shownName(h, viewer.display_name) : shownName(h, people[h]))).join(" ↔ ") : t);
   const rows = items
     .map((i) => {
-      const who = i.kind === "manual_unread" || i.kind === "slack_link" ? T("You") : i.kind === "approval" ? (i.push?.by ? T("{name}'s agent", { name: i.push.by }) : T("Your agent")) : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
+      const owner = i.kind === "approval" ? i.push?.by : i.actor_via === "agent" ? i.actor : undefined;
+      const who = i.kind === "manual_unread" || i.kind === "slack_link" ? T("You") : owner ? agents[owner] || T("{name}'s agent", { name: owner }) : i.kind === "approval" ? T("Your agent") : i.actor;
       // A person by the name they chose (jxn #4369), their @handle on hover.
-      const whoHtml = i.kind !== "manual_unread" && i.kind !== "slack_link" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : esc(who);
+      const whoHtml = i.kind !== "manual_unread" && i.kind !== "slack_link" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : owner && agents[owner] ? `<bdi>${esc(who)} <span class="faint">· ${esc(owner)}'s agent</span></bdi>` : esc(who);
       const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : i.kind === "slack_link" ? "/slack/accounts" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}

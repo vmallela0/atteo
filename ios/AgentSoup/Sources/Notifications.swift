@@ -57,6 +57,17 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         try? await UNUserNotificationCenter.current().setBadgeCount(n)
     }
 
+    static func approvalName(state: AppState) -> String {
+        let owner = state.me?.owner ?? ""
+        return state.agentDisplayName(for: owner).map { agentLabel(owner, $0) } ?? String(localized: "Your agent", bundle: .l10n)
+    }
+
+    static func senderName(_ i: InboxItem, state: AppState) -> String {
+        if i.kind == "approval" { return approvalName(state: state) }
+        if i.actorVia == "agent" { return i.actorName.map { agentLabel(i.actor, $0) } ?? state.displayName(for: i.actor, agent: true) }
+        return state.displayName(for: i.actor)
+    }
+
     /// What's new for you since last time: notifies (only when Atteo isn't on screen) and keeps the badge right.
     /// The first look ever only notes what's there, so an old inbox doesn't arrive as a pile of notifications.
     /// Only what interrupts notifies at once (the server's `interrupt`: your level for the board and your quiet hours);
@@ -81,7 +92,8 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             default: break
             }
             let c = UNMutableNotificationContent()
-            c.title = String(localized: "Your agent asks: \(a.title)", bundle: .l10n)
+            let agent = Self.approvalName(state: AppState.shared)
+            c.title = String(localized: "\(agent) asks: \(a.title)", bundle: .l10n)
             c.body = a.previewDetails.isEmpty ? String(localized: "Approve or deny in Atteo.", bundle: .l10n) : String(a.previewDetails.prefix(180))
             c.sound = .default
             c.userInfo = a.boardId.map { ["board": $0] } ?? [:]
@@ -96,7 +108,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if mode == "digest" { pending.append(DigestEntry(board: i.boardTitle, kind: i.kind)); continue }
             guard mode == "now" else { continue }
             let c = UNMutableNotificationContent()
-            let who = i.kind == "approval" ? String(localized: "Your agent", bundle: .l10n) : i.actorVia == "agent" ? String(localized: "\(i.actor)'s agent", bundle: .l10n) : i.actor
+            let who = Self.senderName(i, state: AppState.shared)
             c.title = i.boardTitle.map { String(localized: "\(who) in \($0)", bundle: .l10n, comment: "Notification title: who wrote, in which board") } ?? who
             c.body = String(i.excerpt.prefix(180))
             if Self.sealed(i, encryptedBoards: encrypted) {
