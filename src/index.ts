@@ -1702,7 +1702,12 @@ const handler = {
           if (method === "POST" && !tc[2]) {
             const b = await request.json().catch(() => ({})) as { decision?: string };
             if (b.decision !== "approve" && b.decision !== "reject") return json({ error: "decision must be approve or reject." }, 400);
-            return json(await terminalApprove.startConfirm(env, viewer.name, tc[1], b.decision, ctx), 201, { "cache-control": "no-store" });
+            const sid = await asid();
+            const token = auth.bearer(request);
+            const cookie = auth.readCookie(request, auth.SESSION_COOKIE);
+            // Prefer the bearer token: creating another agent session must not reset its phone-alert limit.
+            const source = token ? `t:${await auth.sha256hex(token)}` : sid ? `s:${sid}` : `w:${await auth.sha256hex(cookie ?? "")}`;
+            return json(await terminalApprove.startConfirm(env, viewer.name, tc[1], b.decision, source, ctx), 201, { "cache-control": "no-store" });
           }
           if (method === "GET" && !tc[2]) {
             const token = request.headers.get("x-atteo-confirm-token") ?? "";

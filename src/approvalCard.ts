@@ -18,6 +18,8 @@ export interface ApprovalCardData {
   requested_by?: string | null; // whose agent asked (another member's, for a machine run)
   rule_name?: string | null;
   rule_set_by?: string | null;
+  decided_via?: string | null;
+  decision_label?: string | null;
 }
 
 /**
@@ -38,7 +40,7 @@ const isPending = (a: ApprovalCardData) => a.status === "pending" && !(a.expires
 /** Where it stands, in words. `mine`: the viewer is the person asked. */
 export function approvalLabel(a: ApprovalCardData, mine: boolean, lang?: Lang): string {
   if (isPending(a)) return mine ? tr(lang, "Waiting on you") : tr(lang, "Waiting on {name}", { name: a.user });
-  if (a.status === "approved") return a.rule_name ? tr(lang, "Approved by rule") : tr(lang, "Approved");
+  if (a.status === "approved") return a.rule_name ? tr(lang, "Approved by rule") : a.decision_label ? tr(lang, a.decision_label) : a.decided_via === "approval_pin" ? tr(lang, "approved with PIN from a terminal") : tr(lang, "Approved");
   if (a.status === "rejected") return tr(lang, "Denied");
   return tr(lang, "Timed out, denied");
 }
@@ -81,7 +83,7 @@ export const terminalConfirmJs = `document.addEventListener('click',async e=>{co
  */
 // me = null: the board page's shared script, which reads the viewer from window.BC (html.ts).
 export const approvalJs = (me: string | null): string => `
-(()=>{const ME=${me === null ? "window.BC.me" : JSON.stringify(me).replace(/</g, "\\u003c")};const lbl=(a,mine)=>a.status==='pending'?(mine?tr('Waiting on you'):tr('Waiting on ')+a.user):a.status==='approved'?tr(a.rule_name?'Approved by rule':'Approved'):a.status==='rejected'?tr('Denied'):tr('Timed out, denied');
+(()=>{const ME=${me === null ? "window.BC.me" : JSON.stringify(me).replace(/</g, "\\u003c")};const lbl=(a,mine)=>a.status==='pending'?(mine?tr('Waiting on you'):tr('Waiting on ')+a.user):a.status==='approved'?tr(a.rule_name?'Approved by rule':a.decision_label|| (a.decided_via==='approval_pin'?'approved with PIN from a terminal':'Approved')):a.status==='rejected'?tr('Denied'):tr('Timed out, denied');
 function mark(root){(root||document).querySelectorAll('.apc.st-pending').forEach(c=>{if(c.dataset.apcUser!==ME)return;const s=c.querySelector('.apc-acts');if(s)s.hidden=false;const l=c.querySelector('.apc-lbl');if(l)l.textContent=tr('Waiting on you');
   c.tabIndex=0;c.setAttribute('aria-keyshortcuts','Enter Backspace');c.setAttribute('aria-label',tr('Approval waiting on you: Enter approves, Backspace denies'))})}
 function apply(a){if(!a||!a.id)return;document.querySelectorAll('.apc[data-apc="'+a.id+'"]').forEach(c=>{const st=a.status==='pending'?'pending':a.status==='approved'?'approved':a.status==='rejected'?'rejected':'expired';

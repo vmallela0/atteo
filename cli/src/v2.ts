@@ -6,6 +6,7 @@
 
 import { fence, flagNote, neutralize, randomId, screenText } from "../../src/screen";
 import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
+import { hiddenPinPrompt } from "../../src/approvalPinCopy";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { grepEntries } from "../../src/localSearch";
 import { env } from "./env";
@@ -1205,7 +1206,7 @@ async function approvalWait(id: string | undefined, opt: Opt, secs: number) {
 /** Read from a real terminal without echo. This command never reads a PIN from argv, the environment or a pipe. */
 async function hiddenApprovalPin(): Promise<string> {
   if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") throw new CliError("Approval PIN needs an interactive TTY; run atteo approve <id> --pin yourself.");
-  process.stdout.write("Approval PIN: ");
+  process.stdout.write(hiddenPinPrompt());
   return new Promise((resolve, reject) => {
     let pin = "";
     const done = (error?: Error) => {

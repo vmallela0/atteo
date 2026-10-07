@@ -90,10 +90,10 @@ export function openapi(origin: string) {
         Approval: obj({
           id: str, user: str, title: str, details: str, tool: str, command: str, risk: { enum: ["low", "medium", "high"] }, session: { ...str, description: "the agent session that asked" }, client: str,
           board_id: str, seq: int, requested_by: str, state: { enum: ["pending", "approved", "rejected", "expired"] }, status: { enum: ["pending", "approved", "rejected", "expired"] },
-          note: str, created_at: int, expires_at: int, decided_at: int,
+          note: str, created_at: int, expires_at: int, decided_at: int, decided_via: str, decision_label: str,
           terminal_confirm: obj({ token: str, choices: arr(str), decision: { enum: ["approve", "reject"] }, expires_at: int }, ["token", "choices", "decision", "expires_at"]),
         }),
-        ApprovalRef: obj({ id: str, user: str, status: { enum: ["pending", "approved", "rejected", "expired"] }, title: str, tool: str, command: str, risk: str, expires_at: int, note: str, session: str, about: int, created_at: int, decided_at: int, category: str, amount: { type: ["number", "null"] }, rule_name: str, rule_set_by: str }),
+        ApprovalRef: obj({ id: str, user: str, status: { enum: ["pending", "approved", "rejected", "expired"] }, title: str, tool: str, command: str, risk: str, expires_at: int, note: str, session: str, about: int, created_at: int, decided_at: int, decided_via: str, decision_label: str, category: str, amount: { type: ["number", "null"] }, rule_name: str, rule_set_by: str }),
         StandingRule: obj({
           id: { ...str, description: "sr_…" }, user: str, scope: { enum: ["board", "person"] }, scope_id: { ...str, description: "A board id, or the other person's handle" },
           action: { enum: ["accept_invites", "accept_friends", "allow_agents"] }, expires_at: int, created_at: int, revoked_at: int,
@@ -542,11 +542,11 @@ export function openapi(origin: string) {
         },
       },
       "/api/approvals/{aid}/terminal-confirm": {
-        post: { summary: "Start or replace a two-minute terminal number match for your approval; returns the code only to the caller's terminal", parameters: [param("aid", "path")], requestBody: body(obj({ decision: { enum: ["approve", "reject"] } }, ["decision"])), responses: { "201": ok("token, code, expires_at"), ...errors } },
+        post: { summary: "Start or replace a two-minute terminal number match for your approval; returns the code only to the caller's terminal. At most five starts per session or token in any ten minutes", parameters: [param("aid", "path")], requestBody: body(obj({ decision: { enum: ["approve", "reject"] } }, ["decision"])), responses: { "201": ok("token, code, expires_at"), "429": ok("Too many confirmation starts"), ...errors } },
         get: { summary: "Long-poll this terminal confirmation's outcome; requires its secret token in the header", parameters: [param("aid", "path"), param("wait", "query", int), param("x-atteo-confirm-token", "header", str, true)], responses: { "200": ok("status: pending, approved, denied, expired, or replaced"), ...errors } },
       },
       "/api/approvals/{aid}/terminal-confirm/complete": { post: { security: person, summary: "Person picks one of the three numbers on the full approval card. The token binds the visible card to the current confirm. Wrong pick cancels it; agent tokens get 403", parameters: [param("aid", "path")], requestBody: body(obj({ token: str, choice: str }, ["token", "choice"])), responses: { "200": ok("status and approval when decided"), "403": personErrors["403"], ...errors } } },
-      "/api/approvals/{aid}/pin": { post: { summary: "Approve an ordinary-risk request using a PIN collected at a hidden terminal TTY; agent/CLI token only. Five tries per 15 minutes, three lockouts disable the PIN. High-risk and host approvals are refused", parameters: [param("aid", "path")], requestBody: body(obj({ pin: { ...str, pattern: "^[0-9]{6,32}$" } }, ["pin"])), responses: { "200": ok("ok, approval"), "403": ok("Wrong PIN, PIN off, or high risk"), "429": ok("PIN locked or disabled"), ...errors } } },
+      "/api/approvals/{aid}/pin": { post: { summary: "Approve an ordinary-risk request using a PIN collected at a hidden terminal TTY; agent/CLI token only. Five tries per 15 minutes, three lockouts disable the PIN. High-risk, host, production deploy, spending, and outbound message approvals are refused", parameters: [param("aid", "path")], requestBody: body(obj({ pin: { ...str, pattern: "^[0-9]{6,32}$" } }, ["pin"])), responses: { "200": ok("ok, approval"), "403": ok("Wrong PIN, PIN off, or high risk/category"), "429": ok("PIN locked or disabled"), ...errors } } },
       "/api/me/approval-pin": {
         get: { security: [{ session: [] }], summary: "Approval PIN state without the hash (web session only)", responses: { "200": ok("enabled, locked_until, lockouts"), ...personErrors } },
         put: { security: [{ session: [] }], summary: "Set or reset an optional 6–32 digit approval PIN (PBKDF2, web session only); a reset clears lockouts", requestBody: body(obj({ pin: { ...str, pattern: "^[0-9]{6,32}$" } }, ["pin"])), responses: { "200": ok("ok, enabled, locked_until, lockouts"), ...personErrors } },

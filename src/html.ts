@@ -42,6 +42,7 @@ import { isRichTextAttachment } from "./richtext";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
 import { REMIND_BROWSER_JS } from "./remindTime";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
+import { PIN_WARNING } from "./approvalPinCopy";
 
 export type { Viewer, SideBoard };
 
@@ -3917,6 +3918,8 @@ ${displaySection(prof?.display, viewer.lang)}
 ${notifySection(viewer.lang)}
 ${approvalPin ? `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Approval PIN"))}</h2><p class="small muted">${esc(T("Optional for ordinary approvals from a terminal. High-risk actions and host runs need phone or web confirmation."))}</p></div></div>
 <div class="card pad"><p class="small">${esc(T(approvalPin.enabled ? "Approval PIN is on" : "Approval PIN is off"))}${approvalPin.locked_until > Date.now() ? ` · ${esc(T("Locked for 15 minutes"))}` : ""}</p>
+<p class="small muted" style="margin-top:8px">${esc(T("Production deploys, spending, and outbound messages also require phone or web confirmation."))}</p>
+<p class="small muted" style="margin-top:8px">${esc(T(PIN_WARNING))}</p>
 <form id="approval-pin-form" class="row" style="gap:8px;margin-top:12px" autocomplete="off"><input class="input grow" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6,32}" minlength="6" maxlength="32" required autocomplete="new-password" aria-label="${esc(T("New approval PIN"))}" placeholder="${esc(T("New approval PIN (6+ digits)"))}"><button class="btn primary" type="submit">${esc(T(approvalPin.enabled ? "Reset PIN" : "Set PIN"))}</button></form>
 ${approvalPin.enabled ? `<button class="btn sm" id="approval-pin-remove" type="button" style="margin-top:8px">${esc(T("Turn off PIN"))}</button>` : ""}</div>` : ""}
 <div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Agent connections"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately."))}</p></div><button class="btn sm" data-open="connect">${esc(T("Connect an agent"))}</button></div>

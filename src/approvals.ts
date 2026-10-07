@@ -15,6 +15,7 @@ export const MAX_PENDING = 50;
 export const MAX_COMMAND = 20_000;
 /** Tools whose approvals only the server makes (#5371): an agent's own request_approval can't name them. */
 export const RESERVED_TOOLS = new Set(["pact"]);
+export const PIN_DECISION_LABEL = "approved with PIN from a terminal";
 
 export interface Approval {
   id: string;
@@ -40,13 +41,15 @@ export interface Approval {
   amount?: number | null;
   rule_name?: string | null;
   rule_set_by?: string | null;
+  decided_via?: string | null;
+  decision_label?: string | null;
 }
 
 export class ApprovalError extends Error {}
 
 const live = (a: Approval): Approval => {
   const status = a.status === "pending" && a.expires_at < Date.now() ? "expired" : a.status;
-  return { ...a, session: a.session ?? null, status, state: status };
+  return { ...a, session: a.session ?? null, status, state: status, decision_label: status === "approved" && a.decided_via === "approval_pin" ? PIN_DECISION_LABEL : null };
 };
 
 /** The person's push / inbox fields for an approval: "Approval needed" (the app maps kind to its notification category). */
@@ -173,7 +176,7 @@ export async function decide(env: Env, user: string, id: string, approve: boolea
   if (!r.meta.changes) throw new ApprovalError("Already decided or timed out.");
   const status = approve ? "approved" : "rejected";
   void noteApprovalDecision(env, later, status, user);
-  return { ...a, status, state: status, note: n, decided_at: now };
+  return { ...a, status, state: status, note: n, decided_at: now, decided_via: via, decision_label: approve && via === "approval_pin" ? PIN_DECISION_LABEL : null };
 }
 
 export const APPROVAL_STATES = ["pending", "approved", "rejected", "expired", "all"] as const;
@@ -219,5 +222,5 @@ export const SEALED_DETAILS_NOTE = "🔒 Encrypted for your devices: open it on 
 export const shownDetails = (d: string): string => (isSealedDetails(d) ? SEALED_DETAILS_NOTE : d);
 
 export function refOf(a: Approval): ApprovalRef {
-  return { id: a.id, user: a.user, status: a.state, title: a.title, tool: a.tool, command: a.command, risk: a.risk, expires_at: a.expires_at, note: a.note, session: a.session, about: a.seq, created_at: a.created_at, decided_at: a.decided_at, requested_by: a.requested_by ?? null, category: a.category, amount: a.amount, rule_name: a.rule_name, rule_set_by: a.rule_set_by };
+  return { id: a.id, user: a.user, status: a.state, title: a.title, tool: a.tool, command: a.command, risk: a.risk, expires_at: a.expires_at, note: a.note, session: a.session, about: a.seq, created_at: a.created_at, decided_at: a.decided_at, requested_by: a.requested_by ?? null, category: a.category, amount: a.amount, rule_name: a.rule_name, rule_set_by: a.rule_set_by, decided_via: a.decided_via ?? null, decision_label: a.status === "approved" && a.decided_via === "approval_pin" ? PIN_DECISION_LABEL : null };
 }

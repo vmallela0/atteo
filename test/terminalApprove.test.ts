@@ -1,21 +1,26 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import type { Env } from "../src/types";
-import { attachConfirms, completeConfirm, decideWithPin, failedPinState, numberChoices, pinState, pollConfirm, publicConfirm, setPin, startConfirm, TerminalApprovalError, CONFIRM_MS, PIN_WINDOW_MS } from "../src/terminalApprove";
-import { getApproval } from "../src/approvals";
+import { attachConfirms, completeConfirm, decideWithPin, failedPinState, numberChoices, pinState, pollConfirm, publicConfirm, setPin, startConfirm, TerminalApprovalError, CONFIRM_MS, CONFIRM_START_WINDOW_MS, PIN_WINDOW_MS } from "../src/terminalApprove";
+import { getApproval, refOf } from "../src/approvals";
+import { approvalCardHtml } from "../src/approvalCard";
+import { approvalsPage } from "../src/approvalsPage";
+import { mePage } from "../src/html";
+import { hiddenPinPrompt, PIN_WARNING } from "../src/approvalPinCopy";
 
 let mf: Miniflare;
 let env: Env;
 const user = "e2e-terminal-test";
-const add = async (id: string, risk: string, client = "test") => env.DB.prepare(`INSERT INTO approvals (id, user, client, title, details, risk, status, created_at, expires_at) VALUES (?, ?, ?, ?, 'whole action', ?, 'pending', ?, ?)`).bind(id, user, client, `Request ${id}`, risk, Date.now(), Date.now() + 300_000).run();
+const add = async (id: string, risk: string, client = "test", category: string | null = null) => env.DB.prepare(`INSERT INTO approvals (id, user, client, title, details, risk, status, created_at, expires_at, category) VALUES (?, ?, ?, ?, 'whole action', ?, 'pending', ?, ?, ?)`).bind(id, user, client, `Request ${id}`, risk, Date.now(), Date.now() + 300_000, category).run();
 
 beforeAll(async () => {
   mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: `export default { fetch() { return new Response("ok") } }`, d1Databases: { DB: "terminal-approval-test" } }));
   const DB = await mf.getD1Database("DB");
   env = { DB } as Env;
-  await DB.exec(`CREATE TABLE approvals (id TEXT PRIMARY KEY, user TEXT, client TEXT, board_id TEXT, seq INTEGER, requested_by TEXT, title TEXT, details TEXT, tool TEXT, command TEXT, risk TEXT, status TEXT, created_at INTEGER, expires_at INTEGER, session TEXT, note TEXT, decided_at INTEGER, decided_via TEXT);
+  await DB.exec(`CREATE TABLE approvals (id TEXT PRIMARY KEY, user TEXT, client TEXT, board_id TEXT, seq INTEGER, requested_by TEXT, title TEXT, details TEXT, tool TEXT, command TEXT, risk TEXT, status TEXT, created_at INTEGER, expires_at INTEGER, session TEXT, note TEXT, decided_at INTEGER, decided_via TEXT, category TEXT);
 CREATE TABLE notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, board_id TEXT, seq INTEGER, kind TEXT, actor TEXT, actor_via TEXT, entry_type TEXT, excerpt TEXT, created_at INTEGER, data TEXT, UNIQUE(user, board_id, seq));
 CREATE TABLE approval_terminal_confirms (approval_id TEXT PRIMARY KEY, user TEXT, token TEXT, code TEXT, choices TEXT, decision TEXT, status TEXT, created_at INTEGER, expires_at INTEGER);
+CREATE TABLE approval_confirm_starts (user TEXT, source TEXT, created_at INTEGER);
 CREATE TABLE approval_pins (user TEXT PRIMARY KEY, salt TEXT, hash TEXT, attempts INTEGER DEFAULT 0, window_start INTEGER DEFAULT 0, locked_until INTEGER DEFAULT 0, lockouts INTEGER DEFAULT 0, disabled_at INTEGER, updated_at INTEGER);`);
 });
 afterAll(async () => { await mf?.dispose(); });
@@ -33,9 +38,9 @@ describe("terminal approval proof", () => {
   it("expires after two minutes and only one confirm stays live", async () => {
     const id = "ap_replace";
     await add(id, "low");
-    const first = await startConfirm(env, user, id, "approve");
+    const first = await startConfirm(env, user, id, "approve", "replace-session");
     expect(first.expires_at - Date.now()).toBeLessThanOrEqual(CONFIRM_MS);
-    const second = await startConfirm(env, user, id, "reject");
+    const second = await startConfirm(env, user, id, "reject", "replace-session");
     expect(await pollConfirm(env, user, id, first.token)).toEqual({ status: "replaced" });
     expect((await publicConfirm(env, user, id))?.decision).toBe("reject");
     expect((await attachConfirms(env, user, [(await getApproval(env, user, id))!]))[0].terminal_confirm?.choices).toHaveLength(3);
@@ -47,15 +52,30 @@ describe("terminal approval proof", () => {
   it("a wrong number cancels the confirm without deciding the approval; the right one decides", async () => {
     const id = "ap_wrong";
     await add(id, "medium");
-    const first = await startConfirm(env, user, id, "approve");
+    const first = await startConfirm(env, user, id, "approve", "wrong-session");
     const wrong = (await publicConfirm(env, user, id))!.choices.find(x => x !== first.code)!;
     expect(await completeConfirm(env, user, id, first.token, wrong)).toEqual({ status: "denied" });
     expect(await pollConfirm(env, user, id, first.token)).toEqual({ status: "denied" });
     expect((await getApproval(env, user, id))?.status).toBe("pending");
-    const second = await startConfirm(env, user, id, "approve");
+    const second = await startConfirm(env, user, id, "approve", "wrong-session");
     await expect(completeConfirm(env, user, id, first.token, first.code)).rejects.toThrow("replaced");
     expect((await completeConfirm(env, user, id, second.token, second.code)).approval?.status).toBe("approved");
     expect(await pollConfirm(env, user, id, second.token)).toEqual({ status: "approved" });
+  });
+  it("allows at most five starts per session or token in a rolling ten minutes, across approvals", async () => {
+    await add("ap_limit_one", "low");
+    await add("ap_limit_two", "low");
+    let last = "";
+    for (let i = 0; i < 5; i++) last = (await startConfirm(env, user, i % 2 ? "ap_limit_two" : "ap_limit_one", "approve", "token-one")).token;
+    const count = async () => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND entry_type = 'terminal_confirm'`).bind(user).first<{ n: number }>())!.n;
+    const before = await count();
+    await expect(startConfirm(env, user, "ap_limit_two", "reject", "token-one")).rejects.toMatchObject({ status: 429 });
+    expect(await count()).toBe(before);
+    expect((await publicConfirm(env, user, "ap_limit_one"))?.token).toBe(last);
+    expect((await startConfirm(env, user, "ap_limit_two", "approve", "token-two")).token).toBeTruthy();
+    await env.DB.prepare(`UPDATE approval_confirm_starts SET created_at = ? WHERE rowid = (SELECT MIN(rowid) FROM approval_confirm_starts WHERE user = ? AND source = ?)`).bind(Date.now() - CONFIRM_START_WINDOW_MS - 1, user, "token-one").run();
+    expect((await startConfirm(env, user, "ap_limit_one", "approve", "token-one")).token).toBeTruthy();
+    await expect(startConfirm(env, user, "ap_limit_one", "approve", "token-one")).rejects.toMatchObject({ status: 429 });
   });
 });
 
@@ -66,12 +86,32 @@ describe("approval PIN", () => {
     expect(state?.hash).not.toContain("1234567");
     expect(state?.salt).toMatch(/^[a-f0-9]{32}$/);
     await add("ap_pin_low", "low");
-    expect((await decideWithPin(env, user, "ap_pin_low", "1234567")).status).toBe("approved");
+    const decided = await decideWithPin(env, user, "ap_pin_low", "1234567");
+    expect(decided.status).toBe("approved");
+    expect((await getApproval(env, user, "ap_pin_low"))?.decided_via).toBe("approval_pin");
+    expect((await getApproval(env, user, "ap_pin_low"))?.decision_label).toBe("approved with PIN from a terminal");
+    expect(refOf(decided).decision_label).toBe("approved with PIN from a terminal");
+    expect(approvalCardHtml(refOf(decided))).toContain("approved with PIN from a terminal");
+    const page = await approvalsPage({ name: user, email: "test@example.com", display_name: null, admin: false }, [], [decided], {}).text();
+    expect(page).toContain("approved with PIN from a terminal");
     await add("ap_pin_high", "high");
     await expect(decideWithPin(env, user, "ap_pin_high", "1234567")).rejects.toMatchObject({ status: 403 });
     await add("ap_pin_host", "low", "atteo host");
     await expect(decideWithPin(env, user, "ap_pin_host", "1234567")).rejects.toMatchObject({ status: 403 });
+    for (const category of ["deploy_production", "spending", "outbound_external"]) {
+      const id = `ap_pin_${category}`;
+      await add(id, "low", "test", category);
+      await expect(decideWithPin(env, user, id, "1234567")).rejects.toMatchObject({ status: 403 });
+      expect((await getApproval(env, user, id))?.status).toBe("pending");
+    }
   }, 30_000);
+  it("warns the person at PIN setup and in the hidden terminal prompt", async () => {
+    const warning = "Never give this PIN to an agent or paste it into a chat.";
+    expect(PIN_WARNING).toBe(warning);
+    const page = await mePage({ name: user, email: "test@example.com", display_name: null, admin: false }, [], [], undefined, false, [], null, [], [], null, null, { enabled: false, locked_until: 0, lockouts: 0 }).text();
+    expect(page).toContain(warning);
+    expect(hiddenPinPrompt()).toBe(`${warning}\nApproval PIN: `);
+  });
   it("locks on five wrong tries per 15 minutes, disables after three lockouts, and alerts on each wrong try", async () => {
     await add("ap_pin_fail", "low");
     for (let lock = 1; lock <= 3; lock++) {

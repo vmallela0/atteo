@@ -90,6 +90,7 @@ export const USER_ROW_DELETES = [
   `DELETE FROM reports WHERE reporter = ? OR author = ?`,
   `DELETE FROM key_grants WHERE user = ?`,
   `DELETE FROM approval_terminal_confirms WHERE user = ?`,
+  `DELETE FROM approval_confirm_starts WHERE user = ?`,
   `DELETE FROM approval_pins WHERE user = ?`,
   `DELETE FROM approvals WHERE user = ?`,
   `DELETE FROM reaction_usage WHERE user = ?`,

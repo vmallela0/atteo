@@ -7,6 +7,7 @@ import { offBoardSeq } from "./util";
 import { sendApprovalAlert } from "./apns";
 
 export const CONFIRM_MS = 120_000;
+export const CONFIRM_START_WINDOW_MS = 10 * 60_000;
 export const PIN_WINDOW_MS = 15 * 60_000;
 export const PIN_ITERATIONS = 310_000;
 export type Confirm = { approval_id: string; user: string; token: string; code: string; choices: string; decision: "approve" | "reject"; status: "pending" | "approved" | "denied"; created_at: number; expires_at: number };
@@ -40,7 +41,7 @@ export async function alertPerson(env: Env, user: string, approval: approvals.Ap
   if (later) later.waitUntil(send); else await send;
 }
 
-export async function startConfirm(env: Env, user: string, id: string, decision: "approve" | "reject", later: ExecutionContext | null = null): Promise<{ token: string; code: string; expires_at: number }> {
+export async function startConfirm(env: Env, user: string, id: string, decision: "approve" | "reject", source: string, later: ExecutionContext | null = null): Promise<{ token: string; code: string; expires_at: number }> {
   const a = await approvals.getApproval(env, user, id);
   if (!a) throw new TerminalApprovalError("No such approval.", 404);
   if (a.status !== "pending") throw new TerminalApprovalError("This approval is no longer pending.", 409);
@@ -48,6 +49,13 @@ export async function startConfirm(env: Env, user: string, id: string, decision:
   const token = randomSecret("tc_", 24);
   const now = Date.now();
   const expires = Math.min(a.expires_at, now + CONFIRM_MS);
+  // Count starts, including replacements and confirms for other approvals. The conditional insert
+  // makes concurrent starts from the same session/token share the same rolling limit.
+  const started = await env.DB.prepare(`INSERT INTO approval_confirm_starts (user, source, created_at)
+    SELECT ?, ?, ? WHERE (SELECT COUNT(*) FROM approval_confirm_starts WHERE user = ? AND source = ? AND created_at > ?) < 5`)
+    .bind(user, source, now, user, source, now - CONFIRM_START_WINDOW_MS).run();
+  if (!started.meta.changes) throw new TerminalApprovalError("Too many terminal confirmations. Try again in 10 minutes.", 429);
+  await env.DB.prepare(`DELETE FROM approval_confirm_starts WHERE created_at <= ?`).bind(now - CONFIRM_START_WINDOW_MS).run();
   await env.DB.prepare(`INSERT INTO approval_terminal_confirms (approval_id, user, token, code, choices, decision, status, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
     ON CONFLICT(approval_id) DO UPDATE SET user=excluded.user, token=excluded.token, code=excluded.code, choices=excluded.choices, decision=excluded.decision, status='pending', created_at=excluded.created_at, expires_at=excluded.expires_at`)
@@ -132,7 +140,7 @@ export async function decideWithPin(env: Env, user: string, id: string, pin: str
   const a = await approvals.getApproval(env, user, id);
   if (!a) throw new TerminalApprovalError("No such approval.", 404);
   if (a.status !== "pending") throw new TerminalApprovalError("This approval is no longer pending.", 409);
-  if (a.risk === "high" || a.client === "atteo host" || !!a.tool?.startsWith("Host ")) throw new TerminalApprovalError("High-risk and host approvals require confirmation on the web or phone.", 403);
+  if (a.risk === "high" || a.client === "atteo host" || !!a.tool?.startsWith("Host ") || a.category === "deploy_production" || a.category === "spending" || a.category === "outbound_external") throw new TerminalApprovalError("This approval requires confirmation on the web or phone.", 403);
   if (typeof pin !== "string" || pin.length > 32) throw new TerminalApprovalError("The approval PIN must be at most 32 digits.");
   for (let tries = 0; tries < 4; tries++) {
     const row = await env.DB.prepare(`SELECT * FROM approval_pins WHERE user = ?`).bind(user).first<PinRow>();

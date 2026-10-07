@@ -52,6 +52,8 @@ export interface ApprovalRef {
   amount?: number | null;
   rule_name?: string | null;
   rule_set_by?: string | null;
+  decided_via?: string | null;
+  decision_label?: string | null;
 }
 
 /** One immutable entry in a board's log. Entries change only by later entries that resolve or supersede them. */
