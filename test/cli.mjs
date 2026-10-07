@@ -99,8 +99,8 @@ async function tool(token, board, name, args) {
 }
 
 /** Runs `atteo mcp` and talks JSON-RPC to it over stdio. */
-function startMcp(credFile, env = {}) {
-  const p = spawn("node", [CLI, "mcp", "--server", BASE], { env: { ...process.env, ATTEO_CREDENTIALS_FILE: credFile, ...env } });
+function startMcp(credFile, env = {}, cwd) {
+  const p = spawn("node", [CLI, "mcp", "--server", BASE], { cwd, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credFile, ...env } });
   const lines = [];
   let buf = "";
   p.stdout.on("data", (d) => {
@@ -138,6 +138,102 @@ await step("setup", async () => {
   credB = join(dir, "b.json");
   writeFileSync(credA, JSON.stringify({ server: BASE, user: A, token: tokA, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   writeFileSync(credB, JSON.stringify({ server: BASE, user: B, token: tokB, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+});
+
+await step("init commits a repo link, requests membership once, and mcp starts on that board", async () => {
+  const owner = `e2e-cli-init-o-${run}`, teammate = `e2e-cli-init-j-${run}`;
+  for (const u of [owner, teammate]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  const cred = {};
+  for (const u of [owner, teammate]) {
+    const token = (await ops("tokens", { user: u })).token;
+    cred[u] = join(dir, `${u}.json`);
+    writeFileSync(cred[u], JSON.stringify({ server: BASE, user: u, token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  }
+  const repoDir = join(dir, `repo-${run}`);
+  mkdirSync(repoDir);
+  execFileSync("git", ["-C", repoDir, "init", "-q"]);
+  execFileSync("git", ["-C", repoDir, "config", "user.name", "Atteo test"]);
+  execFileSync("git", ["-C", repoDir, "config", "user.email", "test@example.com"]);
+  execFileSync("git", ["-C", repoDir, "remote", "add", "origin", `git@github.com:Example/Init-${run}.git`]);
+  const cli = (u, ...args) => new Promise((resolve) => {
+    const p = spawn("node", [CLI, ...args], { cwd: repoDir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred[u], XDG_CONFIG_HOME: join(dir, `cfg-${u}`), ATTEO_NO_UPDATE_CHECK: "1" } });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out }));
+  });
+  const cliTty = (u, answer, ...args) => new Promise((resolve) => {
+    // Python's stdlib pty gives both ends a real terminal, so the CLI's y/N gate is exercised.
+    const driver = `import os, pty, select, subprocess, sys, time
+master, slave = pty.openpty()
+child = subprocess.Popen(sys.argv[2:], stdin=slave, stdout=slave, stderr=slave)
+os.close(slave)
+output = b''
+answered = False
+deadline = time.monotonic() + 20
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([master], [], [], 0.1)
+    if ready:
+        try: chunk = os.read(master, 4096)
+        except OSError: break
+        if not chunk: break
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+        output += chunk
+        if not answered and b'[y/N]' in output:
+            os.write(master, sys.argv[1].encode() + b'\\n')
+            answered = True
+    if child.poll() is not None and not ready: break
+if child.poll() is None: child.kill()
+sys.exit(child.wait())`;
+    const p = spawn("python3", ["-c", driver, answer, process.execPath, CLI, ...args], { cwd: repoDir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred[u], XDG_CONFIG_HOME: join(dir, `cfg-${u}`), ATTEO_NO_UPDATE_CHECK: "1" } });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out }));
+  });
+  const made = await cli(owner, "init");
+  assert(made.code === 0 && made.out.trim().split("\n").length === 2 && made.out.includes("Wrote and committed .atteo.json"), made.out);
+  const link = JSON.parse(readFileSync(join(repoDir, ".atteo.json"), "utf8"));
+  assert(link.repo === `example/init-${run}` && /^b_[a-z0-9]{8,32}$/.test(link.board), JSON.stringify(link));
+  assert(execFileSync("git", ["-C", repoDir, "show", "--pretty=format:", "--name-only", "HEAD"], { encoding: "utf8" }).trim() === ".atteo.json", "init committed only the link file");
+  // Any other command in a linked repo never asks the owners (only init does) and never blocks (opus-d, repo-init review).
+  const cookie = (await ops("sessions", { user: owner, verified: "true" })).cookie;
+  const quiet = await cli(teammate, "boards");
+  assert(quiet.code === 0 && quiet.out.includes("atteo init"), quiet.out);
+  const none = await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json();
+  assert(!none.requests.some((r) => r.board_id === link.board && r.requester === teammate), "a plain command sent no join request");
+  const headless = await cli(teammate, "init");
+  assert(headless.code !== 0 && headless.out.includes("Run atteo init in a terminal"), headless.out);
+  assert(!(await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json()).requests.some((r) => r.board_id === link.board && r.requester === teammate), "headless init sent no join request");
+  const no = await cliTty(teammate, "n", "init");
+  assert(no.code !== 0 && no.out.includes("No join request sent") && no.out.includes(link.board) && !no.out.includes(`@${owner}`), no.out);
+  assert(!(await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json()).requests.some((r) => r.board_id === link.board && r.requester === teammate), "declined confirmation sent no join request");
+  const first = await cliTty(teammate, "y", "init");
+  assert(first.code === 0 && first.out.includes("Join request sent") && first.out.includes(link.board) && !first.out.includes(`@${owner}`) && first.out.includes("not verified with GitHub"), first.out);
+  const requests = await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json();
+  const request = requests.requests.find((r) => r.board_id === link.board && r.requester === teammate);
+  assert(request && requests.requests.filter((r) => r.board_id === link.board && r.requester === teammate).length === 1, JSON.stringify(requests));
+  const decision = await fetch(`${BASE}/api/repo-joins/${request.id}/let-in`, { method: "POST", headers: { cookie } });
+  assert(decision.status === 200, `let in: ${decision.status}`);
+  assert((await cli(teammate, "boards")).code === 0, "teammate may use commands after the owner lets them in");
+  const m = startMcp(cred[owner], { XDG_CONFIG_HOME: join(dir, `cfg-${owner}`) }, repoDir);
+  const teammateMcp = startMcp(cred[teammate], { XDG_CONFIG_HOME: join(dir, `cfg-${teammate}`) }, repoDir);
+  try {
+    const init = await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+    assert(init.result, JSON.stringify(init));
+    const list = await m.call("tools/call", { name: "list_boards", arguments: {} });
+    assert(list.result.content[0].text.includes(`${link.board}`) && list.result.content[0].text.includes("← this session"), list.result.content[0].text);
+    const read = await m.call("tools/call", { name: "read", arguments: {} });
+    assert(!read.result.isError && read.result.content[0].text.includes("END-TO-END ENCRYPTED"), JSON.stringify(read.result));
+    assert((await teammateMcp.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} })).result, "teammate MCP starts");
+    await teammateMcp.call("tools/call", { name: "read", arguments: {} }); // registers its device; it waits for a member's key
+    await m.call("tools/call", { name: "read", arguments: {} }); // the owner hands the new device its key
+    const posted = await m.call("tools/call", { name: "post", arguments: { type: "note", text: `repo key works ${run}` } });
+    assert(!posted.result.isError, JSON.stringify(posted.result));
+    const shared = await teammateMcp.call("tools/call", { name: "read", arguments: { since: 0 } });
+    assert(!shared.result.isError && shared.result.content[0].text.includes(`repo key works ${run}`), JSON.stringify(shared.result));
+  } finally { m.stop(); teammateMcp.stop(); }
 });
 // Without test logins every later step would fall back to the real login in the keychain. Never run them that way.
 if (!credA || !tokA) {

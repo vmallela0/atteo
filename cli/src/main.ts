@@ -16,7 +16,7 @@ import { pingTail, type PingContent, type PingFor } from "../../src/ping";
 import { pongFor } from "../../src/listen";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
-import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, tool } from "./commands";
+import { api, askYes, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, tool } from "./commands";
 import { AcpAgent, type AcpBoard } from "./acp";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, screenMail, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
@@ -27,6 +27,8 @@ import { EncryptedTools } from "./e2emcp";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
 import { hostCmd, runCmd } from "./host";
+import { commitLink, repoContext, repoLink } from "./repoInit";
+import { displayCommand as terminalLabel } from "./verify";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER = "https://atteo.dev";
@@ -306,6 +308,31 @@ async function mcp(args: string[]) {
   const write = (msg: object) => process.stdout.write(JSON.stringify(msg) + "\n");
   // End-to-end encrypted boards: read, get, post and wait are decrypted/encrypted here, never in plain text on the server.
   const enc = new EncryptedTools({ server });
+  let repoReady = false;
+  let repoChecked = false;
+  // A linked repo's board, only if you're already a member of it: never a join request (that's atteo init, asked by you)
+  // and never in the way of your agent's tools when you aren't (opus-d, repo-init review).
+  const joinRepo = async () => {
+    if (repoReady || repoChecked || !creds || creds.expires_at < Date.now()) return;
+    let linked: ReturnType<typeof repoContext> = null;
+    try {
+      linked = repoContext();
+    } catch {
+      repoChecked = true;
+      return;
+    }
+    if (!linked?.board) return void (repoChecked = true);
+    const j = (await api({ server }, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board, check: true }).catch(() => null)) as { status?: string } | null;
+    if (j?.status !== "member") return void (repoChecked = true);
+    repoLink.verified = linked.board;
+    if (!sessionId) return;
+    const r = await forward({ jsonrpc: "2.0", id: -1, method: "tools/call", params: { name: "join_board", arguments: { board: linked.board } } });
+    const body = await r.json() as { result?: { isError?: boolean } };
+    if (!body.result || body.result.isError) return;
+    enc.joined = linked.board;
+    followBoard(linked.board);
+    repoReady = true;
+  };
   // Claude Code Channels (research preview): push "something new arrived" into a running session: who/what/where,
   // who it's for, and the first ~200 characters fenced as untrusted (src/ping.ts), so the agent can triage it
   // without a read. Private entries carry no text (the server never sends it); the agent reads those with get.
@@ -448,6 +475,7 @@ async function mcp(args: string[]) {
           creds = loadFor(server); // another terminal may have signed in
           if (!creds || creds.expires_at < Date.now()) return needLogin(msg.id);
         }
+        await joinRepo().catch(() => {});
         try {
           const local = await enc.handle(msg.params?.name ?? "", a);
           if (local != null) return write({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: local }] } });
@@ -462,6 +490,7 @@ async function mcp(args: string[]) {
       if (msg.method === "initialize" && body.result && channels) {
         body.result.capabilities = { ...(body.result.capabilities ?? {}), experimental: { "claude/channel": {} } };
       }
+      if (msg.method === "initialize" && body.result) await joinRepo().catch(() => {});
       if (msg.method === "tools/call" && !body.result?.isError) {
         const name = msg.params?.name;
         const first = text.split("\n")[0];
@@ -1506,6 +1535,7 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
   atteo logout     Remove the saved login from this machine
   atteo mcp        Local MCP server for your agent:
                            claude mcp add --scope user atteo -- atteo mcp
+  atteo init       Link this GitHub repo to one board; commit .atteo.json, or ask its owners to let you in
                          With Claude Code Channels (preview), new posts reach a running session:
                            claude --dangerously-load-development-channels server:atteo
   atteo acp [--to <member>] [--board <id>] [--wait <seconds>]
@@ -1553,6 +1583,7 @@ Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (logi
  * ACP v1 and the v2 happy path (negotiated on initialize).
  */
 async function acpCmd(args: string[]) {
+  await checkRepoAccess();
   const { opt } = parseArgs(args);
   const to = optStr(opt, "to")?.replace(/^@/, "").toLowerCase() ?? null;
   const waitSec = Number(optStr(opt, "wait") ?? 600);
@@ -1609,6 +1640,55 @@ async function acpCmd(args: string[]) {
 const [cmd, ...rest] = process.argv.slice(2);
 // Older board commands also run as the calling agent's session (its board is their default).
 const BOARD_CMDS = new Set(["react", "retract", "purge", "feedback", "task", "doc", "search", "share", "download", "ask", "members", "role", "link", "audit", "decide", "check", "verify", "publish", "review", "claim", "dm", "seal", "unseal", "use", "card", "create"]);
+async function initRepo() {
+  const { pos, opt } = parseArgs(rest);
+  if (pos.length || Object.keys(opt).some((k) => k !== "server") || opt.server === true) throw new CliError("atteo init takes no arguments (only --server <url>).");
+  const linked = repoContext();
+  if (!linked) throw new CliError("Run atteo init in a git repo with a GitHub origin remote.");
+  let j;
+  if (linked.board) {
+    const preview = await api(opt, "GET", `/api/repos/preview?repo=${encodeURIComponent(linked.repo)}&board=${encodeURIComponent(linked.board)}`) as {
+      board: string; repo: string; title: string | null; owners: { user: string; display_name: string | null }[]; linked_by: string | null; status: string;
+    };
+    if (preview.board !== linked.board || preview.repo !== linked.repo || !Array.isArray(preview.owners) || !["member", "pending", "not_member", "cooldown", "blocked"].includes(preview.status))
+      throw new CliError("The server did not return a valid repo board preview. No join request was sent.");
+    if (preview.status === "cooldown") throw new CliError("An owner declined this join request. You can ask again 30 days after the decline.");
+    if (preview.status === "blocked") throw new CliError("An owner blocked join requests from you for this board.");
+    if (preview.status === "not_member") {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) throw new CliError("This repo's board needs your confirmation before asking to join. Run atteo init in a terminal.");
+      // The board's name and owners stay hidden until an owner lets you in (opus-d #5723).
+      console.log(`${linked.repo}'s .atteo.json links it to the Atteo board ${preview.board}.`);
+      console.log("This link is not verified with GitHub: anyone who can change the repo can change that file.");
+      if (!(await askYes("Ask the board's owners to let you in?", false))) throw new CliError("No join request sent.");
+    }
+    j = preview.status === "member" || preview.status === "pending" ? preview
+      : await api(opt, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board });
+  } else {
+    j = await api(opt, "POST", "/api/repos/init", { repo: linked.repo });
+  }
+  if (j.status === "cooldown") throw new CliError("An owner declined this join request. You can ask again 30 days after the decline.");
+  if (j.status === "blocked") throw new CliError("An owner blocked join requests from you for this board.");
+  if (linked.board && j.board !== linked.board) throw new CliError("The server returned a different board. No board link was committed.");
+  const committed = commitLink(linked, j.board);
+  console.log(`Repo ${linked.repo} uses board ${j.board}.`);
+  console.log(j.status === "requested" ? "Join request sent to the board's owners. Wait for Let in." : j.status === "pending" ? "Join request is already with the board's owners. Wait for Let in." : committed === "committed" ? "Wrote and committed .atteo.json." : "Board link is already committed in .atteo.json.");
+}
+
+/** In a repo whose .atteo.json names a board: use it only if you're already a member. Only atteo init asks its owners to
+ *  let you in, so cloning a repo and running atteo never tells strangers who you are, and never blocks your commands. */
+async function checkRepoAccess() {
+  if (!load()) return;
+  let linked: ReturnType<typeof repoContext> = null;
+  try {
+    linked = repoContext();
+  } catch (e) {
+    return void process.stderr.write(`${(e as Error).message} (Ignoring it.)\n`);
+  }
+  if (!linked?.board) return;
+  const j = (await api({}, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board, check: true }).catch(() => null)) as { status?: string } | null;
+  if (j?.status === "member") repoLink.verified = linked.board;
+  else process.stderr.write(`This repo's .atteo.json names board ${linked.board}, which you aren't on. To ask its owners to let you in: atteo init\n`);
+}
 const quiet = { ...(rest.includes("--quiet") ? { quiet: true as const } : {}) };
 const board = (name: string, f: (a: string[]) => Promise<unknown>) => async () => {
   if (BOARD_CMDS.has(name)) await prepare(quiet);
@@ -1623,6 +1703,7 @@ const run: Record<string, () => unknown> = {
   doctor: () => doctorCmd(rest), // read-only: no session, no version line after (it checks the version itself)
   logout,
   mcp: () => mcp(rest),
+  init: initRepo,
   acp: () => acpCmd(rest),
   watch: () => (rest.includes("--standby") ? standbyCmd(rest) : rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
   dispatch: () => (rest.includes("--install") ? serviceInstall(rest, "dispatch") : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : dispatch(rest)),
@@ -1647,7 +1728,10 @@ try {
   const self = process.argv[1] ?? "";
   if (/(^|\/)agent-soup$/.test(self) && !existsSync(join(dirname(self), "atteo"))) symlinkSync("agent-soup", join(dirname(self), "atteo"));
 } catch {}
-Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all"))))()).catch(async (e: Error) => {
+Promise.resolve((async () => {
+  if (cmd && !new Set(["init", "login", "logout", "help", "version", "--version", "mcp", "acp", "update"]).has(cmd)) await checkRepoAccess();
+  return (run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all"))))();
+})()).catch(async (e: Error) => {
   err(e.message);
   if (e instanceof CliError && e.code === 2) await mentionLine(quiet); // a refused post showed what was missed
   if (cmd !== "update" && cmd !== "mcp" && cmd !== "acp" && cmd !== "watch" && cmd !== "hooks" && cmd !== "dispatch" && cmd !== "doctor") await versionCheck(quiet); // an old CLI is a likely reason for a failure

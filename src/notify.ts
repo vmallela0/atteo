@@ -49,6 +49,7 @@ export function needsYou(i: NotifyItem): boolean {
   if (i.reminded) return true;
   switch (i.kind) {
     case "approval":
+    case "repo_join":
     case "decision":
     case "reply":
     case "people_only":

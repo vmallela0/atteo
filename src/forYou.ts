@@ -7,6 +7,7 @@
 
 import { shownName } from "./names";
 import { shownDetails, type Approval } from "./approvals";
+import type { JoinRequest } from "./repoBoards";
 import type { InboxItem } from "./inbox";
 import { appPage, avatar, directPeer, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
@@ -29,6 +30,7 @@ export interface ForYouItem {
 
 export interface ForYouData {
   approvals: Approval[]; // pending, newest first
+  joins?: JoinRequest[]; // owners decide who may join a repo board
   boards: ForYouCore[];
   mentions: InboxItem[]; // unread mentions / replies to the viewer (not questions or decisions: those come from the boards)
   now?: number;
@@ -189,13 +191,16 @@ ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject"
   const doneSec = `<section class="fy-done" id="fy-done"${done.length ? "" : " hidden"}><div class="sec"><h2>${esc(T("Done for you today"))} <span class="faint">· <span id="fy-done-n">${done.length}</span></span></h2><button class="link" type="button" id="fy-done-all"${done.length > 3 ? "" : " hidden"}>${esc(T("See all"))}</button></div>
 <div class="list" id="fy-done-list">${doneRows}</div></section>`;
 
-  const need = aps.length + quick.length;
+  const joins = d.joins ?? [];
+  const joinCards = joins.map((j) => `<article class="nc fy-join" data-join="${esc(j.id)}"><div class="type"><span class="dot"></span>${esc(T("A request for you"))}</div><h2 class="tt">${esc(j.requester)} ${esc(T("wants to join"))} ${esc(j.repo)}</h2><p class="small muted">linked to ${esc(j.repo)} by ${esc(j.linked_by)}, not verified with GitHub</p><div class="acts"><button class="btn xl" type="button" data-fy-join="decline">${esc(T("Decline"))}</button><button class="btn xl" type="button" data-fy-join="block">${esc(T("Block forever"))}</button><button class="btn xl primary" type="button" data-fy-join="let-in">${esc(T("Let in"))}</button></div></article>`).join("");
+  const joinSec = joinCards ? `<section class="fy-ok" id="fy-joins">${joinCards}</section>` : "";
+  const need = aps.length + joins.length + quick.length;
   const empty = `<div class="card empty fy-empty" id="fy-empty"${need ? " hidden" : ""}><h3>${esc(T("Nothing needs you right now"))}</h3><p class="muted">${esc(T("When your assistant needs your OK, or someone asks you something, it shows up here."))}</p></div>`;
 
   const body = `<style>${FY_CSS}</style><div class="fy" id="fy">
 <header class="fy-hi"><h1 id="fy-greet" data-name="${esc(firstName(viewer))}">${esc(greetingFor(new Date(now).getUTCHours(), L))}, ${esc(firstName(viewer))}</h1>
 <p class="lede" id="fy-lede">${esc(summaryLine(need, done.length, L))}</p></header>
-${okSec}${quickSec}${empty}${doneSec}
+${joinSec}${okSec}${quickSec}${empty}${doneSec}
 </div>
 <div class="fy-askwrap"><form class="card composer fy-ask" id="fy-ask" autocomplete="off"><input class="grow" id="fy-ask-text" name="text" placeholder="${esc(T("Ask your assistant…"))}" aria-label="${esc(T("Ask your assistant"))}" maxlength="4000" enterkeyhint="send">
 <button class="btn primary sm post-btn" type="submit" id="fy-send" hidden>${esc(T("Send"))}</button>
@@ -272,8 +277,8 @@ const mid=new Date();mid.setHours(0,0,0,0);
 $$('.done-i[data-ts]').forEach(r=>{if(+r.dataset.ts<mid.getTime())r.remove()});
 $$('time[data-at]').forEach(t=>{try{t.textContent=new Date(+t.dataset.at).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}catch(e){}});
 
-function counts(){const aps=$$('.fy-apc'),rows=$$('.fy-quick .nrow:not(.voted)'),done=$$('.done-i');
-  const need=aps.length+rows.length,m=done.length;
+function counts(){const aps=$$('.fy-apc'),joins=$$('.fy-join'),rows=$$('.fy-quick .nrow:not(.voted)'),done=$$('.done-i');
+  const need=aps.length+joins.length+rows.length,m=done.length;
   const a=need?tr(need===1?'{n} thing needs you.':'{n} things need you.',{n:need}):tr("You're all caught up.");
   $('#fy-lede').textContent=m?tr('{a} {b}',{a,b:need?tr('Your assistant did {n} more.',{n:m}):tr(m===1?'Your assistant did {n} thing for you today.':'Your assistant did {n} things for you today.',{n:m})}):a;
   aps.forEach((c,i)=>{c.hidden=i>0;c.querySelector('.fy-pos').textContent=i+1;c.querySelector('.fy-tot').textContent=aps.length});
@@ -290,6 +295,13 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-fy-a
   const j=r?await r.json().catch(()=>({})):{error:"Couldn't reach Atteo. Try again."};
   if(!r||!r.ok){toast(j.error||tr('Could not save'));c.querySelectorAll('[data-fy-ap]').forEach(x=>x.disabled=false);return}
   toast(yes?tr('Approved'):tr('OK, not now'));c.remove();counts()});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-fy-join]');if(!b)return;const c=b.closest('.fy-join');
+  if(b.dataset.fyJoin==='block'&&!confirm('Block this person from asking to join this board forever?'))return;
+  c.querySelectorAll('[data-fy-join]').forEach(x=>x.disabled=true);
+  const r=await fetch('/api/repo-joins/'+encodeURIComponent(c.dataset.join)+'/'+b.dataset.fyJoin,{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({})):{error:"Couldn't reach Atteo. Try again."};
+  if(!r||!r.ok){toast(j.error||tr('Could not save'));c.querySelectorAll('[data-fy-join]').forEach(x=>x.disabled=false);return}
+  toast(b.dataset.fyJoin==='let-in'?tr('Let in'):b.dataset.fyJoin==='block'?tr('Blocked'):tr('Declined'));c.remove();counts()});
 // Decisions: Agree / Object, the same vote as on the chat's decision card.
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-fy-vote]');if(!b)return;const row=b.closest('[data-hd-seq]'),v=b.dataset.fyVote;
   row.querySelectorAll('[data-fy-vote]').forEach(x=>x.disabled=true);

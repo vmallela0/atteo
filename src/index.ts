@@ -54,6 +54,7 @@ import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
+import * as repoBoards from "./repoBoards";
 import { recordForward, scrubForwards } from "./forwards";
 import * as backup from "./backup";
 import * as cardsign from "./cardsign";
@@ -1156,7 +1157,7 @@ const handler = {
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
       if (path === "/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, items, aps] = await Promise.all([sideBoardsNamed(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all")]);
+        const [side, items, aps, joins] = await Promise.all([sideBoardsNamed(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all"), viewer.via === "agent" ? Promise.resolve([]) : repoBoards.forOwner(env, viewer.name)]);
         // Looking at the inbox is reading it: the badge clears (items still show as new on this view). Off-board items
         // (friend and contact requests, approvals) have no board to open, so this is where they get read.
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
@@ -1166,7 +1167,7 @@ const handler = {
           displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({})),
           agents.displayNames(env, items.flatMap((i) => i.kind === "approval" ? (i.push?.by ? [i.push.by] : []) : i.actor_via === "agent" ? [i.actor] : [])).catch(() => ({} as Record<string, string>)),
         ]);
-        return inbox.inboxPage(viewer, side, items, aps, people, agentNames);
+        return inbox.inboxPage(viewer, side, items, aps, people, agentNames, joins);
       }
       // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, its top bar goes back to the app ----
       if (path === "/guide" && method === "GET") {
@@ -1177,7 +1178,7 @@ const handler = {
       if (path === "/for-you" && method === "GET") {
         if (!viewer) return needLogin();
         const now = Date.now();
-        const [side, aps, items] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
+        const [side, aps, items, joins] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60), viewer.via === "agent" ? Promise.resolve([]) : repoBoards.forOwner(env, viewer.name)]);
         // Unread mail for you (the person) from the last week: mentions and replies open in their chat; their boards are
         // looked at too, so a decision or question waiting there shows even on a quiet board.
         const mail = items.filter((i) => !i.read_at && i.board_id && (i.kind === "mention" || i.kind === "reply" || i.kind === "decision") && now - i.created_at < 7 * 86_400_000);
@@ -1188,7 +1189,7 @@ const handler = {
         const snoozed = new Set(snoozedRows.map((r) => `${r.board_id}:${r.seq}`));
         const snoozedApprovals = new Set(snoozedRows.flatMap((r) => { try { const id = JSON.parse(r.data ?? "null")?.push?.approval; return id ? [id as string] : []; } catch { return []; } }));
         const visible = boards.map((b) => ({ ...b, decisions: b.decisions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)), questions: b.questions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)) }));
-        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), boards: visible, mentions, now });
+        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), joins, boards: visible, mentions, now });
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
@@ -2432,6 +2433,76 @@ const handler = {
         } catch (e) {
           const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
           return json({ error: msg }, e instanceof billing.BillingError ? 402 : 400);
+        }
+      }
+
+      // Read-only metadata for a person's terminal confirmation. A repo file is an unverified claim about GitHub.
+      if (path === "/api/repos/preview" && method === "GET") {
+        if (!viewer) return needLogin();
+        const repo = repoBoards.normalizeRepo(url.searchParams.get("repo"));
+        const boardId = url.searchParams.get("board");
+        if (!repo || !boardId || !BOARD_RE.test(boardId)) return json({ error: "Give a GitHub owner/repo and a valid board id." }, 400);
+        const linked = await repoBoards.linkedBoard(env, repo, boardId);
+        if (!linked) return json({ error: "This repo file does not match a board link. Ask the board owner to check .atteo.json." }, 404);
+        if (linked.archived_at || linked.deleted_at) return json({ error: "This board is archived or deleted. Ask an owner to reopen it." }, 409);
+        const member = !!(await registry.memberRole(env, linked.id, viewer.name));
+        // Only members see the title, owners and linker: anyone who can read .atteo.json may call this (opus-d #5723).
+        if (!member) return json({ board: linked.id, repo, title: null, owners: [], linked_by: null, status: (await repoBoards.joinState(env, linked.id, viewer.name)) ?? "not_member" }, 200, { "cache-control": "private, no-store" });
+        const owners = (await registry.boardMembers(env, linked.id)).filter((m) => m.role === "owner").map((m) => ({ user: m.user, display_name: m.display_name }));
+        return json({ board: linked.id, repo, title: linked.title, owners, linked_by: await repoBoards.linkedBy(env, repo, linked.id), status: "member" }, 200, { "cache-control": "private, no-store" });
+      }
+
+      // A repository identifies its board; only a board owner may let a requester become a member.
+      if (path === "/api/repos/init" && method === "POST") {
+        if (!viewer) return needLogin();
+        const body = (await request.json().catch(() => ({}))) as { repo?: unknown; board?: unknown; check?: unknown };
+        const repo = repoBoards.normalizeRepo(body.repo);
+        if (!repo) return json({ error: "Give a GitHub owner/repo." }, 400);
+        if (body.board != null && !BOARD_RE.test(String(body.board))) return json({ error: "The .atteo.json board id is invalid." }, 400);
+        // check: only whether you're already a member, for the CLI's other commands in a linked repo. It never creates a
+        // board or a join request: only atteo init asks the owners (opus-d, repo-init review).
+        if (body.check === true) {
+          const linked = body.board ? await repoBoards.linkedBoard(env, repo, String(body.board)) : null;
+          const member = !!linked && !linked.archived_at && !linked.deleted_at && !!(await registry.memberRole(env, linked.id, viewer.name));
+          return json({ board: member ? linked!.id : null, repo, status: member ? "member" : "not_member" });
+        }
+        let board = body.board ? await repoBoards.linkedBoard(env, repo, String(body.board)) : await repoBoards.ownedBoard(env, viewer.name, repo);
+        if (body.board && !board) return json({ error: "This repo file does not match a board link. Ask the board owner to check .atteo.json." }, 404);
+        if (board?.archived_at || board?.deleted_at) return json({ error: "This board is archived or deleted. Ask an owner to reopen it." }, 409);
+        let created = false;
+        if (!board) {
+          try {
+            const made = await createBoard(env, repo, viewer.name, origin, { encrypted: true }, ctx);
+            const chosen = await repoBoards.linkBoard(env, viewer.name, repo, made.id);
+            if (chosen !== made.id) await registry.deleteBoard(env, made.id);
+            board = await registry.getBoard(env, chosen);
+            created = chosen === made.id;
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e) }, e instanceof billing.BillingError ? 402 : 400);
+          }
+        }
+        if (!board) return json({ error: "Board not found." }, 404);
+        try {
+          const status = await repoBoards.requestJoin(env, board, viewer.name);
+          return json({ board: board.id, repo, status: created ? "created" : status }, created ? 201 : 200);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 409);
+        }
+      }
+      if (path === "/api/repo-joins" && method === "GET") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only people can decide who joins a board." }, 403);
+        return json({ requests: await repoBoards.forOwner(env, viewer.name) });
+      }
+      const repoJoin = path.match(/^\/api\/repo-joins\/(jr_[A-Za-z0-9_-]+)\/(let-in|decline|block)$/);
+      if (repoJoin && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only people can decide who joins a board." }, 403);
+        try {
+          const decided = await repoBoards.decide(env, repoJoin[1], viewer.name, repoJoin[2] as "let-in" | "decline" | "block", origin);
+          return json({ request: decided });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e) }, e instanceof billing.BillingError ? 402 : 400);
         }
       }
 
