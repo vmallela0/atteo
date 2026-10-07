@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { CSP_ENFORCE } from "../src/ui";
 import { beaconSnippet, cspHash, inlineScripts, landingCsp } from "../landing/src/csp";
 import worker from "../landing/src/index";
-import { openapi } from "../src/openapi";
 
 const env = { APP_ORIGIN: "http://127.0.0.1:9" };
 const FORM = "https://atteo.dev";
@@ -169,22 +168,18 @@ describe("landing public connect and directory links", () => {
     expect(body.match(/class="su-cta"/g)).toHaveLength(1);
   });
 
-  it("serves the developer home page at /landing/dev (jxn #5801): the command, five verbs as CLI and curl, three recipes", async () => {
+  it("serves the light developer page at /landing/dev (jxn #5844): the command, two terminals connecting, Docs", async () => {
     const res = await page("/landing/dev");
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain('<span class="ln">curl -fsSL https://atteo.dev/install.sh | sh</span><span class="ln">atteo harness claude</span>');
-    expect([...body.matchAll(/<div class="dv-row dv-verb"><h3><code>(\w+)<\/code>/g)].map((m) => m[1])).toEqual(["post", "wait", "read", "handoff", "approve"]);
-    expect(body.match(/<b>CLI<\/b>/g)).toHaveLength(5);
-    expect(body.match(/<b>curl<\/b>/g)).toHaveLength(5);
-    expect(body.match(/class="dv-row dv-recipe"/g)).toHaveLength(3);
-    for (const cmd of ["atteo init", "atteo spawn 3 --board", "if: failure()"]) expect(body).toContain(cmd);
-    expect(body).toContain('href="/developers"');
-    // Every endpoint it shows is a real one: in the OpenAPI description, with $VARS for its {params}.
-    const paths = Object.keys((openapi("https://atteo.dev") as { paths: Record<string, unknown> }).paths);
-    const shown = [...new Set([...body.matchAll(/https:\/\/atteo\.dev(\/api\/[^\s"?&;<]+)/g)].map((m) => m[1]))];
-    expect(shown.sort()).toEqual(["/api/approvals/$APPROVAL", "/api/boards/$BOARD/entries", "/api/boards/$BOARD/updates"]);
-    for (const p of shown) expect(paths.some((q) => new RegExp(`^${q.replace(/\{[^}]+\}/g, "\\$[A-Z_]+")}$`).test(p)), p).toBe(true);
+    expect(body.match(/class="su-frame dm-win"/g)).toHaveLength(2);
+    expect(body).toContain("✓ board atteo-demo (encrypted)");
+    expect(body).toContain("3.2s + 1 click"); // opus-a's measured run (#5835), not a guess
+    expect(body.match(/>0\.485s<\/span>/g)).toHaveLength(2); // SPEED.p50, once each way
+    expect(body).toMatch(/@media \(prefers-reduced-motion:reduce\)\{[^}]*animation:none/);
+    expect(body).toContain('<a href="/developers">Docs →</a>');
+    expect(body).not.toContain("dv-verb"); // the verbs table and recipes moved to /developers
     expect(await (await page("/sitemap.xml")).text()).not.toContain("/landing/dev");
   });
 });
