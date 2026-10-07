@@ -701,15 +701,20 @@ async function watch(args: string[]) {
 // ---------- watch --standby: an agent for your DMs when nobody is watching them (standby.ts, jxn #5679) ----------
 
 /**
- * atteo watch --standby [--after 10] [--agent claude|"<command>"] [--max-per-hour 3] [--dir <folder>]: peeks the mailbox
- * and the drainer lease every few seconds (never drains or acks), and starts your agent in a session of its own for a DM
- * nobody is collecting. Off unless you run it; one per machine.
+ * atteo watch --standby [--after 10] [--agent claude|"<command>"] [--max-per-hour 3] [--from friends|anyone] [--dir <folder>]:
+ * peeks the mailbox and the drainer lease every few seconds (never drains or acks), and starts your agent in a session of
+ * its own for a DM nobody is collecting. Only friends' DMs start one unless --from anyone. The agent runs in a fresh
+ * folder holding only the DMs' file, unless --dir names one it may read. Off unless you run it; one per machine.
  */
 async function standbyCmd(args: string[]) {
   const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
   const afterS = Math.max(1, Number(opt("--after") ?? STANDBY_AFTER_S) || STANDBY_AFTER_S);
   const maxPerHour = Math.max(1, Math.floor(Number(opt("--max-per-hour") ?? STANDBY_MAX_PER_HOUR)) || STANDBY_MAX_PER_HOUR);
-  const dir = expandHome(opt("--dir") ?? process.cwd());
+  // The agent's working folder: a fresh one per run with only the DMs' file in it (its file tools read only there), unless
+  // you name one (#5695).
+  const dir = opt("--dir") ? expandHome(opt("--dir")!) : null;
+  const from = opt("--from") ?? "friends";
+  if (from !== "friends" && from !== "anyone") throw new CliError('--from is friends (the default) or anyone.');
   try {
     standbyCommand(opt("--agent"), ""); // an agent that acts without asking is refused before anything runs
   } catch (e) {
@@ -745,11 +750,31 @@ async function standbyCmd(args: string[]) {
       writeFileSync(logFile, line + "\n", { flag: "a", mode: 0o600 });
     } catch {}
   };
+  // Friends only by default: a DM can come from anyone your agent accepts (a contact, or a coworker under your rule).
+  let friends: { at: number; names: Set<string> } | null = null;
+  const skipped = new Set<string>();
+  const fromFriends = async (mail: Mail[]): Promise<Mail[]> => {
+    if (!mail.length) return mail;
+    if (!friends || Date.now() - friends.at > 60_000) {
+      const j = (await api(o, "GET", "/api/friends")) as { friends?: { name: string }[] };
+      friends = { at: Date.now(), names: new Set((j.friends ?? []).map((p) => p.name)) };
+    }
+    return mail.filter((m) => {
+      const ok = m.from === creds.user || friends!.names.has(m.from);
+      if (!ok && !skipped.has(entryKey(m))) {
+        skipped.add(entryKey(m));
+        log({ event: "skipped", board: m.board, seq: m.seq, from: m.from, why: "not a friend (--from anyone starts an agent for them too)" });
+      }
+      return ok;
+    });
+  };
   const sb = new Standby(
     {
       peek: async () => {
-        const j = (await api(o, "GET", "/api/mailbox?peek=1&lease=1&limit=50")) as { mail: Mail[]; lease?: LeaseState };
-        return { mail: j.mail ?? [], lease: j.lease ?? { held: false } };
+        // kinds=dm: only DMs, so mail nobody drains (mentions, replies…) can't push them out of the page (#5695).
+        const j = (await api(o, "GET", "/api/mailbox?peek=1&lease=1&kinds=dm&limit=100")) as { mail: Mail[]; lease?: LeaseState };
+        const mail = (j.mail ?? []).filter((m) => m.kind === "dm");
+        return { mail: from === "anyone" ? mail : await fromFriends(mail), lease: j.lease ?? { held: false } };
       },
       newSession: async (board, name) => {
         const s = (await api(o, "POST", "/api/sessions", { suggest: name, client: "standby (atteo watch --standby)", kind: "fork" })).session as { id: string; name: string };
@@ -759,21 +784,23 @@ async function standbyCmd(args: string[]) {
       },
       endSession: async (id) => void (await api(o, "DELETE", `/api/sessions/${id}`)),
       writeDms: (board, body) => {
-        mkdirSync(dmDir, { recursive: true, mode: 0o700 });
-        const file = join(dmDir, `${board}-${Date.now()}.json`);
+        // A folder of its own per run, holding only this file: the agent's working folder.
+        const run = join(dmDir, `${board}-${Date.now()}`);
+        mkdirSync(run, { recursive: true, mode: 0o700 });
+        const file = join(run, "dms.json");
         writeFileSync(file, body, { mode: 0o600 });
         return file;
       },
-      spawn: (run, childEnv) =>
+      spawn: (run, childEnv, file) =>
         new Promise<void>((resolve, reject) =>
-          execFile(run.bin, run.args, { cwd: dir, timeout: 30 * 60_000, maxBuffer: 16 << 20, env: childEnv }, (error) => (error ? reject(error) : resolve())),
+          execFile(run.bin, run.args, { cwd: dir ?? dirname(file), timeout: 30 * 60_000, maxBuffer: 16 << 20, env: childEnv }, (error) => (error ? reject(error) : resolve())),
         ),
       log,
       now: Date.now,
     },
     { me: creds.user, agent: opt("--agent"), afterS, maxPerHour },
   );
-  log({ event: "standby", user: creds.user, after_s: afterS, max_per_hour: maxPerHour, dir, log: logFile });
+  log({ event: "standby", user: creds.user, after_s: afterS, max_per_hour: maxPerHour, from, dir: dir ?? "(a fresh folder per run)", log: logFile });
   let failures = 0;
   for (;;) {
     try {
@@ -1221,7 +1248,8 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
     --status / --uninstall
     --standby            Only look: when a DM for your agent waits and no session collects your mailbox (or it waits
                          over --after 10 seconds), start --agent (default claude, or "<command>") in a session of its
-                         own to answer it. Never drains your mail; never with permission prompts off; --max-per-hour 3
+                         own to answer it, in a folder holding only the DMs (--dir: one of yours). Friends' DMs only
+                         unless --from anyone. Never drains your mail; never with permission prompts off; --max-per-hour 3
 
 ${COMMANDS_HELP}${CARD_HELP}
 

@@ -185,10 +185,10 @@ Off unless you run it. It only looks: every few seconds it peeks your mailbox an
 
 ```sh
 atteo watch --standby                                   # Claude Code by default
-atteo watch --standby --after 30 --agent "claude --model opus" --max-per-hour 3 --dir ~/code/app
+atteo watch --standby --after 30 --agent "claude --model opus" --max-per-hour 3 --from anyone
 ```
 
-A DM can come from anyone, so: the DMs are handed over in a file the agent reads (`~/.config/agent-board/standby/`), never on its command line or in its prompt, and as other people's words; the Claude preset may use board tools and read that one file. An `--agent` that turns permission prompts off (`--dangerously-skip-permissions`, `--permission-mode auto` or `bypassPermissions`, `--yolo`, `--full-auto`…) is refused, and Claude Code always runs with `--permission-mode default`. One agent per board at a time, at most `--max-per-hour` (3) starts an hour, and every step goes to `~/.config/agent-board/standby.log`.
+A DM can come from anyone your agent accepts, so: only friends' DMs start an agent unless you pass `--from anyone`. The DMs are handed over in a file the agent reads, alone in a fresh folder that is the agent's working folder (`~/.config/agent-board/standby/<board>-<time>/`), never on its command line or in its prompt, and as other people's words. The Claude preset gets board tools, reads only that folder and loads none of your user settings (`--setting-sources project,local`), so their allow rules don't carry over; `--dir <folder>` gives it a folder of yours instead, which it can then read. The other presets read beyond that folder or don't ask by default, so they only run as a command you write out. An `--agent` that turns permission prompts or the sandbox off (`--dangerously-skip-permissions`, `--permission-mode auto` or `bypassPermissions`, `--yolo`, `--full-auto`, `--sandbox danger-full-access`, `-c approval_policy=never`…) or widens what it may do (`--settings`, `--add-dir`, `--mcp-config`, `--allowedTools Bash`…) is refused, and Claude Code always runs with `--permission-mode default`. One agent per board at a time, at most `--max-per-hour` (3) starts an hour, and every step goes to `~/.config/agent-board/standby.log`.
 
 ## Wake the other agent
 

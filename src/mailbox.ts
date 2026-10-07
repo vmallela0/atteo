@@ -45,13 +45,17 @@ type TriggerData = { trigger: { id: string; on: string }; prompt: string; event:
 
 type Row = { id: number; board_id: string; board_title: string | null; board_kind: string | null; encrypted: number | null; seq: number; kind: string; actor: string; actor_via: string | null; entry_type: string; excerpt: string; created_at: number; to_session: string | null; to_session_name: string | null; data: string | null };
 
-/** Undelivered mail (hot: mailbox waits check it every few seconds), shared with test/queryPlans.test.ts. */
-export const UNDELIVERED_SQL = `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, b.encrypted, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.to_session, s.name AS to_session_name, n.data
+/** Undelivered mail (hot: mailbox waits check it every few seconds), shared with test/queryPlans.test.ts. `direct`:
+ *  only mail on direct-message boards (a standby watcher's peek, kinds=dm: other mail nobody drains can't crowd its page
+ *  out, #5695). */
+const undeliveredSql = (direct: boolean) => `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, b.encrypted, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.to_session, s.name AS to_session_name, n.data
        FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN agent_sessions s ON s.id = n.to_session
-       WHERE n.user = ? AND n.agent_seen_at IS NULL AND n.kind IN (${MAIL_KINDS.map(() => "?").join(",")})
+       WHERE n.user = ? AND n.agent_seen_at IS NULL AND n.kind IN (${MAIL_KINDS.map(() => "?").join(",")})${direct ? " AND b.kind = 'direct'" : ""}
          AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
          AND (n.to_session IS NULL OR n.to_session = ?)
        ORDER BY n.created_at, n.id LIMIT ?`;
+export const UNDELIVERED_SQL = undeliveredSql(false);
+export const UNDELIVERED_DIRECT_SQL = undeliveredSql(true);
 
 /** A notification's data: Just mine (board.ts ownMail), or whether mail from your person was direct (board.ts notify). */
 function dataOf(data: string | null): { audience?: string; direct?: boolean } {
@@ -64,9 +68,9 @@ function dataOf(data: string | null): { audience?: string; direct?: boolean } {
 }
 
 /** `session`: the agent session asking (its own mail plus everyone's); none: mail for any of your agents only. */
-async function undelivered(env: Env, user: string, limit: number, session: string | null): Promise<Row[]> {
+async function undelivered(env: Env, user: string, limit: number, session: string | null, direct = false): Promise<Row[]> {
   return (
-    await env.DB.prepare(UNDELIVERED_SQL)
+    await env.DB.prepare(direct ? UNDELIVERED_DIRECT_SQL : UNDELIVERED_SQL)
       .bind(user, ...MAIL_KINDS, user, session ?? "", limit)
       .all<Row>()
   ).results;
@@ -105,12 +109,12 @@ export function editSweepDue(session: string, wait: boolean, now = Date.now()): 
 export async function collect(
   env: Env,
   user: string,
-  opts: { limit: number; wait: number; peek: boolean; session?: string | null; pollMs?: number; signal?: AbortSignal; held?: boolean },
+  opts: { limit: number; wait: number; peek: boolean; session?: string | null; pollMs?: number; signal?: AbortSignal; held?: boolean; direct?: boolean },
   fullText: (board: string, seq: number) => Promise<{ text: string; title?: string | null } | null>,
 ): Promise<{ mail: Mail[]; more: boolean }> {
   const deadline = Date.now() + opts.wait * 1000;
   const session = opts.session ?? null;
-  let rows = await undelivered(env, user, opts.limit + 1, session);
+  let rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
   const every = opts.pollMs ?? 3000;
   const sleep = () =>
     new Promise<void>((r) => {
@@ -134,7 +138,7 @@ export async function collect(
         await sleep();
         if (opts.signal?.aborted) break;
         if (await env.DB.prepare(NEWER_MAIL_SQL).bind(user, newest).first()) {
-          rows = await undelivered(env, user, opts.limit + 1, session);
+          rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
           break;
         }
       }
@@ -143,7 +147,7 @@ export async function collect(
   while (!rows.length && Date.now() + every <= deadline && !opts.signal?.aborted) {
     await sleep();
     if (opts.signal?.aborted) break;
-    rows = await undelivered(env, user, opts.limit + 1, session);
+    rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
   }
   const more = rows.length > opts.limit;
   rows = rows.slice(0, opts.limit);

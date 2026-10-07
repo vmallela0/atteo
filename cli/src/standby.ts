@@ -60,18 +60,35 @@ export function underCap(starts: number[], now: number, maxPerHour: number): boo
 const UNSAFE_FLAG = /^(--?(dangerously[\w-]*|allow-dangerously[\w-]*|yolo|full-auto|force|auto-approve)(=.*)?|-y)$/i;
 const UNSAFE_MODE = /^(bypasspermissions|auto|acceptedits|dontask|yolo|auto_edit|never)$/i;
 const MODE_FLAG = /^(--permission-mode|--approval-mode|--ask-for-approval|-a)$/i;
+// Codex's sandbox off, or its approvals / sandbox switched in a config override (-c approval_policy=never) (#5695).
+const SANDBOX_FLAG = /^(--sandbox|-s)$/i;
+const CONFIG_FLAG = /^(--config|-c)$/i;
+const UNSAFE_CONFIG = /^\s*(approval_policy\s*=\s*["']?never|sandbox_mode\s*=\s*["']?danger-full-access)/i;
+// Claude Code: settings we can't vet (they can allow anything), more folders to read, or the shell allowed outright.
+const OPAQUE_FLAG = /^(--settings|--add-dir|--mcp-config)$/i;
+const TOOLS_FLAG = /^(--allowedtools|--allowed-tools|--tools)$/i;
+const BROAD_TOOL = /^(bash|bash\(\*?\)|bash\(:?\*\)|powershell|edit|write|multiedit|notebookedit|webfetch|\*)$/i;
 
 /** Why this agent command may not run for a DM (permission prompts off), or null when it may. */
 export function unsafeAgent(words: string[]): string | null {
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
     if (UNSAFE_FLAG.test(w)) return `${w.split("=")[0]} turns the agent's permission prompts off`;
-    const eq = w.match(/^(--[\w-]+)=(.*)$/);
+    const eq = w.match(/^(--?[\w-]+)=(.*)$/s);
     const [flag, value] = eq ? [eq[1], eq[2]] : [w, words[i + 1] ?? ""];
     if (MODE_FLAG.test(flag) && UNSAFE_MODE.test(value)) return `${flag} ${value} lets the agent act without asking`;
+    if (SANDBOX_FLAG.test(flag) && /danger-full-access/i.test(value)) return `${flag} ${value} turns the agent's sandbox off`;
+    if (CONFIG_FLAG.test(flag) && UNSAFE_CONFIG.test(value)) return `${flag} ${value} lets the agent act without asking`;
+    if (OPAQUE_FLAG.test(flag)) return `${flag} can give the agent more than a DM should get`;
+    if (TOOLS_FLAG.test(flag) && value.split(/[\s,]+/).some((t) => BROAD_TOOL.test(t.trim()))) return `${flag} ${value} lets the agent run commands or change files without asking`;
   }
   return null;
 }
+
+/** The presets a DM may start: Claude Code, held to the run's folder and the board tools. Codex's read-only sandbox
+ *  still reads the whole disk and opencode asks nothing by default, so those (and the rest) only run as a command you
+ *  write out yourself (#5695). */
+export const STANDBY_PRESETS = ["claude"];
 
 /**
  * The command to start: --agent is a preset (claude, codex, gemini, cursor, opencode) or a whole command line
@@ -82,8 +99,11 @@ export function unsafeAgent(words: string[]): string | null {
 export function standbyCommand(agent: string | undefined, prompt: string, file = ""): { bin: string; args: string[] } {
   const spec = (agent ?? "claude").trim() || "claude";
   const preset = !/\s/.test(spec) ? HARNESSES[spec] : undefined;
-  // The Claude preset may read the DMs' file and nothing else on this machine (Read(//<absolute path>)).
-  const words = preset ? [preset.bin, ...preset.args("{prompt}", file ? `${FORK_TOOLS},Read(/${file})` : FORK_TOOLS)] : splitCommand(spec);
+  if (preset && !STANDBY_PRESETS.includes(spec))
+    throw new Error(`Refusing to start "${spec}" for a DM: that preset can read files outside the run's folder or act without asking. Use claude, or write the whole command yourself (--agent "${preset.bin} …").`);
+  // The Claude preset runs in a folder holding only the DMs' file (it reads nothing else: read-only tools stay in the
+  // working folder) and loads no user settings, whose allow rules would carry over (#5695).
+  const words = preset ? [preset.bin, ...preset.args("{prompt}", file ? `${FORK_TOOLS},Read(/${file})` : FORK_TOOLS), "--setting-sources", "project,local"] : splitCommand(spec);
   if (!words.length) throw new Error("--agent is empty.");
   const bad = unsafeAgent(words);
   if (bad) throw new Error(`Refusing to start "${spec}" for a DM: ${bad}. A DM can come from anyone; use an agent that asks before it acts.`);
@@ -120,7 +140,8 @@ export function standbyPrompt(o: { me: string; board: string; file: string; sess
 /** The environment for the agent: yours, minus any session of yours, plus its own. */
 export function agentEnv(base: ProcEnv, session: string): ProcEnv {
   const out: ProcEnv = {};
-  for (const [k, v] of Object.entries(base)) if (!/^(ATTEO|AGENT_SOUP|AGENT_BOARD)_SESSION$/.test(k)) out[k] = v;
+  // Not yours, nor a parent Claude Code's (CLAUDECODE, CLAUDE_CODE_*: its entrypoint, IDE port, permission state).
+  for (const [k, v] of Object.entries(base)) if (!/^((ATTEO|AGENT_SOUP|AGENT_BOARD)_SESSION|CLAUDECODE|CLAUDE_CODE_\w+)$/.test(k)) out[k] = v;
   return { ...out, ATTEO_SESSION: session };
 }
 
@@ -129,8 +150,8 @@ export interface StandbyIO {
   peek(): Promise<{ mail: Mail[]; lease: LeaseState }>;
   newSession(board: string, name: string): Promise<{ id: string; name: string }>;
   endSession(id: string): Promise<void>;
-  writeDms(board: string, body: string): string; // returns the file's path
-  spawn(run: { bin: string; args: string[] }, env: ProcEnv): Promise<void>; // resolves when the agent exits
+  writeDms(board: string, body: string): string; // returns the file's path, alone in a fresh folder of its own
+  spawn(run: { bin: string; args: string[] }, env: ProcEnv, file: string): Promise<void>; // runs in file's folder; resolves when the agent exits
   log(event: Record<string, unknown>): void;
   now(): number;
 }
@@ -175,7 +196,7 @@ export class Standby {
       const file = this.io.writeDms(d.board, dmFile(d.board, d.items, this.io.now()));
       const run = standbyCommand(this.o.agent, standbyPrompt({ me: this.o.me, board: d.board, file, session, reason: d.reason, afterS: this.o.afterS }), file);
       this.io.log({ event: "start", board: d.board, reason: d.reason, lease_by: lease.by ?? null, seqs: d.items.map((m) => m.seq), session: session.id, name: session.name, agent: run.bin, file });
-      await this.io.spawn(run, agentEnv(this.o.env ?? process.env, session.id));
+      await this.io.spawn(run, agentEnv(this.o.env ?? process.env, session.id), file);
       this.io.log({ event: "done", board: d.board, session: session.id });
     } catch (e) {
       this.io.log({ event: "error", board: d.board, error: (e as Error).message });

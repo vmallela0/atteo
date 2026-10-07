@@ -7,7 +7,7 @@ import { AGENTS_ON_BOARD_SQL, BOARDS_FOR_USER_SQL, TAPE_PRUNE_SQL, TAPE_READ_SQL
 import { LIVE_SESSIONS_SQL, SESSIONS_ON_BOARD_SQL, USER_SESSIONS_SQL } from "../src/sessions";
 import { PRUNE_READ_SQL, listInboxSql, unreadCountSql } from "../src/inbox";
 import { PRUNE_USAGE_DAILY_SQL } from "../src/usage";
-import { LEASE_GET_SQL, NEWER_MAIL_SQL, PRUNE_MAIL_SQL, UNDELIVERED_SQL } from "../src/mailbox";
+import { LEASE_GET_SQL, NEWER_MAIL_SQL, PRUNE_MAIL_SQL, UNDELIVERED_DIRECT_SQL, UNDELIVERED_SQL } from "../src/mailbox";
 import { TOKEN_SQL } from "../src/auth";
 import { ACCOUNT_LOG_SQL, PRUNE_ACCOUNT_LOG_SQL } from "../src/accountlog";
 import { PRUNE_OAUTH_CLIENTS_SQL } from "../src/oauth";
@@ -35,6 +35,7 @@ const HOT: Record<string, string> = {
   "mailbox acked prune": PRUNE_MAIL_SQL,
   "usage_daily prune": PRUNE_USAGE_DAILY_SQL,
   "mailbox: undelivered mail": UNDELIVERED_SQL,
+  "mailbox: undelivered DMs (standby peek)": UNDELIVERED_DIRECT_SQL,
   "mailbox: drain lease": LEASE_GET_SQL,
   "mailbox: newer mail (peek/held waits)": NEWER_MAIL_SQL,
   "inbox list (person)": listInboxSql(true),
