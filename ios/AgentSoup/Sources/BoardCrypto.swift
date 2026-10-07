@@ -101,11 +101,35 @@ enum BoardCryptoError: LocalizedError {
     }
 }
 
+/// MainActor tasks may overlap at an await. Queue the whole pin read, handoff, and save so a later sync reads the
+/// previous sync's result, including tombstones and newly trusted devices.
+@MainActor
+final class PinMutationQueue {
+    private var tail: Task<Void, Never>?
+    private var generation = 0
+
+    func run<T>(_ mutation: @escaping @MainActor () async -> T) async -> T {
+        let previous = tail
+        generation += 1
+        let ticket = generation
+        let current = Task {
+            await previous?.value
+            return await mutation()
+        }
+        tail = Task {
+            _ = await current.value
+            if self.generation == ticket { self.tail = nil }
+        }
+        return await current.value
+    }
+}
+
 @MainActor
 final class BoardCrypto {
     static let shared = BoardCrypto()
     private static let info = Data("agent-soup board key v2".utf8)
     private var keys: [String: [Int: SymmetricKey]] = [:] // board → epoch → key (memory only)
+    private let pinUpdates = PinMutationQueue()
 
     // MARK: - This phone's device key
 
@@ -178,7 +202,8 @@ final class BoardCrypto {
     func sync(_ board: String, forWriting: Bool = false) async throws -> EpochState {
         let kid = try await deviceId()
         var st = try await API.shared.get("/api/boards/\(board)/epochs", as: EpochState.self)
-        let me = user ?? (st.keys + st.missing.map(\.device)).first { $0.kid == kid }?.user
+        // Only AppState's authenticated identity chooses the pin namespace. The server's device list is untrusted.
+        let me = user
         // A server showing an older key epoch than this phone has seen may be replaying an old key (review #5526).
         let seen = me.map { Self.epochsSeen($0)[board] ?? 0 } ?? 0
         if st.current < seen { throw BoardCryptoError.rolledBack(shown: st.current, seen: seen) }
@@ -187,23 +212,14 @@ final class BoardCrypto {
         var trusted: (SignedDevice) -> Bool = { _ in false }
         var waiting = st.current > 0 && mine.isEmpty
         if let me {
-            var pin = Self.pins(me)
-            let before = pin
-            await adoptPins(&pin, me: me, kid: kid, board: board, held: mine.count) // before anyone's trusted on first sight
-            let own = DeviceTrust.pinned(pin[me], kid, publicKeyB64), mePin = DeviceTrust.pinId(kid, publicKeyB64, signPubB64)
-            if own != mePin { pin[me] = (pin[me] ?? []).filter { $0 != own } + [mePin] }
-            // The server showing this phone with someone else's signing key could sign devices as you: say so.
-            if let shown = st.keys.first(where: { $0.kid == kid }), shown.signPub != nil, shown.signPub != signPubB64 { TrustCenter.shared.signMismatch = true }
-            // First sight only once this phone holds the board's key: until then it hands nothing on, so it pins no one.
-            if !waiting { DeviceTrust.firstSight(&pin, me: me, st.keys + st.missing.filter(\.firstDevice).map(\.device)) }
-            DeviceTrust.dropGone(&pin, st.keys)
-            DeviceTrust.crossSigned(&pin, st.keys + st.missing.map(\.device))
-            if pin != before { Self.savePins(pin, me) }
-            trusted = { DeviceTrust.isPinned(pin, $0) }
-            TrustCenter.shared.saw(board: board, me: me, untrusted: st.missing.filter { !trusted($0.device) }.map(\.device), pin: pin, waiting: waiting)
+            let pinState = st, held = mine.count, pinWaiting = waiting
+            if let pin = await pinUpdates.run({ await self.updatePins(me: me, kid: kid, board: board, held: held, waiting: pinWaiting, state: pinState) }) {
+                trusted = { DeviceTrust.isPinned(pin, $0) }
+                TrustCenter.shared.saw(board: board, me: me, untrusted: st.missing.filter { !trusted($0.device) }.map(\.device), pin: pin, waiting: waiting)
+            }
         }
         if forWriting && (st.current == 0 || (st.rotateNeeded && !waiting)) {
-            if !st.keys.contains(where: { $0.kid == kid }) || me == nil { throw BoardCryptoError.waitingForApproval }
+            if !st.keys.contains(where: { $0.kid == kid }) || me == nil || user != me { throw BoardCryptoError.waitingForApproval }
             let fresh = SymmetricKey(size: .bits256)
             let grants = try st.keys.filter(trusted).map { k -> [String: Any] in try ["kid": k.kid].merging(wrap(fresh, to: k.publicKey)) { a, _ in a } }
             _ = try await API.shared.send("/api/boards/\(board)/epochs", body: ["epoch": st.current + 1, "grants": grants], retries: false)
@@ -215,13 +231,34 @@ final class BoardCrypto {
         for (e, k) in mine where keys[board]?[e] == nil { SealedKeys.store(k, board: board, epoch: e) }
         keys[board] = mine
         // Hand on what we hold to the trusted devices that lack it (the server only lists what we're allowed to grant).
-        let out = try st.missing.filter { trusted($0.device) }.flatMap { m in try m.epochs.compactMap { e -> [String: Any]? in
+        let out = try st.missing.filter { me != nil && user == me && trusted($0.device) }.flatMap { m in try m.epochs.compactMap { e -> [String: Any]? in
             guard let k = mine[e] else { return nil }
             return try ["epoch": e, "kid": m.kid].merging(wrap(k, to: m.publicKey)) { a, _ in a }
         } }
         if !out.isEmpty { _ = try? await API.shared.send("/api/boards/\(board)/grants", body: ["grants": out], retries: false) }
         if let me, st.current > seen { Self.saveEpochSeen(me, board, st.current) }
+        // If identity arrived while this sync was in flight, AppState's syncAll may have run before this board was
+        // added to `keys`. Revisit it now under the authenticated pin namespace.
+        if me == nil && user != nil { Task { _ = try? await self.sync(board) } }
         return st
+    }
+
+    private func updatePins(me: String, kid: String, board: String, held: Int, waiting: Bool, state: EpochState) async -> Pins? {
+        guard user == me else { return nil }
+        var pin = Self.pins(me)
+        let before = pin
+        await adoptPins(&pin, me: me, kid: kid, board: board, held: held) // before anyone's trusted on first sight
+        guard user == me else { return nil }
+        let own = DeviceTrust.pinned(pin[me], kid, publicKeyB64), mePin = DeviceTrust.pinId(kid, publicKeyB64, signPubB64)
+        if own != mePin { pin[me] = (pin[me] ?? []).filter { $0 != own } + [mePin] }
+        // The server showing this phone with someone else's signing key could sign devices as you: say so.
+        if let shown = state.keys.first(where: { $0.kid == kid }), shown.signPub != nil, shown.signPub != signPubB64 { TrustCenter.shared.signMismatch = true }
+        // First sight only once this phone holds the board's key: until then it hands nothing on, so it pins no one.
+        if !waiting { DeviceTrust.firstSight(&pin, me: me, state.keys + state.missing.filter(\.firstDevice).map(\.device)) }
+        DeviceTrust.dropGone(&pin, state.keys)
+        DeviceTrust.crossSigned(&pin, state.keys + state.missing.map(\.device))
+        if pin != before { Self.savePins(pin, me) }
+        return pin
     }
 
     /// Takes the pins the device that approved this one handed it (review #5567), only for people never seen here. The
@@ -240,6 +277,7 @@ final class BoardCrypto {
             struct R: Decodable { var pins: Handed? = nil }
             handed = (try? await API.shared.get("/api/me/keys?pins=\(kid)", as: R.self))?.pins
         }
+        guard user == me else { return }
         guard let h = handed, h.sig != done else { return }
         let signer = DeviceTrust.ownSigner(pin, me: me, kid: h.by)
         guard signer != nil || fresh else { return }

@@ -1398,12 +1398,16 @@ function adoptPins(pin: Record<string, string[]>, me: string, kid: string) {
   if (!signer)
     writeFileSync(
       approvedFile(),
-      `🔑 Approved by ${h.by_label ?? "another device of yours"} (${h.by}), fingerprint ${fingerprint(h.by_public_key ?? "", h.by_sign_pub)}: does it match what that device shows (atteo keys, or the web's encryption bar)? This machine took its pins. If it doesn't match, that wasn't your device: tell your boards' members.`,
+      `🔑 Approved by ${terminalLabel(h.by_label ?? "another device of yours")} (${terminalLabel(h.by)}), fingerprint ${fingerprint(h.by_public_key ?? "", h.by_sign_pub)}: does it match what that device shows (atteo keys, or the web's encryption bar)? This machine took its pins. If it doesn't match, that wasn't your device: tell your boards' members.`,
       { mode: 0o600 },
     );
 }
 /** The approver's label and fingerprint, shown on every command until a person says it matches (opus-a #5625). */
 const approvedFile = () => `${pinFile()}.approved`;
+/** Server labels (and approval text saved by older CLI versions) stay on one inert terminal line. */
+function terminalLabel(value: string): string {
+  return terminalSafe(value).replace(/[\n\t]/g, " ");
+}
 function showApproved() {
   let line = "";
   try {
@@ -1411,7 +1415,7 @@ function showApproved() {
   } catch {
     return;
   }
-  warnOnce("approved", `${line} ${atTerminal() ? "It matches? atteo keys ok" : "Only your user can say it matches, in a terminal."}`);
+  warnOnce("approved", `${terminalLabel(line)} ${atTerminal() ? "It matches? atteo keys ok" : "Only your user can say it matches, in a terminal."}`);
 }
 
 async function keys(args: string[]) {

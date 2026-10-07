@@ -94,4 +94,42 @@ final class DeviceTrustTests: XCTestCase {
         DeviceTrust.mergePins(&mine, ["bo": ["b1|\(B)", "junk", 7], "cy": ["c9|\(B)"], "ana": ["evil|\(B)"], "dee": [], "Bad Name": ["x|\(B)"]], me: "ana")
         XCTAssertEqual(mine, ["cy": ["c1|\(A)"], "bo": ["b1|\(B)"], "dee": []])
     }
+
+    /// A board sync suspended while fetching handed pins must not save a stale snapshot over another sync's tombstone.
+    @MainActor
+    func testPinMutationsKeepConcurrentTombstones() async {
+        let queue = PinMutationQueue()
+        let b = B
+        var pins: Pins = ["bo": ["b1|\(A)"]]
+        var resumeFirst: CheckedContinuation<Void, Never>?
+        let firstPaused = expectation(description: "first mutation has read pins")
+        let secondStarted = expectation(description: "second sync started")
+
+        let first = Task {
+            await queue.run {
+                var snapshot = pins
+                await withCheckedContinuation { continuation in
+                    resumeFirst = continuation
+                    firstPaused.fulfill()
+                }
+                snapshot["cy"] = ["c1|\(b)"]
+                pins = snapshot
+            }
+        }
+        await fulfillment(of: [firstPaused], timeout: 2)
+        let second = Task {
+            secondStarted.fulfill()
+            await queue.run {
+                var snapshot = pins
+                snapshot["bo"] = []
+                pins = snapshot
+            }
+        }
+        await fulfillment(of: [secondStarted], timeout: 2)
+        await Task.yield() // let the second sync reach the queue while the first is suspended
+        resumeFirst?.resume()
+        await first.value
+        await second.value
+        XCTAssertEqual(pins, ["bo": [], "cy": ["c1|\(B)"]])
+    }
 }

@@ -63,7 +63,14 @@ final class AppState: ObservableObject {
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
-    @Published var me: MeAgentResponse.Agent? { didSet { BoardCrypto.shared.user = me?.owner } } // pins are kept per person
+    @Published var me: MeAgentResponse.Agent? {
+        didSet {
+            let owner = me?.owner
+            BoardCrypto.shared.user = owner // pins are kept per person
+            // Board sync can run before /api/agents/me finishes. Revisit those boards once the identity is known.
+            if owner != nil && owner != oldValue?.owner { Task { await BoardCrypto.shared.syncAll() } }
+        }
+    }
     @Published var profile: Profile? {
         didSet { if let p = profile { rememberDisplayName(p.displayName, for: p.name) } }
     }
