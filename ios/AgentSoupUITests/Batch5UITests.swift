@@ -27,9 +27,11 @@ final class Batch5UITests: AtteoUITestCase {
         a.launch()
         openSettings(a)
 
-        // Your agent's name: the server's reason when it won't take one, saved when it does.
+        // Your agent's name: the server's reason when it won't take one, saved when it does. It sits below Report a bug,
+        // Feedback, Legal, Safety and Delete account now, off the first screen of a lazy List: scroll to it first.
         let name = a.textFields["agent-name"]
-        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        reveal(a, name)
+        XCTAssertTrue(name.waitForExistence(timeout: 5), "the agent-name field")
         name.tap()
         name.typeText("agents\n")
         let problem = a.staticTexts["agent-name-error"]
