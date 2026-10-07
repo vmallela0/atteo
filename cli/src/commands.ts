@@ -419,6 +419,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const pin = pins();
   const before = JSON.stringify(pin);
   adoptPins(pin, me, kid); // from the device that approved this one, before anyone is trusted on first sight here
+  showApproved();
   const seen = new Map([...st.keys, ...st.missing].map((k) => [k.kid, k.public_key]));
   for (const [u, list] of Object.entries(pin)) pin[u] = list.map((e) => (e.includes("|") || !seen.has(e) ? e : pinId(e, seen.get(e)!))); // older pins were ids alone
   // This machine: pinned with its own signing key, never the one the server shows, which it checks.
@@ -1395,9 +1396,22 @@ function adoptPins(pin: Record<string, string[]>, me: string, kid: string) {
   mergePins(pin, got, me);
   writeFileSync(handedFile(), h.sig, { mode: 0o600 });
   if (!signer)
-    process.stderr.write(
-      `🔑 Approved by ${h.by_label ?? "another device of yours"} (${h.by}), fingerprint ${fingerprint(h.by_public_key ?? "", h.by_sign_pub)}: does it match what that device shows (atteo keys, or the web's encryption bar)? This machine took its pins. If it doesn't match, that wasn't your device: tell your boards' members.\n`,
+    writeFileSync(
+      approvedFile(),
+      `🔑 Approved by ${h.by_label ?? "another device of yours"} (${h.by}), fingerprint ${fingerprint(h.by_public_key ?? "", h.by_sign_pub)}: does it match what that device shows (atteo keys, or the web's encryption bar)? This machine took its pins. If it doesn't match, that wasn't your device: tell your boards' members.`,
+      { mode: 0o600 },
     );
+}
+/** The approver's label and fingerprint, shown on every command until a person says it matches (opus-a #5625). */
+const approvedFile = () => `${pinFile()}.approved`;
+function showApproved() {
+  let line = "";
+  try {
+    line = readFileSync(approvedFile(), "utf8");
+  } catch {
+    return;
+  }
+  warnOnce("approved", `${line} ${atTerminal() ? "It matches? atteo keys ok" : "Only your user can say it matches, in a terminal."}`);
 }
 
 async function keys(args: string[]) {
@@ -1437,6 +1451,13 @@ async function keys(args: string[]) {
     }
     return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.${signedNote}`);
   }
+  if (pos[0] === "ok") {
+    // The person compared the approver's fingerprint with that device: the line goes. Not an agent's call to make.
+    if (!atTerminal()) throw new CliError("Only a person who compared the fingerprints can say so: ask your user to run atteo keys ok in a terminal.");
+    if (!existsSync(approvedFile())) return say("Nothing to confirm.");
+    rmSync(approvedFile());
+    return say("OK: the device that approved this one is yours.");
+  }
   if (pos[0] === "trust") {
     // Someone else's device that nothing here vouches for (review #5558): only on the person's own word, checked
     // outside the board. It's pinned on this machine, which hands it this board's keys from then on.
@@ -1466,6 +1487,7 @@ async function keys(args: string[]) {
   const myFp = fingerprint(myKey().pub, mySignKey().pub);
   if (json(opt)) return printJson({ fingerprint: myFp, keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok(k) })) });
   say(`This machine's fingerprint: ${myFp}`);
+  showApproved();
   for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok(k) ? "  (approved here)" : ""}${k.sig ? "  signed" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
 }
 

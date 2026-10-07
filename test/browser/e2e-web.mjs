@@ -135,6 +135,13 @@ check(await bodyOf(pb,`hello from the web ${run}`).count()===1&&!(await pb.locat
 // Review #5592: it took Bob's CLI's pins with the approval, and shows the CLI's fingerprint once, to compare.
 const bobCliFp=JSON.parse((await cli(B,["keys","--json"])).out).fingerprint,pinsBobCli=JSON.parse(readFileSync(cred[B]+".pins","utf8")),pinsBobWeb=await pinsOf(pb,B);
 check(await pb.locator("#e2e-approver-fp").innerText().catch(()=>"")===bobCliFp&&(pinsBobCli[A]||[]).length>0&&pinsBobCli[A].every(e=>(pinsBobWeb[A]||[]).includes(e)),"…took the CLI's pins, and shows \"Approved by\" with the CLI's fingerprint");
+// opus-a #5625: it stays until Bob says it matches.
+await pb.reload();await pb.locator("#e2e-approver-fp").waitFor({timeout:8000}).catch(()=>{});
+check(await pb.locator("#e2e-approver-fp").innerText().catch(()=>"")===bobCliFp,"…still there after a reload");
+await pb.locator("[data-e2e-approved-ok]").click().catch(()=>{});
+await until(()=>pb.locator("#e2e-approver-fp").count(),n=>n===0);
+await pb.reload();await pb.waitForFunction(()=>!document.querySelector("form.composer").hidden,null,{timeout:10000}).catch(()=>{});
+check(await pb.locator("#e2e-approver-fp").count()===0,"…and gone once he says it matches");
 await post(pb,`bob in the browser ${run}`);
 r=await readUntil(A,[`bob in the browser ${run}`]);check(r.out.includes(`bob in the browser ${run}`),"…and what he writes there, Ann's CLI reads");
 // A newcomer's browser (Dee) that gets the key from a member's device, with no handoff: it pins no one while it waits,

@@ -1289,11 +1289,21 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   const pinsR3 = JSON.parse(readFileSync(`${cred.r3}.pins`, "utf8"));
   assert(existsSync(`${cred.r3}.pins.from`) && pinsR1[S]?.length && pinsR1[S].every((e) => pinsR3[S]?.includes(e)), "R3 has R1's pins: " + JSON.stringify({ pinsR1, pinsR3 }));
   r = await as("r3", ["read", "--all", "--board", eb]);
-  assert(!r.err.includes("Approved by"), "shown once: " + r.err);
+  // opus-a #5625: the line stays until a person says it matches; an agent can't dismiss it.
+  assert(r.err.includes(`Approved by ${r1.label} (${r1id})`) && !r.err.includes("atteo keys ok"), "still shown, without the command for an agent: " + r.err);
+  r = await as("r3", ["keys", "ok"]);
+  assert(r.code !== 0 && r.err.includes("Only a person"), r.out + r.err);
+  r = await asTty("r3", ["keys"]);
+  assert(r.out.includes(`Approved by ${r1.label}`) && r.out.includes("It matches? atteo keys ok"), r.out);
+  r = await asTty("r3", ["keys", "ok"]);
+  assert(r.code === 0 && r.out.includes("OK: the device that approved this one is yours"), r.out);
+  r = await as("r3", ["read", "--all", "--board", eb]);
+  assert(!r.err.includes("Approved by"), "gone once confirmed: " + r.err);
   // Review #5592, the attack: a device of R's that neither R2 nor R3 pinned (as a server could list) hands them pins of
   // its own. R2 knows people and R3 already took pins once: neither takes them.
   const evil = `e2e-evil-${run}`.slice(0, 32);
-  r = await as("r4", ["keys"]);
+  r = await as("r4", ["keys", "--json"]);
+  const r4 = JSON.parse(r.out).keys.find((k) => k.this_machine);
   writeFileSync(`${cred.r4}.pins`, JSON.stringify({ [evil]: [`kx|${"A".repeat(43)}=|`] }), { mode: 0o600 });
   for (const who of ["r2", "r3"]) {
     const id = who === "r2" ? r2.id : r3.id;
@@ -1301,7 +1311,7 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
     assert(r.code === 0 && r.out.includes("It also has this machine's pins"), r.out);
     r = await as(who, ["read", "--all", "--board", eb]);
     const got = JSON.parse(readFileSync(`${cred[who]}.pins`, "utf8"));
-    assert(!Object.hasOwn(got, evil) && !r.err.includes("Approved by"), `${who} refused R4's pins: ` + JSON.stringify(got) + r.err);
+    assert(!Object.hasOwn(got, evil) && !r.err.includes(`(${r4.id}), fingerprint`), `${who} refused R4's pins: ` + JSON.stringify(got) + r.err);
   }
   // A newcomer's first device that gets the key with no handoff (a member's device hands it over) falls back to first
   // sight once it holds the key: nothing pinned while it waits, R and S pinned after.

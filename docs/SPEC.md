@@ -709,9 +709,10 @@ board the server stores ciphertext and can't read messages. High level:
   stored on its key row (`POST /api/me/keys/{kid}/pins`, migration 0080), and merged in before anyone is pinned on
   first sight (review #5567), only for people never seen there: nothing is ever appended to someone's list. The
   signature counts against a signing key pinned on that device for one of your own devices (review #5592). The
-  server's word for the signer counts only on a device that knows nobody yet (its pins hold only itself), once in its
-  life: it then shows the approver's label and fingerprint once ("Approved by …, fingerprint …"), to compare with that
-  device. So a lying server can choose what a brand-new device starts from, as it can with first sight, but can't add
+  server's word for the signer counts only on a device that knows nobody yet (its pins hold only itself) and never took
+  a bundle, once in its life: it then shows the approver's label and fingerprint ("Approved by …, fingerprint …") on
+  every command or page until you say it matches that device (`atteo keys ok` at a terminal, the web's "It matches",
+  the app's Settings → Encryption). So a lying server can choose what a brand-new device starts from, as it can with first sight, but can't add
   to, or replay into, pins a device already holds. `atteo keys approve` and the web's Approve show the new device's
   fingerprint before the yes. First sight waits until the device holds a key for that board (it hands nothing on
   before then): while it waits it pins no one and says members are unverified, and it doesn't open a new epoch after

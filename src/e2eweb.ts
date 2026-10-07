@@ -127,10 +127,12 @@ async function sealPinsTo(p,devicePub){const e=await S.generateKey({name:'X25519
 /** The pins the device that approved this browser handed it (the CLI's adoptPins, review #5592): only for people never
  *  seen here. Checked against a signing key pinned here for one of your own devices; the server's word for the signer
  *  counts only while this browser knows nobody, once in its life, and then its fingerprint is shown to compare. */
-let PINS_LOOKED=-1,APPROVED_BY=null;
+// The approver's label and fingerprint stay in the bar until you close them (opus-a #5625), not just once.
+let PINS_LOOKED=-1;const AB_KEY=()=>'soup.e2e.approvedby.'+ME;
+function approvedBy(){try{return JSON.parse(localStorage.getItem(AB_KEY())||'null')}catch(e){return null}}
 async function adoptPins(pin,dev,held){const FK='soup.e2e.pinsfrom.'+ME+'.'+dev.kid,ONCE='soup.e2e.pinsonce.'+ME+'.'+dev.kid;let done=null,once=null;try{done=localStorage.getItem(FK);once=localStorage.getItem(ONCE)}catch(e){}
   const own=(pin[ME]||[]).map(e=>e.split('|')),canSigner=own.some(p=>p[0]!==dev.kid&&p[2]);
-  const fresh=!once&&Object.keys(pin).every(u=>u===ME)&&own.every(p=>p[0]===dev.kid);
+  const fresh=!once&&!done&&Object.keys(pin).every(u=>u===ME)&&own.every(p=>p[0]===dev.kid);
   if((!canSigner&&!fresh)||PINS_LOOKED===held)return;PINS_LOOKED=held; // looked once per page, and again when this browser's first keys arrive
   try{const h=(await api('GET','/api/me/keys?pins='+encodeURIComponent(dev.kid))).pins;if(!h||h.sig===done)return;
     const signer=own.find(p=>p[0]===h.by&&p[2])?.[2]||null;if(!signer&&!fresh)return;
@@ -139,7 +141,7 @@ async function adoptPins(pin,dev,held){const FK='soup.e2e.pinsfrom.'+ME+'.'+dev.
     for(const [u,list] of Object.entries(j.pins)){if(u===ME||Object.hasOwn(pin,u)||!Array.isArray(list)||!/^[a-z0-9][a-z0-9_.-]{0,31}$/.test(u))continue;
       pin[u]=[...new Set(list.filter(x=>typeof x==='string'&&/^[a-z0-9-]{1,40}\\|[A-Za-z0-9+/]{43}=/.test(x)))]}
     try{localStorage.setItem(FK,h.sig);if(!signer)localStorage.setItem(ONCE,'1')}catch(e){}
-    if(!signer)APPROVED_BY={label:h.by_label||'another device of yours',kid:h.by,fp:await fpOf(h.by_public_key||'',h.by_sign_pub)}}catch(e){console.warn('[e2e] pins',e)}}
+    if(!signer)try{localStorage.setItem(AB_KEY(),JSON.stringify({label:h.by_label||'another device of yours',kid:h.by,fp:await fpOf(h.by_public_key||'',h.by_sign_pub)}))}catch(e){}}catch(e){console.warn('[e2e] pins',e)}}
 const isPinned=(pin,k)=>!!pinOf(pin,k.user,k.kid,k.public_key);
 /** What a device signature covers (src/boardkeys.ts deviceSigned; never change it). */
 const signedBytes=(u,kid,pub,spub)=>te.encode('atteo device v1\\n'+u+'\\n'+kid+'\\n'+pub+'\\n'+(spub||''));
@@ -192,7 +194,7 @@ function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class=
   say(ready?'🔒 <b>End-to-end encrypted.</b> This browser decrypts and encrypts here; the server only sees ciphertext. This browser\\'s key: '+kid+'.'
     :current===0?'🔒 <b>End-to-end encrypted.</b> No messages yet. This browser\\'s key: '+kid+'.'
     :'🔒 <b>End-to-end encrypted.</b> This browser (key '+kid+') is waiting for the board\\'s key: a member\\'s device hands it over when they\\'re next here. Until then it trusts no one here (members show as unverified). If you already read this board on another device of yours, approve this one there (<span class="mono">atteo keys approve '+esc(dev.kid)+'</span>).');
-  if(APPROVED_BY)say((msg?msg.innerHTML+'<br>':'')+'🔑 Approved by <b>'+esc(APPROVED_BY.label)+'</b> (key <span class="mono">'+esc(APPROVED_BY.kid)+'</span>), fingerprint <span class="mono" id="e2e-approver-fp">'+esc(APPROVED_BY.fp)+'</span>: does it match what that device shows? This browser took its pins. If it doesn\\'t match, that wasn\\'t your device: tell your boards\\' members.');
+  const ab=approvedBy();if(ab)say((msg?msg.innerHTML+'<br>':'')+'🔑 Approved by <b>'+esc(ab.label)+'</b> (key <span class="mono">'+esc(ab.kid)+'</span>), fingerprint <span class="mono" id="e2e-approver-fp">'+esc(ab.fp)+'</span>: does it match what that device shows? This browser took its pins. If it doesn\\'t match, that wasn\\'t your device: tell your boards\\' members. <button class="btn sm" type="button" data-e2e-approved-ok>It matches</button>');
   if(SIGN_BAD)say('⚠ <b>The server shows this browser with a signing key that isn\\'t this browser\\'s.</b> Devices "signed" with it aren\\'t from you: don\\'t trust them, and tell the board\\'s members.');
   if(composer)composer.hidden=!ready||READONLY;
   if(asks)asks.innerHTML=ST.untrusted.map(m=>m.user===ME
@@ -211,6 +213,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-e2e-
     await api('POST','/api/me/keys/'+encodeURIComponent(m.kid)+'/pins',{by:ST.dev.kid,...g,sig})}catch(err){console.warn('[e2e] pins',err)}
   try{await epochKeys();toast('Approved: that device can read this board now')}catch(err){toast(err.message)}finally{b.disabled=false}});
 
+document.addEventListener('click',e=>{if(!e.target.closest('[data-e2e-approved-ok]'))return;try{localStorage.removeItem(AB_KEY())}catch(err){}renderBar()});
 // Someone else's device nothing here vouches for (review #5558): only on the person's word. Pinned, then handed the keys.
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-e2e-trust]');if(!b||!ST)return;const m=ST.untrusted.find(x=>x.kid===b.dataset.e2eTrust&&x.user!==ME);if(!m)return;
   // Typed, not just clicked (review #5566): the fingerprint covers the keys the server shows, so a swapped key fails.
