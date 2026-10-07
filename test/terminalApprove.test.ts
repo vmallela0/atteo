@@ -85,7 +85,7 @@ describe("approval PIN", () => {
     const state = await env.DB.prepare(`SELECT salt, hash FROM approval_pins WHERE user = ?`).bind(user).first<{ salt: string; hash: string }>();
     expect(state?.hash).not.toContain("1234567");
     expect(state?.salt).toMatch(/^[a-f0-9]{32}$/);
-    await add("ap_pin_low", "low");
+    await add("ap_pin_low", "low", "test", "other");
     const decided = await decideWithPin(env, user, "ap_pin_low", "1234567");
     expect(decided.status).toBe("approved");
     expect((await getApproval(env, user, "ap_pin_low"))?.decided_via).toBe("approval_pin");
@@ -98,7 +98,16 @@ describe("approval PIN", () => {
     await expect(decideWithPin(env, user, "ap_pin_high", "1234567")).rejects.toMatchObject({ status: 403 });
     await add("ap_pin_host", "low", "atteo host");
     await expect(decideWithPin(env, user, "ap_pin_host", "1234567")).rejects.toMatchObject({ status: 403 });
-    for (const category of ["deploy_production", "spending", "outbound_external"]) {
+    // Medium, uncategorized, Atteo-made PACT sends and every sensitive category need the web or phone.
+    await add("ap_pin_medium", "medium", "test", "other");
+    await expect(decideWithPin(env, user, "ap_pin_medium", "1234567")).rejects.toMatchObject({ status: 403 });
+    await add("ap_pin_uncat", "low");
+    await expect(decideWithPin(env, user, "ap_pin_uncat", "1234567")).rejects.toMatchObject({ status: 403 });
+    await add("ap_pin_pact", "low", "test", "other");
+    await env.DB.prepare(`UPDATE approvals SET tool = 'pact' WHERE id = 'ap_pin_pact'`).run();
+    await expect(decideWithPin(env, user, "ap_pin_pact", "1234567")).rejects.toMatchObject({ status: 403 });
+    expect((await getApproval(env, user, "ap_pin_pact"))?.status).toBe("pending");
+    for (const category of ["deploy_production", "spending", "outbound_external", "delete_data", "push_main"]) {
       const id = `ap_pin_${category}`;
       await add(id, "low", "test", category);
       await expect(decideWithPin(env, user, id, "1234567")).rejects.toMatchObject({ status: 403 });
@@ -113,7 +122,7 @@ describe("approval PIN", () => {
     expect(hiddenPinPrompt()).toBe(`${warning}\nApproval PIN: `);
   });
   it("locks on five wrong tries per 15 minutes, disables after three lockouts, and alerts on each wrong try", async () => {
-    await add("ap_pin_fail", "low");
+    await add("ap_pin_fail", "low", "test", "other");
     for (let lock = 1; lock <= 3; lock++) {
       for (let n = 1; n <= 5; n++) {
         await expect(decideWithPin(env, user, "ap_pin_fail", "7654321")).rejects.toBeInstanceOf(TerminalApprovalError);

@@ -1922,7 +1922,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo approvals [--all] [--board <id>]   What your agents are waiting on you to approve (you decide in the browser)
   atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
   atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting
-  atteo approve <id> [--pin]       Confirm the whole request on your phone/web with the terminal's number; --pin uses a hidden TTY prompt for ordinary-risk approvals
+  atteo approve <id> [--pin]       Confirm the whole request on your phone/web with the terminal's number; --pin uses a hidden TTY prompt for low-risk "other" approvals
   atteo deny <id>                  Confirm denial on your phone/web with the terminal's number
   atteo host [--share DIR]… [--allow "<exact command>"]… [--allow-network] [--name N]   VERY DANGEROUS: attach this machine to the board so
                                         agents there can ask to run commands on it, as you, in the shared folders. Each start

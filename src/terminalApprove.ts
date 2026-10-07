@@ -140,7 +140,10 @@ export async function decideWithPin(env: Env, user: string, id: string, pin: str
   const a = await approvals.getApproval(env, user, id);
   if (!a) throw new TerminalApprovalError("No such approval.", 404);
   if (a.status !== "pending") throw new TerminalApprovalError("This approval is no longer pending.", 409);
-  if (a.risk === "high" || a.client === "atteo host" || !!a.tool?.startsWith("Host ") || a.category === "deploy_production" || a.category === "spending" || a.category === "outbound_external") throw new TerminalApprovalError("This approval requires confirmation on the web or phone.", 403);
+  // Allow-list, not deny-list: only requests marked low risk in category "other" (uncategorized always asks).
+  // Atteo-made approvals (PACT outbound messages) and host actions always need the web or phone (Codex review of #5879).
+  const pinOk = a.risk === "low" && a.category === "other" && a.client !== "atteo host" && !a.tool?.startsWith("Host ") && !(a.tool && approvals.RESERVED_TOOLS.has(a.tool.toLowerCase()));
+  if (!pinOk) throw new TerminalApprovalError("This approval requires confirmation on the web or phone.", 403);
   if (typeof pin !== "string" || pin.length > 32) throw new TerminalApprovalError("The approval PIN must be at most 32 digits.");
   for (let tries = 0; tries < 4; tries++) {
     const row = await env.DB.prepare(`SELECT * FROM approval_pins WHERE user = ?`).bind(user).first<PinRow>();
