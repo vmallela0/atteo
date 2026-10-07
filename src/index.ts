@@ -122,6 +122,7 @@ export { SlackTeam } from "./slackQueue";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_SEALED_FILE, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
+import * as machines from "./machines";
 import * as listen from "./listen";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
@@ -1142,10 +1143,12 @@ const handler = {
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
         // Slack channels that read this board, for its "Who can read this board" list (only while the bridge is on).
+        // Agents running on members' machines (jxn #5722): theirs as a count, yours by machine.
+        const machinesHere = machines.visibleTo(await machines.forUsers(env, members.map((x) => x.user)).catch(() => []), viewer.name);
         const slackChannels = slackOn(env, request)
           ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
           : [];
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, machines: machinesHere, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -2400,6 +2403,19 @@ const handler = {
       if (path === "/api/me/board-states" && method === "GET") {
         if (!viewer) return json({ error: "sign in required" }, 401);
         return json({ boards: await boardStates(env, viewer.name) }, 200, { "cache-control": "private, no-store" });
+      }
+
+      // ---- your machines and the agents running on each (atteo agents / atteo spawn --listen, jxn #5722) ----
+      if (path === "/api/me/machines" && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        if (method === "GET") return json({ machines: (await machines.forUsers(env, [viewer.name])).map(({ machine, agents, seen_at }) => ({ machine, agents, seen_at })) }, 200, { "cache-control": "no-store" });
+        try {
+          const r = await machines.report(env, viewer.name, (await request.json().catch(() => ({}))) as { machine?: unknown; agents?: unknown });
+          return json({ ok: true, machine: r.machine, agents: r.agents });
+        } catch (e) {
+          if (e instanceof machines.MachineError) return json({ error: e.message }, 400);
+          throw e;
+        }
       }
 
       // ---- the signed-in person's boards (CLI uses its bearer token) ----

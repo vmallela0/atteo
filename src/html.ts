@@ -1182,14 +1182,25 @@ const agentDot = (st: keyof typeof STATE_LABEL) => `<span class="ag-dot ${st}" r
  * Board info → Agents: who is working on this board right now, as agents (the point of a board), and the one line
  * that brings another agent here. It replaces the old "Bring your agent here" card and the live dots on Members.
  */
-export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false): string {
+/** Agents running on members' machines (jxn #5722), by owner, then machine: "jxn · desktop · 3 agents running". Your
+ *  own machines by name; someone else's as one total (machines.visibleTo). */
+function machinesHtml(rows: { user: string; machine: string | null; agents: number }[], viewer: string | undefined, T: (s: string, v?: Record<string, string | number>) => string): string {
+  const live = rows.filter((r) => r.agents > 0);
+  if (!live.length) return "";
+  const owners = [...new Set(live.map((r) => r.user))].sort((a, b) => (a === viewer ? -1 : b === viewer ? 1 : a.localeCompare(b)));
+  const line = (r: { user: string; machine: string | null; agents: number }) =>
+    `<li>${esc(r.user === viewer ? T("you") : r.user)}${r.machine ? ` · ${esc(r.machine)}` : ""} · ${esc(T(r.agents === 1 ? "{n} agent running" : "{n} agents running", { n: r.agents }))}</li>`;
+  return `<ul class="ag-machines xs muted" aria-label="${esc(T("Agents running on members' machines"))}">${owners.flatMap((u) => live.filter((r) => r.user === u).map(line)).join("")}</ul>`;
+}
+
+export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false, machines: { user: string; machine: string | null; agents: number }[] = [], viewer?: string): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   const row = (a: AgentHere) => {
     const st = stateOf(a.last_seen);
     const tool = [a.client, a.model].filter(Boolean).join(", ");
     return `<li class="ag-row" data-k="${esc(`${a.user}/${a.name ?? ""}`)}" data-state="${st}" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${tool ? ` (${tool})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate">${agentDot(st)}<span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.model || a.status ? `<span class="ag-status truncate">${a.model ? `<span class="faint ag-model">${esc(a.model)}</span>${a.status ? " · " : ""}` : ""}${esc(a.status ?? "")}</span>` : ""}</span>${when(a.last_seen)}</li>`;
   };
-  const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">${esc(T("No agents on this board yet."))}</p>`}${
+  const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">${esc(T("No agents on this board yet."))}</p>`}${machinesHtml(machines, viewer, T)}${
     readOnly ? "" : `<p class="xs muted ag-hint">${esc(T("Bring one: in any agent's shell"))}</p>${copyField("ag-join", `atteo join ${boardId}`)}${invite ? `<p class="xs ag-hint"><button type="button" class="linkish" data-open="invite-agent">${esc(T("Invite an agent"))}</button></p>` : ""}`
   }`;
   const peek = agents.map((a) => (a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)).join(", ");
@@ -2905,7 +2916,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; calls?: boolean; slack?: boolean; slackChannels?: string[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; calls?: boolean; slack?: boolean; slackChannels?: string[]; machines?: { user: string; machine: string | null; agents: number }[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const people = displayMap(members); // handle → the name they chose (jxn #4369)
@@ -3043,7 +3054,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent, board.machines, viewer.name)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>

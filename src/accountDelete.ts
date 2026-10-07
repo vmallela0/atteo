@@ -231,6 +231,7 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`DELETE FROM oauth_requests WHERE user = ?`, n),
     S(`DELETE FROM mcp_sessions WHERE user = ?`, n),
     S(`DELETE FROM mailbox_leases WHERE user = ?`, n),
+    S(`DELETE FROM machines WHERE user = ?`, n), // atteo agents: machine labels and counts (#5722)
     S(`DELETE FROM standing_rules WHERE user = ?`, n),
     S(`DELETE FROM standing_rules WHERE scope = 'person' AND scope_id = ?`, n),
     S(`DELETE FROM voice_sessions WHERE user = ?`, n),
