@@ -8,6 +8,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { displayCommand, terminalSafe } from "../../src/terminalText";
+export { displayCommand, terminalSafe } from "../../src/terminalText";
 
 /** Paths under $HOME that commonly hold keys, tokens and logins; the sandbox can't read them. */
 const SENSITIVE = [
@@ -18,21 +20,6 @@ const DEP_DIRS = ["node_modules", ".venv", "venv", "vendor"]; // reused read-onl
 export const OUTPUT_LIMIT = 8000;
 /** An attached command cannot turn the verifier's terminal into an unbounded output sink. */
 export const TERMINAL_OUTPUT_LIMIT = 64 * 1024;
-
-/** Make untrusted text inert before writing it to a terminal. Newlines and tabs remain readable. */
-export function terminalSafe(text: string): string {
-  return text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, (c) => {
-    const n = c.charCodeAt(0);
-    return n <= 0xff ? `\\x${n.toString(16).padStart(2, "0")}` : `\\u${n.toString(16).padStart(4, "0")}`;
-  }).replace(/\r/g, "\\r");
-}
-
-/** Commands are shown literally; controls (including line breaks) are escaped so they cannot forge the prompt. */
-export function displayCommand(command: string): string {
-  return /[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/.test(command)
-    ? JSON.stringify(command.replace(/[\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`))
-    : command;
-}
 
 export interface Sandbox {
   kind: "sandbox-exec" | "bwrap" | "docker";

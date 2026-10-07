@@ -1201,7 +1201,7 @@ const handler = {
         const snoozed = new Set(snoozedRows.map((r) => `${r.board_id}:${r.seq}`));
         const snoozedApprovals = new Set(snoozedRows.flatMap((r) => { try { const id = JSON.parse(r.data ?? "null")?.push?.approval; return id ? [id as string] : []; } catch { return []; } }));
         const visible = boards.map((b) => ({ ...b, decisions: b.decisions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)), questions: b.questions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)) }));
-        const pinAlerts = (await env.DB.prepare(`SELECT excerpt, created_at FROM notifications WHERE user = ? AND kind = 'people_only' AND entry_type = 'approval_pin_failed' AND created_at > ? ORDER BY created_at DESC LIMIT 20`).bind(viewer.name, now - 86_400_000).all<{ excerpt: string; created_at: number }>()).results;
+        const pinAlerts = (await env.DB.prepare(`SELECT entry_type, excerpt, created_at FROM notifications WHERE user = ? AND kind = 'people_only' AND entry_type IN ('approval_pin_failed', 'approval_pin_approved') AND created_at > ? ORDER BY created_at DESC LIMIT 20`).bind(viewer.name, now - 86_400_000).all<{ entry_type: string; excerpt: string; created_at: number }>()).results;
         return forYou.forYouPage(viewer, side, { approvals: await terminalApprove.attachConfirms(env, viewer.name, aps.filter((a) => !snoozedApprovals.has(a.id))), joins, boards: visible, mentions, pinAlerts, now });
       }
       if (path === "/api/inbox" && method === "GET") {

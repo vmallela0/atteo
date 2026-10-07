@@ -32,9 +32,9 @@ export function numberChoices(): { code: string; choices: string[] } {
   return { code, choices: out };
 }
 
-/** Keep the person's inbox and phone notification feed in step with every new confirm or failed PIN. */
-export async function alertPerson(env: Env, user: string, approval: approvals.Approval, kind: "terminal_confirm" | "approval_pin_failed", detail: string, later: ExecutionContext | null = null): Promise<void> {
-  const push = { kind, title: kind === "terminal_confirm" ? "Confirm terminal approval" : "Approval PIN failed", body: detail.slice(0, 160), url: `/approvals#${approval.id}`, approval: approval.id, board: approval.board_id, risk: approval.risk };
+/** Keep the person's inbox and phone notification feed in step with terminal decisions. */
+export async function alertPerson(env: Env, user: string, approval: approvals.Approval, kind: "terminal_confirm" | "approval_pin_failed" | "approval_pin_approved", detail: string, later: ExecutionContext | null = null): Promise<void> {
+  const push = { kind, title: kind === "terminal_confirm" ? "Confirm terminal approval" : kind === "approval_pin_failed" ? "Approval PIN failed" : "Approved with PIN", body: detail.slice(0, 160), url: `/approvals#${approval.id}`, approval: approval.id, board: approval.board_id, risk: approval.risk };
   await env.DB.prepare(`INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, data) VALUES (?, '', ?, 'people_only', ?, 'agent', ?, ?, ?, ?)`)
     .bind(user, offBoardSeq(), user, kind, detail.slice(0, 160), Date.now(), JSON.stringify({ push })).run();
   const send = sendApprovalAlert(env, user, push.title, push.body, push.url).catch(e => console.error("approval push failed", e));
@@ -136,6 +136,13 @@ export function failedPinState(row: Pick<PinRow, "attempts" | "window_start" | "
   return { attempts: attempts >= 5 ? 0 : attempts, window_start: fresh || attempts >= 5 ? now : row.window_start, locked_until: attempts >= 5 ? now + PIN_WINDOW_MS : 0, lockouts, disabled_at: lockouts >= 3 ? now : null };
 }
 
+async function countPinApproval(env: Env, user: string, day: number): Promise<void> {
+  const r = await env.DB.prepare(`INSERT INTO approval_pin_daily (user, day, approvals) VALUES (?, ?, 1)
+    ON CONFLICT(user) DO UPDATE SET day=excluded.day, approvals=CASE WHEN day=excluded.day THEN approvals+1 ELSE 1 END
+    WHERE day!=excluded.day OR approvals<20`).bind(user, day).run();
+  if (!r.meta.changes) throw new TerminalApprovalError("PIN approvals are capped for today; approve on the web or phone.", 429);
+}
+
 export async function decideWithPin(env: Env, user: string, id: string, pin: string, later: ExecutionContext | null = null): Promise<approvals.Approval> {
   const a = await approvals.getApproval(env, user, id);
   if (!a) throw new TerminalApprovalError("No such approval.", 404);
@@ -149,13 +156,27 @@ export async function decideWithPin(env: Env, user: string, id: string, pin: str
     const row = await env.DB.prepare(`SELECT * FROM approval_pins WHERE user = ?`).bind(user).first<PinRow>();
     if (!row || row.disabled_at) throw new TerminalApprovalError("Approval PIN is off. Set or reset it in Account settings.", 403);
     const now = Date.now();
+    const day = Math.floor(now / 86_400_000) * 86_400_000;
+    const daily = await env.DB.prepare(`SELECT day, approvals FROM approval_pin_daily WHERE user = ?`).bind(user).first<{ day: number; approvals: number }>();
+    if (daily?.day === day && daily.approvals >= 20) throw new TerminalApprovalError("PIN approvals are capped for today; approve on the web or phone.", 429);
     if (row.locked_until > now) throw new TerminalApprovalError("Approval PIN is locked for 15 minutes.", 429);
     const equal = validPin(pin) && await hashPin(pin, row.salt) === row.hash;
     const next = equal ? { attempts: 0, window_start: 0, locked_until: 0, lockouts: row.lockouts, disabled_at: null } : failedPinState(row, now);
     const changed = await env.DB.prepare(`UPDATE approval_pins SET attempts=?, window_start=?, locked_until=?, lockouts=?, disabled_at=? WHERE user=? AND salt=? AND attempts=? AND window_start=? AND locked_until=? AND lockouts=? AND disabled_at IS NULL`)
       .bind(next.attempts, next.window_start, next.locked_until, next.lockouts, next.disabled_at, user, row.salt, row.attempts, row.window_start, row.locked_until, row.lockouts).run();
     if (!changed.meta.changes) continue;
-    if (equal) return approvals.decide(env, user, id, true, "", null, "approval_pin");
+    if (equal) {
+      const decisionDay = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+      await countPinApproval(env, user, decisionDay);
+      let decided: approvals.Approval;
+      try { decided = await approvals.decide(env, user, id, true, "", null, "approval_pin"); }
+      catch (e) {
+        await env.DB.prepare(`UPDATE approval_pin_daily SET approvals=approvals-1 WHERE user=? AND day=? AND approvals>0`).bind(user, decisionDay).run();
+        throw e;
+      }
+      await alertPerson(env, user, decided, "approval_pin_approved", `Approved with PIN: ${decided.title}`, later);
+      return decided;
+    }
     await alertPerson(env, user, a, "approval_pin_failed", `A wrong approval PIN was entered for: ${a.title}`, later);
     if (next.disabled_at) throw new TerminalApprovalError("Approval PIN was disabled after three lockouts. Reset it in Account settings.", 429);
     if (next.locked_until) throw new TerminalApprovalError("Approval PIN is locked for 15 minutes after five failed tries.", 429);

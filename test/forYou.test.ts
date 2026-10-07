@@ -108,6 +108,12 @@ describe("For you page", () => {
     expect(html).toMatch(/id="fy-empty"(?! hidden)/);
   });
 
+  it("shows successful PIN alerts to the person", async () => {
+    const html = await forYouPage(viewer, [], { approvals: [], boards: [], mentions: [], pinAlerts: [{ entry_type: "approval_pin_approved", excerpt: "Approved with PIN: <script>Ship</script>", created_at: Date.now() }] }).text();
+    expect(html).toContain("Approved with PIN: &lt;script&gt;Ship&lt;/script&gt;");
+    expect(html).not.toContain("Approval PIN failed");
+  });
+
   it("shows an owner a repo join decision without trusting the names as HTML", async () => {
     const html = await forYouPage(viewer, [], { approvals: [], boards: [], mentions: [], joins: [{ id: "jr_test", board_id: "b_fam00001", requester: "<script>bad</script>", repo: "org/<img>", linked_by: "<b>attacker</b>", status: "pending", created_at: 1, decided_at: null, decided_by: null }] }).text();
     expect(html).toContain("&lt;script&gt;bad&lt;/script&gt;");

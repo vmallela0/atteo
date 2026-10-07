@@ -34,7 +34,7 @@ export interface ForYouData {
   joins?: JoinRequest[]; // owners decide who may join a repo board
   boards: ForYouCore[];
   mentions: InboxItem[]; // unread mentions / replies to the viewer (not questions or decisions: those come from the boards)
-  pinAlerts?: { excerpt: string; created_at: number }[];
+  pinAlerts?: { entry_type: string; excerpt: string; created_at: number }[];
   now?: number;
 }
 
@@ -196,7 +196,7 @@ ${a.terminal_confirm ? `${approvalCardHtml(a, false, L)}<pre class="mono ap-deta
   const joins = d.joins ?? [];
   const joinCards = joins.map((j) => `<article class="nc fy-join" data-join="${esc(j.id)}"><div class="type"><span class="dot"></span>${esc(T("A request for you"))}</div><h2 class="tt">${esc(j.requester)} ${esc(T("wants to join"))} ${esc(j.repo)}</h2><p class="small muted">linked to ${esc(j.repo)} by ${esc(j.linked_by)}, not verified with GitHub</p><div class="acts"><button class="btn xl" type="button" data-fy-join="decline">${esc(T("Decline"))}</button><button class="btn xl" type="button" data-fy-join="block">${esc(T("Block forever"))}</button><button class="btn xl primary" type="button" data-fy-join="let-in">${esc(T("Let in"))}</button></div></article>`).join("");
   const joinSec = joinCards ? `<section class="fy-ok" id="fy-joins">${joinCards}</section>` : "";
-  const alerts = (d.pinAlerts ?? []).map(x => `<div class="card pad small fy-pin-alert" role="status">${esc(T("Approval PIN failed"))} · ${esc(x.excerpt)} · ${esc(relTime(x.created_at, now, L))}</div>`).join("");
+  const alerts = (d.pinAlerts ?? []).map(x => `<div class="card pad small fy-pin-alert" role="status">${x.entry_type === "approval_pin_failed" ? `${esc(T("Approval PIN failed"))} · ` : ""}${esc(x.excerpt)} · ${esc(relTime(x.created_at, now, L))}</div>`).join("");
   const need = aps.length + joins.length + quick.length + (d.pinAlerts?.length ?? 0);
   const empty = `<div class="card empty fy-empty" id="fy-empty"${need ? " hidden" : ""}><h3>${esc(T("Nothing needs you right now"))}</h3><p class="muted">${esc(T("When your assistant needs your OK, or someone asks you something, it shows up here."))}</p></div>`;
 

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import type { Env } from "../src/types";
-import { attachConfirms, completeConfirm, decideWithPin, failedPinState, numberChoices, pinState, pollConfirm, publicConfirm, setPin, startConfirm, TerminalApprovalError, CONFIRM_MS, CONFIRM_START_WINDOW_MS, PIN_WINDOW_MS } from "../src/terminalApprove";
+import { attachConfirms, completeConfirm, decideWithPin, failedPinState, numberChoices, pinState, pollConfirm, publicConfirm, removePin, setPin, startConfirm, TerminalApprovalError, CONFIRM_MS, CONFIRM_START_WINDOW_MS, PIN_WINDOW_MS } from "../src/terminalApprove";
 import { getApproval, refOf } from "../src/approvals";
 import { approvalCardHtml } from "../src/approvalCard";
 import { approvalsPage } from "../src/approvalsPage";
@@ -11,7 +11,7 @@ import { hiddenPinPrompt, PIN_WARNING } from "../src/approvalPinCopy";
 let mf: Miniflare;
 let env: Env;
 const user = "e2e-terminal-test";
-const add = async (id: string, risk: string, client = "test", category: string | null = null) => env.DB.prepare(`INSERT INTO approvals (id, user, client, title, details, risk, status, created_at, expires_at, category) VALUES (?, ?, ?, ?, 'whole action', ?, 'pending', ?, ?, ?)`).bind(id, user, client, `Request ${id}`, risk, Date.now(), Date.now() + 300_000, category).run();
+const add = async (id: string, risk: string, client = "test", category: string | null = null, who = user) => env.DB.prepare(`INSERT INTO approvals (id, user, client, title, details, risk, status, created_at, expires_at, category) VALUES (?, ?, ?, ?, 'whole action', ?, 'pending', ?, ?, ?)`).bind(id, who, client, `Request ${id}`, risk, Date.now(), Date.now() + 300_000, category).run();
 
 beforeAll(async () => {
   mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: `export default { fetch() { return new Response("ok") } }`, d1Databases: { DB: "terminal-approval-test" } }));
@@ -21,7 +21,8 @@ beforeAll(async () => {
 CREATE TABLE notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, board_id TEXT, seq INTEGER, kind TEXT, actor TEXT, actor_via TEXT, entry_type TEXT, excerpt TEXT, created_at INTEGER, data TEXT, UNIQUE(user, board_id, seq));
 CREATE TABLE approval_terminal_confirms (approval_id TEXT PRIMARY KEY, user TEXT, token TEXT, code TEXT, choices TEXT, decision TEXT, status TEXT, created_at INTEGER, expires_at INTEGER);
 CREATE TABLE approval_confirm_starts (user TEXT, source TEXT, created_at INTEGER);
-CREATE TABLE approval_pins (user TEXT PRIMARY KEY, salt TEXT, hash TEXT, attempts INTEGER DEFAULT 0, window_start INTEGER DEFAULT 0, locked_until INTEGER DEFAULT 0, lockouts INTEGER DEFAULT 0, disabled_at INTEGER, updated_at INTEGER);`);
+CREATE TABLE approval_pins (user TEXT PRIMARY KEY, salt TEXT, hash TEXT, attempts INTEGER DEFAULT 0, window_start INTEGER DEFAULT 0, locked_until INTEGER DEFAULT 0, lockouts INTEGER DEFAULT 0, disabled_at INTEGER, updated_at INTEGER);
+CREATE TABLE approval_pin_daily (user TEXT PRIMARY KEY, day INTEGER, approvals INTEGER DEFAULT 0);`);
 });
 afterAll(async () => { await mf?.dispose(); });
 
@@ -92,6 +93,9 @@ describe("approval PIN", () => {
     expect((await getApproval(env, user, "ap_pin_low"))?.decision_label).toBe("approved with PIN from a terminal");
     expect(refOf(decided).decision_label).toBe("approved with PIN from a terminal");
     expect(approvalCardHtml(refOf(decided))).toContain("approved with PIN from a terminal");
+    const approvedAlert = await env.DB.prepare(`SELECT excerpt, data FROM notifications WHERE user = ? AND entry_type = 'approval_pin_approved'`).bind(user).first<{ excerpt: string; data: string }>();
+    expect(approvedAlert?.excerpt).toBe("Approved with PIN: Request ap_pin_low");
+    expect(JSON.parse(approvedAlert!.data).push.title).toBe("Approved with PIN");
     const page = await approvalsPage({ name: user, email: "test@example.com", display_name: null, admin: false }, [], [decided], {}).text();
     expect(page).toContain("approved with PIN from a terminal");
     await add("ap_pin_high", "high");
@@ -121,6 +125,37 @@ describe("approval PIN", () => {
     expect(page).toContain(warning);
     expect(hiddenPinPrompt()).toBe(`${warning}\nApproval PIN: `);
   });
+  it("caps PIN approvals at 20 per UTC day across approvals and PIN resets", async () => {
+    await setPin(env, user, "1234567");
+    const day = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+    await env.DB.prepare(`INSERT INTO approval_pin_daily (user, day, approvals) VALUES (?, ?, 19) ON CONFLICT(user) DO UPDATE SET day=excluded.day, approvals=excluded.approvals`).bind(user, day).run();
+    await add("ap_pin_twentieth", "low", "test", "other");
+    await add("ap_pin_capped", "low", "test", "other");
+    expect((await decideWithPin(env, user, "ap_pin_twentieth", "1234567")).status).toBe("approved");
+    await setPin(env, user, "1234567");
+    await expect(decideWithPin(env, user, "ap_pin_capped", "1234567")).rejects.toMatchObject({ status: 429, message: "PIN approvals are capped for today; approve on the web or phone." });
+    await expect(decideWithPin(env, user, "ap_pin_capped", "7654321")).rejects.toMatchObject({ status: 429, message: "PIN approvals are capped for today; approve on the web or phone." });
+    expect((await getApproval(env, user, "ap_pin_capped"))?.status).toBe("pending");
+    expect((await env.DB.prepare(`SELECT approvals FROM approval_pin_daily WHERE user = ?`).bind(user).first<{ approvals: number }>())?.approvals).toBe(20);
+    await removePin(env, user);
+    await setPin(env, user, "1234567");
+    await expect(decideWithPin(env, user, "ap_pin_capped", "1234567")).rejects.toMatchObject({ status: 429 });
+    await env.DB.prepare(`UPDATE approval_pin_daily SET day = ? WHERE user = ?`).bind(day - 86_400_000, user).run();
+    expect((await decideWithPin(env, user, "ap_pin_capped", "1234567")).status).toBe("approved");
+    expect((await env.DB.prepare(`SELECT day, approvals FROM approval_pin_daily WHERE user = ?`).bind(user).first<{ day: number; approvals: number }>())).toEqual({ day, approvals: 1 });
+  }, 30_000);
+  it("allows only one of two simultaneous PIN approvals at the daily boundary", async () => {
+    const who = `${user}-parallel`;
+    await setPin(env, who, "1234567");
+    const day = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+    await env.DB.prepare(`INSERT INTO approval_pin_daily (user, day, approvals) VALUES (?, ?, 19)`).bind(who, day).run();
+    await add("ap_pin_parallel_a", "low", "test", "other", who);
+    await add("ap_pin_parallel_b", "low", "test", "other", who);
+    const results = await Promise.allSettled([decideWithPin(env, who, "ap_pin_parallel_a", "1234567"), decideWithPin(env, who, "ap_pin_parallel_b", "1234567")]);
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(r => r.status === "rejected").map(r => (r as PromiseRejectedResult).reason.status)).toEqual([429]);
+    expect((await env.DB.prepare(`SELECT approvals FROM approval_pin_daily WHERE user = ?`).bind(who).first<{ approvals: number }>())?.approvals).toBe(20);
+  }, 30_000);
   it("locks on five wrong tries per 15 minutes, disables after three lockouts, and alerts on each wrong try", async () => {
     await add("ap_pin_fail", "low", "test", "other");
     for (let lock = 1; lock <= 3; lock++) {

@@ -6,7 +6,7 @@
 
 import { fence, flagNote, neutralize, randomId, screenText } from "../../src/screen";
 import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
-import { hiddenPinPrompt } from "../../src/approvalPinCopy";
+import { hiddenPinPrompt, pinApprovalPreview } from "../../src/approvalPinCopy";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { grepEntries } from "../../src/localSearch";
 import { env } from "./env";
@@ -1133,7 +1133,7 @@ async function schedulesCmd(args: string[]) {
 
 // ---- approvals: your person says yes or no before you do something with side effects ----
 
-type ApprovalRow = { id: string; status: string; risk: string; title: string; details: string; tool: string | null; command: string | null; requested_by: string | null; board_id: string | null; seq: number | null; note: string | null; created_at: number; expires_at: number };
+type ApprovalRow = { id: string; user: string; status: string; risk: string; title: string; details: string; tool: string | null; command: string | null; requested_by: string | null; session: string | null; client: string | null; board_id: string | null; seq: number | null; note: string | null; created_at: number; expires_at: number };
 const until = (ts: number) => {
   const m = Math.round((ts - Date.now()) / 60000);
   return m <= 0 ? "now" : m < 60 ? `${m}m` : m < 2880 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
@@ -1236,6 +1236,11 @@ async function terminalDecision(args: string[], decision: "approve" | "reject") 
   if (pos.length !== 1 || !/^ap_[A-Za-z0-9_-]+$/.test(pos[0])) throw new CliError(`Usage: atteo ${decision === "approve" ? "approve" : "deny"} <approval-id>${decision === "approve" ? " [--pin]" : ""}`);
   const id = pos[0];
   if (opt.pin) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== "function") throw new CliError("Approval PIN needs an interactive TTY; run atteo approve <id> --pin yourself.");
+    const { approval: a } = await api(opt, "GET", `/api/approvals/${id}`) as { approval: ApprovalRow };
+    if (a.status !== "pending") throw new CliError(`This approval is ${a.status}.`);
+    say(pinApprovalPreview(a));
+    if (!(await askYes("Approve this?", false))) throw new CliError("Canceled.");
     const pin = await hiddenApprovalPin();
     const j = await api(opt, "POST", `/api/approvals/${id}/pin`, { pin });
     return say(`Approved: ${j.approval.id}. Go ahead, exactly as asked.`);
