@@ -126,6 +126,7 @@ export interface NewEntry {
   to_people?: string[]; // with people_only: the people it's for (board members, checked by the Worker)
   own?: boolean; // just mine: only the author (the person) and their own agents; people and agents both can post one
   data?: unknown; // optional JSON object stored with the entry (entryData.ts); omitted or null means none
+  usage?: import("./spend").Usage; // server-visible token and cost metadata, including on encrypted boards
 }
 
 export interface Member {

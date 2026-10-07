@@ -4,11 +4,11 @@
 
 import { boardIdIn } from "./boardid";
 export { boardIdIn };
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { branchHash, decryptFile, decryptV2, deviceSigned, encryptFile, encryptV2, FILE_CHUNK, inviteKey, keysDigest, myKey, mySignKey, newEpochKey, openPins, openProof, pinsSigned, seal, sealPins, signDevice, unseal, unwrapInvite, unwrapKey, verifyDevice, wrapKey, type WrappedKey } from "./sealed";
 import { crossSigned, dropGone, fingerprint, firstSight, knowsNobody, mergePins, noneLeft, ownSigner, pinId, pinned, sameFingerprint } from "./crosssign";
@@ -27,6 +27,8 @@ import { createInterface } from "node:readline";
 import { displayCommand, NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, terminalSafe, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
 import { formatOrgDirectory } from "./org";
+import { transcriptDelta, transcriptUsage, type TokenTotals } from "./transcriptUsage";
+import { priceUsage, type Usage } from "../../src/spend";
 export { formatOrgDirectory } from "./org";
 
 const DEFAULT_SERVER = "https://atteo.dev";
@@ -82,6 +84,16 @@ export function parseArgs(args: string[], bools: string[] = []): { pos: string[]
 }
 
 export const optStr = (o: Record<string, string | true>, k: string) => (typeof o[k] === "string" ? (o[k] as string) : undefined);
+
+function usageFlags(opt: Record<string, string | true>): Usage | undefined {
+  const model = optStr(opt, "model");
+  const has = ["model", "input-tokens", "output-tokens", "cost-usd"].some((k) => opt[k] !== undefined);
+  if (!has) return undefined;
+  if (!model || optStr(opt, "input-tokens") == null || optStr(opt, "output-tokens") == null) throw new CliError("Usage needs --model, --input-tokens and --output-tokens together.");
+  const u: Usage = { model, input_tokens: Number(optStr(opt, "input-tokens")), output_tokens: Number(optStr(opt, "output-tokens")), ...(opt["cost-usd"] !== undefined ? { cost_usd: Number(optStr(opt, "cost-usd")) } : {}) };
+  try { priceUsage(u); } catch (e) { throw new CliError((e as Error).message); }
+  return u;
+}
 
 // The agent session this command runs as (set by the session layer, see session.ts and v2.ts): sent with every call,
 // and its board is the default when it's on exactly one.
@@ -488,12 +500,12 @@ export async function sealForBoard(opt: Record<string, string | true>, board: st
   return envelope(keys.get(current)!, current, text, extras);
 }
 
-export async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number; extras?: SealedExtras; files?: string[]; handoff?: (key: Buffer) => Record<string, unknown> }, tries = 0): Promise<{ seq: number }> {
+export async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number; extras?: SealedExtras; files?: string[]; handoff?: (key: Buffer) => Record<string, unknown>; usage?: Usage }, tries = 0): Promise<{ seq: number }> {
   const { current, keys } = await boardKeys(opt, board);
   const payload = envelope(keys.get(current)!, current, p.text, p.extras);
   try {
     // A handoff's clear part (the gate's metadata) is worked out under the same epoch key as the envelope.
-    const j = await api(opt, "POST", `/api/boards/${board}/sealed`, { payload, type: p.type, to: p.to, reply_to: p.reply_to, files: p.files?.length ? p.files : undefined, handoff: p.handoff?.(keys.get(current)!) });
+    const j = await api(opt, "POST", `/api/boards/${board}/sealed`, { payload, type: p.type, to: p.to, reply_to: p.reply_to, files: p.files?.length ? p.files : undefined, handoff: p.handoff?.(keys.get(current)!), usage: p.usage });
     return j.entry;
   } catch (e) {
     // A removal or a newer epoch since we looked: refetch the keys and encrypt again.
@@ -659,7 +671,7 @@ async function handoffSweep(opt: Record<string, string | true>, enc = false): Pr
  * envelope; in clear only what the gate's queue needs (the branch's keyed hash, the checks' names and counts, lgtm, or a
  * close's state). Checked for secrets here, since the server can't.
  */
-async function encHandoff(opt: Record<string, string | true>, board: string, h: { handoff: Record<string, unknown>; text: string }, reply?: number): Promise<string> {
+async function encHandoff(opt: Record<string, string | true>, board: string, h: { handoff: Record<string, unknown>; text: string }, reply?: number, usage?: Usage): Promise<string> {
   const hit = scanFields({ text: h.text, handoff: JSON.stringify(h.handoff) });
   if (hit) throw new CliError(blockedMessage(hit) + " (Caught on this machine; nothing was sent.)");
   const closing = h.handoff.state != null;
@@ -675,6 +687,7 @@ async function encHandoff(opt: Record<string, string | true>, board: string, h: 
     type: "handoff",
     text: h.text,
     reply_to: reply,
+    usage,
     extras: { handoff: h.handoff as SealedHandoff },
     handoff: (key) =>
       closing ? { state: h.handoff.state } : { branch_hash: branchHash(key, ready.branch), checks: talliesFrom(ready.checks), ...(ready.lgtm ? { lgtm: ready.lgtm } : {}) },
@@ -747,7 +760,8 @@ function gitSha(ref: string, flag: string): string {
 
 async function post(args: string[], forced?: string) {
   const { pos, opt } = parseArgs(args, ["own", "public", "sweep"]);
-  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public", "branch", "sha", "base", "checks", "lgtm", "landed", "failed", "sweep"]);
+  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public", "branch", "sha", "base", "checks", "lgtm", "landed", "failed", "sweep", "model", "input-tokens", "output-tokens", "cost-usd"]);
+  const usage = usageFlags(opt);
   if (opt.own && opt.public) throw new CliError("Pick one: --own (just you and your agents) or --public.");
   const type = forced ?? optStr(opt, "type") ?? "note";
   const gateFlags = ["branch", "sha", "base", "checks", "lgtm", "landed", "failed"].filter((k) => opt[k] !== undefined);
@@ -759,12 +773,13 @@ async function post(args: string[], forced?: string) {
       return say(await handoffSweep(opt, enc));
     }
     const h = handoffFrom(opt, pos);
-    if (enc) return say(await encHandoff(opt, currentBoard(opt), h, optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined));
+    if (enc) return say(await encHandoff(opt, currentBoard(opt), h, optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined, usage));
     return say(
       await tool(opt, "post", {
         type,
         text: h.text,
         handoff: h.handoff,
+        usage,
         title: optStr(opt, "title"),
         to: optStr(opt, "to"),
         reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined,
@@ -773,7 +788,7 @@ async function post(args: string[], forced?: string) {
   }
   if (await isEncrypted(opt, currentBoard(opt))) {
     if (opt.own) throw new CliError("--own isn't available on an end-to-end encrypted board.");
-    const e = await encPost(opt, currentBoard(opt), { type: forced ?? optStr(opt, "type") ?? "note", text: textFrom(pos), to: optStr(opt, "to"), reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined });
+    const e = await encPost(opt, currentBoard(opt), { type: forced ?? optStr(opt, "type") ?? "note", text: textFrom(pos), to: optStr(opt, "to"), reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined, usage });
     return say(`Posted #${e.seq} (encrypted on this machine).`);
   }
   const resolves = optStr(opt, "resolves")
@@ -782,6 +797,7 @@ async function post(args: string[], forced?: string) {
   say(
     await tool(opt, "post", {
       type: forced ?? optStr(opt, "type") ?? "note",
+      usage,
       text: textFrom(pos),
       title: optStr(opt, "title"),
       to: optStr(opt, "to"),
@@ -1117,6 +1133,7 @@ async function download(args: string[]) {
 
 async function task(args: string[]) {
   const { pos, opt } = parseArgs(args, ["mine", "json", "history"]);
+  const usage = usageFlags(opt);
   const [action = "list", n, ...more] = pos;
   const seq = () => int(n?.replace(/^#/, ""), "The task");
   // --json is the task API's own objects, unfenced like every --json (the text forms are fenced for agents).
@@ -1146,21 +1163,63 @@ async function task(args: string[]) {
     const old = optStr(opt, "old");
     const next = optStr(opt, "new");
     if (!old || next === undefined) throw new CliError('Usage: atteo task edit N --old "<exact text in the task>" --new "<replacement>" [--summary "<what changed>"]');
-    return say(await tool(opt, "task", { action: "edit", seq: seq(), old_str: old, new_str: next, summary: optStr(opt, "summary") }));
+    return say(await tool(opt, "task", { action: "edit", seq: seq(), old_str: old, new_str: next, summary: optStr(opt, "summary"), usage }));
   }
   const map: Record<string, () => Record<string, unknown>> = {
     list: () => ({ action: "list", status: optStr(opt, "status"), mine: opt.mine === true }),
-    claim: () => ({ action: "claim", seq: seq(), minutes: more[0] ? Number(more[0]) : optStr(opt, "minutes") ? Number(optStr(opt, "minutes")) : undefined }),
-    release: () => ({ action: "release", seq: seq() }),
-    done: () => ({ action: "update", seq: seq(), status: "done", note: more.join(" ") || undefined }),
-    update: () => ({ action: "update", seq: seq(), status: optStr(opt, "status"), assignee: optStr(opt, "assign"), due: optStr(opt, "due"), note: more.join(" ") || optStr(opt, "note") }),
-    stop: () => ({ action: "stop", seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || "" }),
+    claim: () => ({ action: "claim", seq: seq(), minutes: more[0] ? Number(more[0]) : optStr(opt, "minutes") ? Number(optStr(opt, "minutes")) : undefined, usage }),
+    release: () => ({ action: "release", seq: seq(), usage }),
+    done: () => ({ action: "update", seq: seq(), status: "done", note: more.join(" ") || undefined, usage }),
+    update: () => ({ action: "update", seq: seq(), status: optStr(opt, "status"), assignee: optStr(opt, "assign"), due: optStr(opt, "due"), note: more.join(" ") || optStr(opt, "note"), usage }),
+    stop: () => ({ action: "stop", seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || "", usage }),
     // Frozen (vedu #4791): parked for the far future; it leaves open work until unfrozen (back to to-do).
-    freeze: () => ({ action: "update", seq: seq(), status: "frozen", note: more.join(" ") || undefined }),
-    unfreeze: () => ({ action: "update", seq: seq(), status: "todo" }),
+    freeze: () => ({ action: "update", seq: seq(), status: "frozen", note: more.join(" ") || undefined, usage }),
+    unfreeze: () => ({ action: "update", seq: seq(), status: "todo", usage }),
   };
   if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] [--json] | get N [--history] [--json] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason> | freeze N | unfreeze N | remove N [why]]');
   say(await tool(opt, "task", map[action]()));
+}
+
+/** Scripts can report directly; the Claude Stop hook uses a local cursor plus a server id for each session/offset/model. */
+async function usage(args: string[]) {
+  const { pos, opt } = parseArgs(args, ["json"]);
+  if (pos.length !== 1 || pos[0] !== "report") throw new CliError("Usage: atteo usage report --model M --input-tokens N --output-tokens N [--cost-usd D] [--task N] | --from-transcript <path>");
+  onlyOptions("usage report", opt, ["board", "server", "json", "model", "input-tokens", "output-tokens", "cost-usd", "task", "source", "from-transcript"]);
+  const board = currentBoard(opt);
+  const task = optStr(opt, "task") == null ? undefined : int(optStr(opt, "task")!, "--task");
+  const path = optStr(opt, "from-transcript");
+  if (opt["from-transcript"] !== undefined && !path) throw new CliError("--from-transcript needs a path to Claude Code's JSONL transcript.");
+  if (path) {
+    if (usageFlags(opt)) throw new CliError("Give --from-transcript alone, or manual token counts.");
+    const full = resolve(path), bytes = readFileSync(full);
+    const parsed = transcriptUsage(bytes);
+    const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20);
+    const session = parsed.session ?? hash(full);
+    const key = hash(`${board}:${session}`), stateFile = join(configDir(), "usage-offsets.json");
+    type State = Record<string, { offset: number; totals: TokenTotals }>;
+    let state: State = {};
+    try { state = JSON.parse(readFileSync(stateFile, "utf8")); } catch {}
+    if (state[key]?.offset > parsed.offset) return say("This transcript is shorter than its last report; no usage was sent.");
+    const before = state[key]?.offset <= parsed.offset ? state[key] : undefined;
+    const delta = transcriptDelta(parsed.totals, before?.totals ?? {});
+    let recorded = 0;
+    for (const u of delta) {
+      const source = `cc:${hash(session)}:${parsed.offset}:${hash(u.model)}`;
+      const r = await api(opt, "POST", `/api/boards/${board}/usage`, { usage: u, task, source }) as { recorded: boolean };
+      if (r.recorded) recorded++;
+    }
+    if (parsed.offset > 0 && (!before || parsed.offset >= before.offset)) {
+      mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+      const temp = `${stateFile}.${process.pid}.tmp`;
+      writeFileSync(temp, JSON.stringify({ ...state, [key]: { offset: parsed.offset, totals: parsed.totals } }), { mode: 0o600 });
+      renameSync(temp, stateFile);
+    }
+    return say(opt.json ? JSON.stringify({ recorded, reports: delta.length, offset: parsed.offset }) : delta.length ? `Reported ${delta.length} model${delta.length === 1 ? "" : "s"} of token usage (${recorded} new).` : "No new token usage in this transcript.");
+  }
+  const u = usageFlags(opt);
+  if (!u) throw new CliError("Give --model, --input-tokens and --output-tokens, or --from-transcript <path>.");
+  const r = await api(opt, "POST", `/api/boards/${board}/usage`, { usage: u, task, source: optStr(opt, "source") });
+  say(opt.json ? JSON.stringify(r, null, 2) : r.recorded ? `Usage reported${r.usage.estimate ? " (estimated cost)" : ""}.` : "Usage already reported.");
 }
 
 /** Ticks (or unticks) the one checklist item on a task whose text contains `want`, as a task edit (old_str → new_str). */
@@ -1182,7 +1241,7 @@ async function tickItem(opt: Record<string, string | true>, seq: number, want: s
   if (!todo.length) return say(`Already ${tick ? "ticked" : "unticked"} on #${seq}: ${hits[0].line.trim()}`);
   if (todo.length > 1) throw new CliError(`"${want}" matches ${todo.length} items on #${seq}; use more of the item's words:\n${list(todo)}`);
   const item = todo[0].line.trim().replace(/^[-*] \[[ xX]\]\s*/, "");
-  say(await tool(opt, "task", { action: "edit", seq, old_str: todo[0].old, new_str: todo[0].flipped, summary: optStr(opt, "summary") ?? `${tick ? "Ticked" : "Unticked"}: ${item.slice(0, 80)}` }));
+  say(await tool(opt, "task", { action: "edit", seq, old_str: todo[0].old, new_str: todo[0].flipped, summary: optStr(opt, "summary") ?? `${tick ? "Ticked" : "Unticked"}: ${item.slice(0, 80)}`, usage: usageFlags(opt) }));
 }
 
 async function doc(args: string[]) {
@@ -1779,6 +1838,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   share,
   download,
   task,
+  usage,
   doc,
   decide: (a) => post(a, "decision"),
   publish: publishCmd,
@@ -1814,6 +1874,7 @@ Board commands (on the board chosen with \`use\`, per folder):
                                         installs the pre-push hook that posts change cards (--no-hook: don't)
   atteo read [--summary]           What's new since you last read (the first read also brings the board's summary)
   atteo post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M] [--own|--public]   ("-" reads stdin; --own: only you and your agents; --public: not kept in Just mine)
+  atteo usage report --model M --input-tokens N --output-tokens N [--cost-usd D] [--task N]   Token use for this board; or --from-transcript <path> for Claude Code Stop hooks
   atteo wait [--timeout s]         Wait for the next post
   atteo get N · search "<words>"   One entry with replies · ranked search
   atteo share <file> [--note …]    Post a file (its next version if the name exists; encrypted boards: encrypted here)

@@ -40,6 +40,7 @@ import { onApprovalDecided as slackOnApproval, onEntry as slackOnEntry } from ".
 import type { Listener } from "./listen";
 import { memberRole } from "./registry";
 import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
+import { priceUsage, PRICE_DATE, type PricedUsage, type Usage } from "./spend";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -182,6 +183,7 @@ export interface TaskActOpts {
   client?: string | null;
   session?: string | null; // the agent session acting: notes it causes count as its own posts
   session_name?: string | null; // its name, for "is on it" labels
+  usage?: Usage;
 }
 
 /** Who holds a task's claim, as headers say it: "jxn/alt-b" for a named agent session, else "jxn's agent" or "jxn". */
@@ -405,6 +407,14 @@ export class Board extends DurableObject<Env> {
         card_diff TEXT,
         data TEXT
       );
+      CREATE TABLE IF NOT EXISTS spend_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, day TEXT NOT NULL,
+        author TEXT NOT NULL, agent TEXT NOT NULL, task_seq INTEGER, entry_seq INTEGER,
+        model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+        cost_usd REAL, estimate INTEGER NOT NULL, source TEXT,
+        UNIQUE(author, source)
+      );
+      CREATE INDEX IF NOT EXISTS spend_day ON spend_reports (day);
       -- Purged entries (purge): who removed each, so it isn't purged twice and the log can say so.
       CREATE TABLE IF NOT EXISTS purged (seq INTEGER PRIMARY KEY, by_user TEXT NOT NULL, via TEXT NOT NULL, ts INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS entry_versions (seq INTEGER NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (seq, version));
@@ -1321,6 +1331,56 @@ export class Board extends DurableObject<Env> {
     return aud;
   }
 
+  /** Usage is a member's report, never a bill. The board's single writer caps accepted rows each UTC day. */
+  private checkSpend(raw: unknown): PricedUsage {
+    const u = priceUsage(raw);
+    const day = new Date().toISOString().slice(0, 10);
+    const n = this.sql.exec("SELECT COUNT(*) AS n FROM spend_reports WHERE day = ?", day).one().n as number;
+    if (n >= 500) throw new BoardError("This board has reached its daily limit of 500 usage reports. Try again tomorrow (UTC).");
+    return u;
+  }
+
+  private taskForSpend(seq: number | null, reply: number | null, type?: string): number | null {
+    if (type === "task") return seq;
+    for (let at = reply, hops = 0; at != null && hops < 50; hops++) {
+      if (this.sql.exec("SELECT 1 AS x FROM tasks WHERE seq = ?", at).toArray().length) return at;
+      at = (this.sql.exec("SELECT reply_to FROM entries WHERE seq = ?", at).toArray()[0]?.reply_to as number | null) ?? null;
+    }
+    return null;
+  }
+
+  private saveSpend(user: string, raw: unknown, opts: TaskActOpts, task: number | null, entry: number | null, source?: string): { recorded: boolean; usage: PricedUsage } {
+    const old = source ? this.sql.exec("SELECT model, input_tokens, output_tokens, cost_usd, estimate FROM spend_reports WHERE author = ? AND source = ?", user, source).toArray()[0] : null;
+    if (old) return { recorded: false, usage: { model: old.model as string, input_tokens: old.input_tokens as number, output_tokens: old.output_tokens as number, cost_usd: old.cost_usd as number | null, estimate: !!old.estimate } };
+    const usage = this.checkSpend(raw);
+    const now = Date.now();
+    const agent = opts.via === "agent" ? `${user}/${(opts.session_name ?? opts.session?.slice(0, 12) ?? opts.client ?? "agent").slice(0, 40)}` : user;
+    this.sql.exec("INSERT INTO spend_reports (ts, day, author, agent, task_seq, entry_seq, model, input_tokens, output_tokens, cost_usd, estimate, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      now, new Date(now).toISOString().slice(0, 10), user, agent, task, entry, usage.model, usage.input_tokens, usage.output_tokens, usage.cost_usd, usage.estimate ? 1 : 0, source ?? null);
+    return { recorded: true, usage };
+  }
+
+  async reportUsage(user: string, raw: unknown, opts: TaskActOpts, task?: number | null, source?: string): Promise<{ recorded: boolean; usage: PricedUsage }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(archivedError(info.id));
+    if (source !== undefined && (!/^[A-Za-z0-9_.:-]{8,120}$/.test(source))) throw new BoardError("source must be 8–120 letters, digits, _, ., : or -.");
+    if (task != null && (!Number.isInteger(task) || !this.sql.exec("SELECT 1 AS x FROM tasks WHERE seq = ?", task).toArray().length)) throw new BoardError(`Task #${task} does not exist on this board.`);
+    return this.saveSpend(user, raw, opts, task ?? null, null, source);
+  }
+
+  async spend(own?: string): Promise<{ price_date: string; self_reported: true; this_week: { cost_usd: number; input_tokens: number; output_tokens: number; unpriced: number }; agents: object[]; tasks: object[]; days: object[] }> {
+    this.info();
+    const since = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
+    const rows = this.sql.exec("SELECT r.day, r.author, r.agent, r.task_seq, t.title AS task_title, r.input_tokens, r.output_tokens, r.cost_usd, r.estimate FROM spend_reports r LEFT JOIN tasks t ON t.seq = r.task_seq WHERE r.day >= ? ORDER BY r.id DESC LIMIT 3500", since).toArray();
+    const seen = own ? rows.filter((r) => r.author === own) : rows;
+    const sum = (rs: typeof rows) => ({ cost_usd: Math.round(rs.reduce((n, r) => n + ((r.cost_usd as number | null) ?? 0), 0) * 1e6) / 1e6, input_tokens: rs.reduce((n, r) => n + (r.input_tokens as number), 0), output_tokens: rs.reduce((n, r) => n + (r.output_tokens as number), 0), unpriced: rs.filter((r) => r.cost_usd == null).length, estimated: rs.some((r) => !!r.estimate) });
+    const grouped = (key: "agent" | "task_seq" | "day") => {
+      const keys = [...new Set(seen.map((r) => r[key]))];
+      return keys.map((value) => ({ [key === "task_seq" ? "task" : key]: value, ...(key === "task_seq" ? { title: (seen.find((r) => r.task_seq === value)?.task_title as string | null) ?? null } : {}), ...sum(seen.filter((r) => r[key] === value)) })).sort((a, b) => b.cost_usd - a.cost_usd);
+    };
+    return { price_date: PRICE_DATE, self_reported: true, this_week: sum(seen), agents: grouped("agent"), tasks: grouped("task_seq"), days: grouped("day").sort((a, b) => String((a as Record<string, unknown>).day).localeCompare(String((b as Record<string, unknown>).day))) };
+  }
+
   async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" } = {}): Promise<Entry> {
     this.renewLeases(user, input.session);
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
@@ -1330,6 +1390,7 @@ export class Board extends DurableObject<Env> {
     let forSession = await this.sessionRoute(input.mentions ?? []);
     const again = this.sentBefore(user, input.idem, poster.person);
     if (again) return again;
+    if (input.usage != null) this.checkSpend(input.usage);
     const info = this.info();
     if (info.archived) throw new BoardError(archivedError(info.id));
     if (!internal.seeding) this.rateLimit(user);
@@ -1393,6 +1454,7 @@ export class Board extends DurableObject<Env> {
     // Private (people-only, or just mine): asked for, or inherited. An unsend has its target's audience; a reply, the
     // audience of what it answers.
     const aud = this.audienceFor(user, input, poster, boardKind);
+    if (aud && input.usage != null) throw new BoardError("Usage on a private message would appear in the board's Spend panel. Omit usage here, or report it on a public post.");
     const people = aud?.people ?? null;
     const own = aud?.audience === "own";
     if (aud) {
@@ -1487,6 +1549,9 @@ export class Board extends DurableObject<Env> {
     }
     if (mentions.length > 1 && !internal.seeding && hasGroupMention(text, ALL_MEMBERS)) this.allLimit(user);
 
+    // No await between this cap check, the entry insert and its usage row.
+    if (input.usage != null) this.checkSpend(input.usage);
+
     const row = this.sql
       .exec(
         `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, origin, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff, data)
@@ -1528,6 +1593,7 @@ export class Board extends DurableObject<Env> {
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
     for (const a of internal.attachments?.list.slice(1) ?? []) this.broadcast({ type: "doc", name: a.name, version: a.version, by: user });
     const entry = toEntry(row);
+    if (input.usage != null) this.saveSpend(user, input.usage, { via: input.via, client: input.client, session: input.session, session_name: input.session_name }, this.taskForSpend(entry.seq, entry.reply_to, entry.type), entry.seq);
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
     else this.indexEntry(entry.seq, handoff && !isResult(handoff) ? `${entry.text}\n${handoffText(handoff)}` : entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
     // A write that landed. System lines and board notices aren't pastes; test accounts stay out of the ops counters.
@@ -4122,6 +4188,7 @@ export class Board extends DurableObject<Env> {
    *  change to the task (leases.ts). */
   async taskClaim(user: string, seq: number, minutes: number, opts: TaskActOpts): Promise<TaskView> {
     const info = this.info();
+    if (opts.usage != null) this.checkSpend(opts.usage);
     const t = this.task(seq);
     if (t.status === "done") throw new BoardError(`#${seq} is already done.`);
     if (t.status === "frozen") throw new BoardError(`#${seq} is frozen (parked for later). Unfreeze it first: set its status back to todo.`);
@@ -4146,22 +4213,26 @@ export class Board extends DurableObject<Env> {
     void info;
     if (t.status !== "doing" && (t.status === "todo" || t.status === "stopped")) this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
+    if (opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
     return this.task(seq);
   }
 
   async taskRelease(user: string, seq: number, opts: TaskActOpts): Promise<TaskView> {
     const info = this.info();
+    if (opts.usage != null) this.checkSpend(opts.usage);
     const t = this.task(seq);
     if (t.lease_holder && t.lease_holder !== user && info.created_by !== user) throw new BoardError(`Only ${t.lease_holder} (or the board's creator) can release #${seq}.`);
     this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_agent = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END, updated_at = ? WHERE seq = ?", Date.now(), seq);
     if (t.status === "doing") this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
+    if (opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
     return this.task(seq);
   }
 
   /** Change status, assignee or due date, optionally with a note. Blocked while someone else holds the lease. */
   async taskUpdate(user: string, seq: number, change: TaskChange, opts: TaskActOpts): Promise<TaskView> {
     const info = this.info();
+    if (opts.usage != null) this.checkSpend(opts.usage);
     const t = this.task(seq);
     if (t.lease_holder && t.lease_holder !== user && info.created_by !== user) {
       throw new BoardError(`#${seq} is claimed by ${t.lease_holder} until ${iso(t.lease_until!)}; post on the board instead of changing it.`);
@@ -4210,6 +4281,7 @@ export class Board extends DurableObject<Env> {
     if (after.status !== t.status) this.taskEvent(seq, user, opts, "status", t.status);
     const done = change.status === "done" && t.status !== "done";
     this.broadcast({ type: "task", seq, ...(done ? { done: true } : {}) });
+    if (opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
     // The conversation only hears about a task when it's newly assigned or someone adds a note; everything else,
     // finishing it included, is visible on the task itself (Tasks tab, `task get`) and goes out live.
     if (done) await this.finishTask(user, seq, opts, after);
@@ -4283,9 +4355,11 @@ export class Board extends DurableObject<Env> {
   /** Stop signal: any member can halt a task; whoever holds it hears about it on their next read. */
   async taskStop(user: string, seq: number, reason: string, opts: TaskActOpts): Promise<TaskView> {
     this.info();
+    if (opts.usage != null) this.checkSpend(opts.usage);
     const t = this.task(seq);
     const why = reason.trim().slice(0, 300) || "stopped";
     this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", why, Date.now(), seq);
+    if (opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
     await this.post(user, { type: "note", reply_to: seq, to: t.lease_holder ?? t.assignee, text: `Stop task #${seq}: ${why}`, via: opts.via, client: opts.client, session: opts.session });
     if (t.status !== "stopped") this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
@@ -4352,7 +4426,7 @@ export class Board extends DurableObject<Env> {
     const body = (input.body ?? "").trim();
     const who = input.assignee ? input.assignee.toLowerCase() : null;
     if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
-    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client, session: opts.session }, { taskCreate: true });
+    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client, session: opts.session, usage: opts.usage }, { taskCreate: true });
     if (who || input.priority || input.due || input.assignee_agent === false) {
       this.sql.exec(
         "UPDATE tasks SET assignee = ?, assignee_agent = ?, priority = ?, due = ? WHERE seq = ?",
@@ -4395,6 +4469,7 @@ export class Board extends DurableObject<Env> {
     internal: { auto?: boolean } = {},
   ): Promise<TaskView> {
     const info = this.info();
+    if (!internal.auto && opts.usage != null) this.checkSpend(opts.usage);
     if (info.archived) throw new BoardError(archivedError(info.id));
     const t = this.task(seq);
     // Like any other change to the task, refused while someone else holds it (#3809); the server's own ticks aren't blocked.
@@ -4438,6 +4513,7 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("DELETE FROM search_idx WHERE kind = 'task' AND ref = ?", String(seq));
     this.sql.exec("INSERT INTO search_idx (body, name, kind, ref) VALUES (?, ?, 'task', ?)", body, title, String(seq));
     this.broadcast({ type: "task", seq });
+    if (!internal.auto && opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
     return this.task(seq);
   }
 
@@ -4938,7 +5014,7 @@ export class Board extends DurableObject<Env> {
    * A sealed secret: ciphertext only the recipient's agents can open (their CLI holds the private keys). The server
    * stores and serves the envelope and never sees the plaintext; the visible note says who it's for.
    */
-  async postSealed(user: string, s: { to: string | null; note?: string; payload: string; type?: string; reply_to?: number | null; files?: string[]; handoff?: unknown }, opts: TaskActOpts): Promise<Entry> {
+  async postSealed(user: string, s: { to: string | null; note?: string; payload: string; type?: string; reply_to?: number | null; files?: string[]; handoff?: unknown; usage?: Usage }, opts: TaskActOpts): Promise<Entry> {
     const info = this.info();
     const to = s.to ? s.to.toLowerCase() : null;
     if (!to && !info.encrypted) throw new BoardError("Say who it's for (to).");
@@ -4958,8 +5034,8 @@ export class Board extends DurableObject<Env> {
     const type = (["note", "question", "claim", "decision", "task", ...(info.encrypted ? (["handoff"] as const) : [])] as const).find((t) => t === s.type) ?? "note";
     if (s.handoff != null && type !== "handoff") throw new BoardError("handoff goes with type handoff.");
     const e = info.encrypted
-      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with atteo read)", via: opts.via, client: opts.client, session: opts.session, ...(type === "handoff" ? { handoff: s.handoff ?? {} } : {}) }, { sealed: true })
-      : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: atteo unseal <this entry's number>.`, via: opts.via, client: opts.client, session: opts.session });
+      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with atteo read)", via: opts.via, client: opts.client, session: opts.session, session_name: opts.session_name, usage: s.usage, ...(type === "handoff" ? { handoff: s.handoff ?? {} } : {}) }, { sealed: true })
+      : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: atteo unseal <this entry's number>.`, via: opts.via, client: opts.client, session: opts.session, session_name: opts.session_name, usage: s.usage });
     // On an encrypted board every envelope is for all members ("*"); `to` is just who it's addressed to.
     this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = ? WHERE seq = ?", s.payload, info.encrypted ? "*" : to, e.seq);
     for (const id of files) this.sql.exec("UPDATE sealed_files SET seq = ? WHERE id = ?", e.seq, id);

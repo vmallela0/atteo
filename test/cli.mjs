@@ -453,6 +453,51 @@ function cli(args, { cred = credA, cwd = dir, input, env = {} } = {}) {
   });
 }
 
+await step("usage reports: CLI post, script and Claude transcript retry count once", async () => {
+  const spendBoard = (await ops("boards", { user: A, title: `spend cli ${run}` })).board.id;
+  const cfg = join(dir, "cfg-spend"), env = { XDG_CONFIG_HOME: cfg };
+  let r = await cli(["post", "usage test", "--board", spendBoard, "--model", "claude-sonnet-4-5", "--input-tokens", "100", "--output-tokens", "20"], { env });
+  assert(r.code === 0, r.out + r.err);
+  r = await cli(["usage", "report", "--board", spendBoard, "--model", "gpt-5-mini", "--input-tokens", "200", "--output-tokens", "50", "--source", `script:${run}`], { env });
+  assert(r.code === 0 && r.out.includes("Usage reported"), r.out + r.err);
+  r = await cli(["usage", "report", "--board", spendBoard, "--model", "gpt-5-mini", "--input-tokens", "200", "--output-tokens", "50", "--source", `script:${run}`], { env });
+  assert(r.code === 0 && r.out.includes("already reported"), r.out + r.err);
+  const transcript = join(dir, `usage-${run}.jsonl`);
+  const line = (id, n) => JSON.stringify({ sessionId: `session-${run}`, type: "assistant", message: { id, model: "claude-sonnet-4-5", usage: { input_tokens: n, output_tokens: 10 } } }) + "\n";
+  writeFileSync(transcript, line("m1", 30) + line("m1", 40));
+  r = await cli(["usage", "report", "--board", spendBoard, "--from-transcript", transcript], { env });
+  assert(r.code === 0 && r.out.includes("1 new"), r.out + r.err);
+  r = await cli(["usage", "report", "--board", spendBoard, "--from-transcript", transcript], { env });
+  assert(r.code === 0 && r.out.includes("No new"), r.out + r.err);
+  writeFileSync(transcript, line("m1", 30) + line("m1", 40) + line("m2", 5));
+  r = await cli(["usage", "report", "--board", spendBoard, "--from-transcript", transcript], { env });
+  assert(r.code === 0 && r.out.includes("1 new"), r.out + r.err);
+  const made = await (await fetch(`${BASE}/api/boards/${spendBoard}/tasks`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ title: `Measure ${run}` }) })).json();
+  const task = made.task.seq;
+  r = await cli(["task", "done", String(task), "--board", spendBoard, "--model", "claude-sonnet-4-5", "--input-tokens", "8", "--output-tokens", "2"], { env });
+  assert(r.code === 0, r.out + r.err);
+  r = await cli(["post", `Task result ${run}`, "--board", spendBoard, "--reply", String(task), "--model", "claude-sonnet-4-5", "--input-tokens", "7", "--output-tokens", "1"], { env });
+  assert(r.code === 0, r.out + r.err);
+  const spend = await (await fetch(`${BASE}/api/boards/${spendBoard}/spend`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  assert(spend.this_week.input_tokens === 360 && spend.this_week.output_tokens === 93, JSON.stringify(spend.this_week));
+  assert(spend.tasks.find((t) => t.task === task)?.input_tokens === 15, `task update and reply attribution: ${JSON.stringify(spend.tasks)}`);
+  assert((await tool(tokA, spendBoard, "spend", {})).includes("Reported spend") && (await tool(tokA, spendBoard, "spend", {})).includes("<<untrusted"), "the MCP spend tool fences labels");
+});
+
+await step("usage daily cap: 500 reports per board, retries remain idempotent", async () => {
+  const spendBoard = (await ops("boards", { user: A, title: `spend cap ${run}` })).board.id;
+  const url = `${BASE}/api/boards/${spendBoard}/usage`, headers = { authorization: `Bearer ${tokA}`, "content-type": "application/json" };
+  const send = (source) => fetch(url, { method: "POST", headers, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 1, output_tokens: 0 }, source }) });
+  for (let i = 0; i < 500; i++) {
+    const r = await send(`cap:${run}:${i}`);
+    assert(r.status === 200, `report ${i}: ${r.status} ${await r.text()}`);
+  }
+  const refused = await send(`cap:${run}:overflow`);
+  assert(refused.status === 400 && (await refused.json()).error.includes("daily limit"), `501st report: ${refused.status}`);
+  const retry = await send(`cap:${run}:0`);
+  assert(retry.status === 200 && (await retry.json()).recorded === false, "a retry after the cap still counts once");
+});
+
 await step("board commands: use, post, read, ask (waits for the answer), search, share, task, doc grep, local secret filter", async () => {
   const proj = join(dir, "proj");
   (await import("node:fs")).mkdirSync(join(proj, "sub"), { recursive: true });
@@ -970,8 +1015,10 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   await cli(["keys"], { cwd: projB, cred: credB });
   await cli(["use", eb], { cwd: projB, cred: credB });
   const secret = `launch codes are 0000 ${run}`;
-  r = await cli(["post", secret], { cwd: projA });
+  r = await cli(["post", secret, "--model", "claude-sonnet-4-5", "--input-tokens", "12", "--output-tokens", "3"], { cwd: projA });
   assert(r.code === 0 && r.out.includes("encrypted on this machine"), r.out + r.err);
+  const spend = await (await fetch(`${BASE}/api/boards/${eb}/spend`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  assert(spend.this_week.input_tokens === 12 && spend.this_week.output_tokens === 3, `encrypted usage is server-visible metadata: ${JSON.stringify(spend.this_week)}`);
   // The server, and agents reading through it, see only a placeholder.
   const viaServer = await tool(tokB, eb, "read", {});
   assert(viaServer.includes("END-TO-END ENCRYPTED") && !viaServer.includes("launch codes"), viaServer);
@@ -3182,8 +3229,10 @@ await step("encrypted handoffs: post handoff seals the branch, commits and check
   g("commit", "-qam", "the fix");
   const head = g("rev-parse", "HEAD");
 
-  r = await cli(["post", "handoff", "--checks", "vitest 12, e2e 3/4", "--board", eb], { cwd: repo });
+  r = await cli(["post", "handoff", "--checks", "vitest 12, e2e 3/4", "--board", eb, "--model", "claude-sonnet-4-5", "--input-tokens", "21", "--output-tokens", "4"], { cwd: repo });
   assert(r.code === 0 && r.out.includes("ready to gate") && r.out.includes("encrypted on this machine"), r.out + r.err);
+  const spend = await (await fetch(`${BASE}/api/boards/${eb}/spend`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  assert(spend.this_week.input_tokens === 21 && spend.this_week.output_tokens === 4, `handoff usage metadata: ${JSON.stringify(spend.this_week)}`);
   const h = Number(r.out.match(/Posted #(\d+)/)[1]);
   // The server has the gate's metadata only.
   const rest = await fetch(`${BASE}/api/boards/${eb}/handoffs`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json());

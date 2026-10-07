@@ -1145,7 +1145,7 @@ const handler = {
         const slackChannels = slackOn(env, request)
           ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
           : [];
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels, spend: await boardStub(env, m[2]).spend() });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1596,7 +1596,7 @@ const handler = {
         };
         try {
           if (method === "POST" && !km[2]) {
-            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number; files?: unknown; handoff?: unknown };
+            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number; files?: unknown; handoff?: unknown; usage?: import("./spend").Usage };
             const note = String(b.note ?? "");
             const blocked = egressRefusal(env, ctx, { note });
             if (blocked) return json({ error: blocked }, 400);
@@ -1604,7 +1604,7 @@ const handler = {
             const refused = await epochRefusal(String(b.payload ?? ""));
             if (refused) return refused;
             const files = Array.isArray(b.files) ? b.files.map(String) : [];
-            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null, files, handoff: b.handoff }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
+            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null, files, handoff: b.handoff, usage: b.usage }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
             return json({ ok: true, entry: e }, 201);
           }
@@ -3309,6 +3309,23 @@ const handler = {
       }
 
       // ---- tasks board (web): list, and act on one task as a person ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(spend|usage)$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        if (m[2] === "spend" && method === "GET") return json(await stub.spend(url.searchParams.get("own") === "1" ? viewer.name : undefined), 200, { "cache-control": "no-store" });
+        if (m[2] === "usage" && method === "POST") {
+          if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
+          const b = (await request.json().catch(() => ({}))) as { usage?: unknown; task?: unknown; source?: unknown };
+          try {
+            return json(await stub.reportUsage(viewer.name, b.usage, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) }, b.task == null ? null : Number(b.task), b.source == null ? undefined : String(b.source)), 200, { "cache-control": "no-store" });
+          } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+
+      // ---- tasks board (web): list, and act on one task as a person ----
       m = path.match(/^\/api\/boards\/([^/]+)\/tasks(?:\/(\d+))?$/);
       if (m) {
         if (!viewer) return needLogin();
@@ -3331,7 +3348,7 @@ const handler = {
             const created = await stub.taskCreate(
               viewer.name,
               { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null, parent: typeof b.parent === "number" && b.parent > 0 ? b.parent : null },
-              { via: pv(), ...(await asOpts()) },
+              { via: pv(), ...(await asOpts()), usage: b.usage as import("./spend").Usage | undefined },
             );
             if (!created.duplicate) ctx.waitUntil(registry.bumpBoard(env, m[1], created.task.seq).catch(() => {}));
             return json({ ok: true, task: created.task, duplicate: created.duplicate, ...(created.similar?.length ? { similar: created.similar } : {}) }, created.duplicate ? 200 : 201);
@@ -3343,7 +3360,7 @@ const handler = {
           const seq = parseInt(m[2], 10);
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : undefined);
-          const opts = { via: pv(), ...(await asOpts()) };
+          const opts = { via: pv(), ...(await asOpts()), usage: b.usage as import("./spend").Usage | undefined };
           try {
             let t;
             if (b.action === "edit")
@@ -3647,7 +3664,7 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; title?: unknown; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; supersedes?: unknown; depends_on?: unknown; strict?: unknown; artifact_name?: unknown; artifact_content?: unknown; card?: unknown; handoff?: unknown; data?: unknown };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; title?: unknown; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; supersedes?: unknown; depends_on?: unknown; strict?: unknown; artifact_name?: unknown; artifact_content?: unknown; card?: unknown; handoff?: unknown; data?: unknown; usage?: import("./spend").Usage };
           // The same entry as MCP's post (SPEC.md §17): an unknown type is refused, not turned into a note.
           const askedType = typeof body.type === "string" ? body.type.trim().toLowerCase() : "";
           if (body.type != null && !(ENTRY_TYPES as readonly string[]).includes(askedType)) return json({ error: `type must be one of: ${ENTRY_TYPES.join(", ")}` }, 400);
@@ -3709,7 +3726,7 @@ const handler = {
             const input: NewEntry = {
               type, text, title, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), ...(supersedes ? { supersedes } : {}), ...(dependsOn.length ? { depends_on: dependsOn } : {}),
               ...(typeof body.artifact_name === "string" ? { artifact_name: body.artifact_name } : {}), ...(typeof body.artifact_content === "string" ? { artifact_content: body.artifact_content } : {}), ...(body.card != null ? { card: body.card } : {}),
-              via: pv(), ...so, idem, data: body.data, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}),
+              via: pv(), ...so, idem, data: body.data, usage: body.usage, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}),
             };
             // An agent's post goes through the stale-read rule, as over MCP (SPEC.md §9): if something it hasn't read bears
             // on it, nothing is posted and it gets those entries (now marked read). People on the web post as before.
@@ -4120,5 +4137,3 @@ export default Sentry.withSentry(
   (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0, beforeSend: scrubForSentry }),
   handler,
 );
-
-

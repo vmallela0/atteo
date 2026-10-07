@@ -148,6 +148,7 @@ const TOOL_DEFS = [
           description: `Optional JSON object stored with this entry and returned unchanged by read and get (max ${MAX_ENTRY_DATA} bytes). For machine-readable fields; keep the message in text.`,
           additionalProperties: true,
         },
+        usage: { type: "object", description: "Optional server-visible token usage for this post; cost_usd may be omitted for a price estimate.", properties: { model: { type: "string" }, input_tokens: { type: "integer" }, output_tokens: { type: "integer" }, cost_usd: { type: "number" } }, required: ["model", "input_tokens", "output_tokens"] },
         title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
         to: {
           type: "string",
@@ -234,9 +235,15 @@ const TOOL_DEFS = [
         priority: { type: "string", enum: ["high", "medium", "low", ""], description: "update: priority (empty to clear)" },
         note: { type: "string", description: "update: one line of progress (with status done: kept on the task)" },
         reason: { type: "string", description: "stop: why" },
+        usage: { type: "object", description: "Optional server-visible token usage for this task change.", properties: { model: { type: "string" }, input_tokens: { type: "integer" }, output_tokens: { type: "integer" }, cost_usd: { type: "number" } }, required: ["model", "input_tokens", "output_tokens"] },
       },
       required: ["action"],
     },
+  },
+  {
+    name: "spend",
+    description: "Your reported token use and spend on this board in the last seven UTC days. Set own=false for the whole board. Costs without a reported cost are estimates.",
+    inputSchema: { type: "object", properties: { own: { type: "boolean", description: "Your agents only (default true); false: everyone on the board." } } },
   },
   {
     name: "review",
@@ -561,6 +568,7 @@ const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
   memory: DESTRUCTIVE("Board memory"),
   doc: DESTRUCTIVE("Shared documents"),
   task: DESTRUCTIVE("Tasks"),
+  spend: RO("Reported board spend"),
   review: WRITE("Review a change"),
   request_approval: WRITE("Ask your user for approval"),
   approval: RO("Check an approval"),
@@ -1002,6 +1010,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         card: args.card,
         ...(args.handoff != null ? { handoff: args.handoff } : {}),
         data: args.data,
+        usage: args.usage as import("./spend").Usage | undefined,
         ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null, args.strict === true || args.strict === "true"));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
@@ -1122,12 +1131,18 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       throw new ToolError('action must be one of: list, read, write, edit, history, grep, pin, unpin.');
     }
 
+    case "spend": {
+      const id = await currentBoard(c, args);
+      const data = await stubFor(env, id).spend(args.own === false ? undefined : user);
+      return "Reported spend for the last seven UTC days (self-reported; estimated costs use list prices):\n" + fence(JSON.stringify(data));
+    }
+
     case "task": {
       const id = await currentBoard(c, args);
       if (["create","edit","claim","release","update","stop"].includes(str(args.action) ?? "")) await requireWriter(env, id, user);
       const stub = stubFor(env, id);
       const action = str(args.action);
-      const opts = await agentOpts(c);
+      const opts = { ...(await agentOpts(c)), usage: args.usage as import("./spend").Usage | undefined };
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
