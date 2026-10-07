@@ -3,7 +3,7 @@
 
 import { track } from "./usage";
 import { notifyMailboxes } from "./mailbox";
-import { imageSize, sniffImage } from "./imageSize";
+import { imageSize, sniffImage, sniffVideo } from "./imageSize";
 import { fence, flagged, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
@@ -4579,18 +4579,19 @@ export class Board extends DurableObject<Env> {
     const bytes = new Uint8Array(f.bytes);
     const text = (f.text ?? "").trim();
     const image = sniffImage(bytes);
+    const video = image ? null : sniffVideo(bytes);
     if (!image) {
-      const asText = utf8Text(bytes);
+      const asText = video ? null : utf8Text(bytes);
       if (asText != null && asText.length <= MAX_ARTIFACT) {
         const name = cleanFileName((f.name || "").trim() || `file-${Date.now()}.txt`);
         return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: asText, mentions: f.mentions, reply_to: f.reply_to ?? null, via: f.via, client: f.client });
       }
-      // Binary: no type of ours is trusted to render, so it's always served as a download.
+      // Binary: no type of ours is trusted to render, so it's served as a download; a sniffed video plays in the page.
       const hit = scanText(byteString(bytes), "file");
       if (hit) throw new BoardError(this.secretBlock(hit));
     }
-    const name = binaryName(f.name, image);
-    const media = mediaFor(image, bytes.byteLength, f.width, f.height, bytes);
+    const name = binaryName(f.name, image ?? video);
+    const media = mediaFor(image ?? video, bytes.byteLength, f.width, f.height, bytes);
     const about = aboutBinary(media);
     const version = this.storeBlob(user, name, about, media, f.bytes, { via: f.via, client: f.client, summary: text || `Shared ${name}` });
     return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: about, mentions: f.mentions, reply_to: f.reply_to ?? null, via: f.via, client: f.client }, { docVersion: version, media });
@@ -4642,12 +4643,13 @@ export class Board extends DurableObject<Env> {
     const files = f.files.map((x) => {
       const bytes = new Uint8Array(x.bytes);
       const image = sniffImage(bytes);
-      const asText = image ? null : utf8Text(bytes);
+      const video = image ? null : sniffVideo(bytes);
+      const asText = image || video ? null : utf8Text(bytes);
       if (asText != null && asText.length <= MAX_ARTIFACT) {
         return { name: uniqueName(cleanFileName((x.name || "").trim() || `file-${Date.now()}.txt`), taken), content: asText, raw: null, media: null, scan: null };
       }
-      const media = mediaFor(image, bytes.byteLength, x.width, x.height, bytes);
-      return { name: uniqueName(binaryName(x.name, image), taken), content: aboutBinary(media), raw: x.bytes, media, scan: image ? null : byteString(bytes) };
+      const media = mediaFor(image ?? video, bytes.byteLength, x.width, x.height, bytes);
+      return { name: uniqueName(binaryName(x.name, image ?? video), taken), content: aboutBinary(media), raw: x.bytes, media, scan: image ? null : byteString(bytes) };
     });
     const hit =
       scanFields({ text }) ??
@@ -5605,16 +5607,20 @@ export function utf8Text(b: Uint8Array): string | null {
   }
 }
 
-/** A stored binary's name: the one given (cleaned), or "image-<time>.png"; an image always ends in its type's extension. */
-function binaryName(raw: string, image: string | null): string {
-  const ext = image ? image.split("/")[1].replace("jpeg", "jpg") : "";
-  const name = cleanFileName((raw || "").trim() || `${image ? "image" : "file"}-${Date.now()}${image ? "." + ext : ""}`);
-  return image && !/\.(png|jpe?g|gif|webp)$/i.test(name) ? `${name}.${ext}` : name;
+/** A stored binary's name: the one given (cleaned), or "image-<time>.png"; an image or video always ends in its type's
+ *  extension. */
+function binaryName(raw: string, media: string | null): string {
+  const ext = media ? media.split("/")[1].replace("jpeg", "jpg").replace("quicktime", "mov") : "";
+  const kind = media ? media.split("/")[0] : "file";
+  const name = cleanFileName((raw || "").trim() || `${kind}-${Date.now()}${media ? "." + ext : ""}`);
+  return media && !/\.(png|jpe?g|gif|webp|mp4|m4v|mov|webm)$/i.test(name) ? `${name}.${ext}` : name;
 }
 
-/** What's known about a stored binary: its type (sniffed images, else a download), size, and an image's pixel size —
- *  the uploader's if given, else read from the header bytes, so agent uploads (which send none) still get a size. */
-function mediaFor(image: string | null, size: number, width: number | null | undefined, height: number | null | undefined, bytes: Uint8Array): Media {
+/** What's known about a stored binary: its type (sniffed images and videos, else a download), size, and an image's
+ *  pixel size — the uploader's if given, else read from the header bytes, so agent uploads (which send none) still get
+ *  a size. */
+function mediaFor(type: string | null, size: number, width: number | null | undefined, height: number | null | undefined, bytes: Uint8Array): Media {
+  const image = type?.startsWith("image/") ? type : null;
   const dim = (n: number | null | undefined) => (image && Number.isInteger(n) && (n as number) > 0 && (n as number) <= 20000 ? (n as number) : null);
   let w = dim(width);
   let h = dim(height);
@@ -5625,13 +5631,14 @@ function mediaFor(image: string | null, size: number, width: number | null | und
       h = dim(sniffed.h);
     }
   }
-  return { mime: image ?? "application/octet-stream", w, h, size };
+  return { mime: type ?? "application/octet-stream", w, h, size };
 }
 
 /** A binary's doc version text (what agents read in place of the bytes). */
 function aboutBinary(media: Media): string {
   const kb = `${Math.max(1, Math.round(media.size / 1024))} KB`;
-  return media.mime.startsWith("image/") ? `[image · ${media.mime}${media.w && media.h ? ` · ${media.w}×${media.h}` : ""} · ${kb}]` : `[binary file · ${kb}; download it from the Files tab]`;
+  if (media.mime.startsWith("image/")) return `[image · ${media.mime}${media.w && media.h ? ` · ${media.w}×${media.h}` : ""} · ${kb}]`;
+  return media.mime.startsWith("video/") ? `[video · ${media.mime} · ${kb}; download it from the Files tab]` : `[binary file · ${kb}; download it from the Files tab]`;
 }
 
 export { sniffImage } from "./imageSize";
