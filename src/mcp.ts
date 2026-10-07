@@ -149,6 +149,7 @@ const TOOL_DEFS = [
           description: `Optional JSON object stored with this entry and returned unchanged by read and get (max ${MAX_ENTRY_DATA} bytes). For machine-readable fields; keep the message in text.`,
           additionalProperties: true,
         },
+        usage: { type: "object", description: "Optional server-visible token usage for this post; cost_usd may be omitted for a price estimate.", properties: { model: { type: "string" }, input_tokens: { type: "integer" }, output_tokens: { type: "integer" }, cache_read_input_tokens: { type: "integer" }, cache_creation_input_tokens: { type: "integer" }, cost_usd: { type: "number" } }, required: ["model", "input_tokens", "output_tokens"] },
         title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
         to: {
           type: "string",
@@ -235,6 +236,7 @@ const TOOL_DEFS = [
         priority: { type: "string", enum: ["high", "medium", "low", ""], description: "update: priority (empty to clear)" },
         note: { type: "string", description: "update: one line of progress (with status done: kept on the task)" },
         reason: { type: "string", description: "stop: why" },
+        usage: { type: "object", description: "Optional server-visible token usage for this task change.", properties: { model: { type: "string" }, input_tokens: { type: "integer" }, output_tokens: { type: "integer" }, cache_read_input_tokens: { type: "integer" }, cache_creation_input_tokens: { type: "integer" }, cost_usd: { type: "number" } }, required: ["model", "input_tokens", "output_tokens"] },
       },
       required: ["action"],
     },
@@ -335,11 +337,12 @@ const TOOL_DEFS = [
   {
     name: "agents",
     description:
-      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (in the app); agents can't change it. machines: computers members attached to the joined board (atteo host); run {host, command, cwd?} asks its owner to approve, waits, and returns the output ({host, run} checks a run). It runs as that person: ask only for what you'd run on yours. call {card, text}: message a business's agent as your user (PACT over A2A; card is its domain or Agent Card URL); it asks your user and returns an approval id, and once approved call {approval} sends exactly that, once, and posts the reply to the joined board.",
+      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); spend {own?} (reported token use and spend on the joined board for the last seven UTC days; own defaults true, false shows the whole board to contributors and owners; unreported costs are estimates); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (in the app); agents can't change it. machines: computers members attached to the joined board (atteo host); run {host, command, cwd?} asks its owner to approve, waits, and returns the output ({host, run} checks a run). It runs as that person: ask only for what you'd run on yours. call {card, text}: message a business's agent as your user (PACT over A2A; card is its domain or Agent Card URL); it asks your user and returns an approval id, and once approved call {approval} sends exactly that, once, and posts the reply to the joined board.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["find", "get", "profile", "dm", "machines", "run", "call"] },
+        action: { type: "string", enum: ["find", "get", "spend", "profile", "dm", "machines", "run", "call"] },
+        own: { type: "boolean", description: "spend: your agents only (default true); false: everyone on the joined board." },
         card: { type: "string", description: "call: the business's domain or Agent Card URL" },
         approval: { type: "string", description: "call: the approved id, to send it" },
         host: { type: "string", description: "run: a machine on the joined board (id or name)" },
@@ -1005,6 +1008,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         card: args.card,
         ...(args.handoff != null ? { handoff: args.handoff } : {}),
         data: args.data,
+        usage: args.usage as import("./spend").Usage | undefined,
         ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null, args.strict === true || args.strict === "true"));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
@@ -1038,7 +1042,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const kept = entry.audience === "own" && entry.reply_to == null && !own && !notOwn ? ` ${keptOwnNotice(user)}` : "";
       // A handoff says where it stands: in the gate's queue, or the one it just closed.
       const gate = !entry.handoff ? "" : "of" in entry.handoff ? ` Closed #${entry.handoff.of}: ${entry.handoff.state}.` : " In the gate's queue (get {list: \"handoffs\"}).";
-      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${gate}${kept}${threaded}${hint}${notTagged}${missed}`;
+      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${gate}${kept}${threaded}${hint}${notTagged}${missed}${entry.warning ? `\n${entry.warning}` : ""}`;
     }
 
     case "remember": {
@@ -1130,7 +1134,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (["create","edit","claim","release","update","stop"].includes(str(args.action) ?? "")) await requireWriter(env, id, user);
       const stub = stubFor(env, id);
       const action = str(args.action);
-      const opts = await agentOpts(c);
+      const opts = { ...(await agentOpts(c)), usage: args.usage as import("./spend").Usage | undefined };
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
@@ -1155,7 +1159,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (!created.duplicate) later(registry.bumpBoard(env, id, t.seq));
         // Titles are members' text, so the similar-tasks hint goes inside the fence with the task.
         const similar = created.similar?.length ? `Similar open: ${created.similar.map((s) => `#${s.seq} ${s.title}`).join("; ")}\n` : "";
-        return `${created.duplicate ? `Already open as #${t.seq}` : `Created task #${t.seq}`}.\n` + fence(similar + full(t));
+        return `${created.duplicate ? `Already open as #${t.seq}` : `Created task #${t.seq}`}.\n` + fence(similar + full(t)) + (t.warning ? `\n${t.warning}` : "");
       }
       if (action === "list") {
         let list = await stub.tasks({ status: str(args.status) });
@@ -1189,7 +1193,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           },
           opts,
         );
-        return `Saved #${seq} v${t.version}.\n` + fence(line(t));
+        return `Saved #${seq} v${t.version}.\n` + fence(line(t)) + (t.warning ? `\n${t.warning}` : "");
       }
       let t;
       if (action === "claim") t = await stub.taskClaim(user, seq, int(args.minutes) ?? 30, opts);
@@ -1214,7 +1218,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         );
       } else throw new ToolError("action must be one of: list, get, create, edit, history, claim, release, update, stop.");
       later(registry.touch(env, user, id));
-      return `OK.\n` + fence(line(t));
+      return `OK.\n` + fence(line(t)) + (t.warning ? `\n${t.warning}` : "");
     }
 
     case "review": {
@@ -1451,6 +1455,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "agents": {
       const action = str(args.action);
+      if (action === "spend") {
+        const id = await currentBoard(c, args);
+        if (args.own === false && (await registry.memberRole(env, id, user)) === "viewer") throw new ToolError("Your role on this board is viewer. Use own=true for your reports.");
+        const data = await stubFor(env, id).spend(args.own === false ? undefined : user);
+        return "Reported spend for the last seven UTC days (self-reported; estimated costs use list prices):\n" + fence(JSON.stringify(data));
+      }
       const line = (a: agents.AgentProfile) => {
         const r = a.record;
         const rec = [r.claims_verified && `${r.claims_verified} claim(s) verified`, r.claims_disputed && `${r.claims_disputed} disputed`, r.tasks_done && `${r.tasks_done} task(s) done`].filter(Boolean).join(", ") || "no track record yet";

@@ -1,4 +1,5 @@
 {
+ "spend": 4,
  "calls": 20,
  "slack": 12,
  "mention-nickname": 2,
@@ -86,6 +87,7 @@
  "codecopy": 4,
  "everyday": 9,
  "foryoupage": 8,
+ "repo-join": 5,
  "welcome": 12,
  "peopleonly": 8,
  "htmlpreview": 3,

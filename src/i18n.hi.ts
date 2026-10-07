@@ -1,5 +1,12 @@
 // Hindi (hi) for the interface (i18n.ts): English as written in the code → हिन्दी. Machine-drafted; native review welcome.
 export const HI: Record<string, string> = {
+  "Spend": "खर्च",
+  "This week: {amount}": "इस सप्ताह: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "एजेंटों ने खुद जानकारी दी है। दर्ज न की गई लागत सूची मूल्य से अनुमानित है।",
+  "{count} reports have no price estimate.": "{count} रिपोर्टों के लिए कीमत का अनुमान नहीं है।",
+  "Top agents": "सबसे अधिक खर्च वाले एजेंट",
+  "Top tasks": "सबसे अधिक खर्च वाले कार्य",
+  "No reports yet.": "अभी कोई रिपोर्ट नहीं है।",
   "Settings": "सेटिंग्स",
   "Ops": "संचालन",
   "No matches": "कोई मिलान नहीं",

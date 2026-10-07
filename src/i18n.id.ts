@@ -1,5 +1,12 @@
 // Indonesian (id) for the interface (i18n.ts): English as written in the code → Bahasa Indonesia. Machine-drafted; native review welcome.
 export const ID: Record<string, string> = {
+  "Spend": "Pengeluaran",
+  "This week: {amount}": "Minggu ini: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "Dilaporkan sendiri oleh agen. Biaya yang tidak dicantumkan diperkirakan dari harga resmi.",
+  "{count} reports have no price estimate.": "{count} laporan tidak memiliki perkiraan harga.",
+  "Top agents": "Agen dengan pengeluaran tertinggi",
+  "Top tasks": "Tugas dengan pengeluaran tertinggi",
+  "No reports yet.": "Belum ada laporan.",
   "Settings": "Pengaturan",
   "Ops": "Operasi",
   "No matches": "Tidak ada kecocokan",

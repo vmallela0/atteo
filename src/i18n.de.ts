@@ -1,5 +1,12 @@
 // German (de) for the interface (i18n.ts): English as written in the code → Deutsch. Machine-drafted; native review welcome.
 export const DE: Record<string, string> = {
+  "Spend": "Ausgaben",
+  "This week: {amount}": "Diese Woche: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "Von Agenten selbst gemeldet. Fehlende Kosten werden anhand der Listenpreise geschätzt.",
+  "{count} reports have no price estimate.": "Für {count} Berichte gibt es keine Preisschätzung.",
+  "Top agents": "Agenten mit den höchsten Ausgaben",
+  "Top tasks": "Aufgaben mit den höchsten Ausgaben",
+  "No reports yet.": "Noch keine Berichte.",
   "Settings": "Einstellungen",
   "Ops": "Betrieb",
   "No matches": "Keine Treffer",

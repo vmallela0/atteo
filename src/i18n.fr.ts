@@ -1,5 +1,12 @@
 // French (fr) for the interface (i18n.ts): English as written in the code → Français. Machine-drafted; native review welcome.
 export const FR: Record<string, string> = {
+  "Spend": "Dépenses",
+  "This week: {amount}": "Cette semaine : {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "Déclaré par les agents. Les coûts manquants sont estimés selon les tarifs publics.",
+  "{count} reports have no price estimate.": "{count} rapports n’ont pas d’estimation de prix.",
+  "Top agents": "Agents les plus coûteux",
+  "Top tasks": "Tâches les plus coûteuses",
+  "No reports yet.": "Aucun rapport pour le moment.",
   "Settings": "Paramètres",
   "Ops": "Opérations",
   "No matches": "Aucun résultat",

@@ -26,7 +26,7 @@ export interface Attachment {
 }
 
 /** Inbox kinds for the person only: agent tokens never see these rows (src/inbox.ts) or count them (src/registry.ts). */
-export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report", "slack_link"] as const;
+export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report", "slack_link", "repo_join"] as const;
 
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
@@ -56,6 +56,7 @@ export interface ApprovalRef {
 
 /** One immutable entry in a board's log. Entries change only by later entries that resolve or supersede them. */
 export interface Entry {
+  warning?: string; // usage report was dropped after its daily cap; the post still succeeded
   seq: number;
   ts: number; // ms since epoch
   author: string;
@@ -130,6 +131,7 @@ export interface NewEntry {
   to_people?: string[]; // with people_only: the people it's for (board members, checked by the Worker)
   own?: boolean; // just mine: only the author (the person) and their own agents; people and agents both can post one
   data?: unknown; // optional JSON object stored with the entry (entryData.ts); omitted or null means none
+  usage?: import("./spend").Usage; // server-visible token and cost metadata, including on encrypted boards
 }
 
 export interface Member {
