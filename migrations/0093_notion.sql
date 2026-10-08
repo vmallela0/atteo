@@ -41,3 +41,21 @@ CREATE TABLE notion_pages (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (board_id, source)
 );
+
+-- The pages a board may publish under, approved by the linker or a board owner: publish refuses any other parent.
+CREATE TABLE notion_parents (
+  board_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  title TEXT,
+  added_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (board_id, page_id)
+);
+
+-- Publish and import counts per board and per caller, in fixed hour windows (the key carries the window), so nobody
+-- can spend the linker's Notion rate limit. Rows older than two hours are swept.
+CREATE TABLE notion_rate (
+  key TEXT PRIMARY KEY,
+  n INTEGER NOT NULL,
+  at INTEGER NOT NULL
+);

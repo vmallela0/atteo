@@ -12,13 +12,17 @@
 //   headings, paragraphs, lists, to-dos, quotes, code, dividers, http(s)/mailto links; anything else as plain text), or
 //   the board's recap (only what every member sees: no Just mine or people-only questions or tasks, no one's own
 //   approvals) becomes a page under the parent page; publishing the same doc or the recap again updates that page
-//   (notion_pages). Members who can write (owners, contributors), people or their agents.
-// - Import: POST /api/integrations/notion/import {board, page}. The page's blocks become Markdown (capped), saved as the
+//   (notion_pages). Only under a parent approved for the board (notion_parents: POST/DELETE
+//   /api/integrations/notion/parents, board owners as people, the page checked with Notion). Members who can write
+//   (owners, contributors), people or their agents.
+// - Import: owners only (people or their own agents): an imported page is readable by every member, and the linker may
+//   have shared a whole teamspace. POST /api/integrations/notion/import {board, page}. The page's blocks become Markdown (capped), saved as the
 //   doc notion/<title>.md with origin "notion" (server-set, board.docImport): its post is labelled as a Notion page, the
 //   doc read says it's external content, and the text starts with that same warning. It's untrusted board text like
 //   any other: never instructions.
 // - Every publish and import checks again that the linker still owns the board and that it isn't deleted, archived,
 //   encrypted, a DM or "Your agent". Tokens are never logged or shown; bodies over 8 KB are refused before reading.
+//   Publish and import together are limited per board and per caller (RATE, fixed hour windows in notion_rate).
 //
 // Off until NOTION_CLIENT_ID, NOTION_CLIENT_SECRET and NOTION_TOKEN_KEY are set: the routes answer 503 "Notion isn't set
 // up yet".
@@ -40,8 +44,12 @@ export const NOTION_VERSION = "2026-03-11";
 export const STATE_MS = 10 * 60_000;
 export const MAX_BODY = 8192;
 export const MAX_PUBLISH_BLOCKS = 500;
-/** An update deletes the page's old blocks one by one; a page with more than this is replaced by a fresh one instead. */
+/** An update deletes the page's old blocks one by one; with more than this, a fresh page is made and the map repointed (the old page is left alone). */
 export const MAX_CLEAR_BLOCKS = 200;
+/** Approved publish destinations per board. */
+export const MAX_PARENTS = 20;
+/** Publishes and imports per hour: per board, and per caller (a person and their agents count together). */
+export const RATE = { boardPerHour: 10, userPerHour: 5 };
 export const MAX_IMPORT_BLOCKS = 1000;
 export const MAX_IMPORT_CALLS = 40;
 export const MAX_IMPORT_CHARS = 200_000;
@@ -521,7 +529,11 @@ export async function dropLinks(n: Notion, where: { board?: string; by?: string 
     await n.db.prepare(`DELETE FROM notion_states WHERE ${stateConds}`).bind(...args).run();
     const links = (await n.db.prepare(`SELECT * FROM notion_links WHERE ${conds}`).bind(...args).all<LinkRow>()).results ?? [];
     for (const link of links) {
-      await n.db.batch([n.db.prepare(`DELETE FROM notion_pages WHERE board_id = ?`).bind(link.board_id), n.db.prepare(`DELETE FROM notion_links WHERE board_id = ?`).bind(link.board_id)]);
+      await n.db.batch([
+        n.db.prepare(`DELETE FROM notion_pages WHERE board_id = ?`).bind(link.board_id),
+        n.db.prepare(`DELETE FROM notion_parents WHERE board_id = ?`).bind(link.board_id),
+        n.db.prepare(`DELETE FROM notion_links WHERE board_id = ?`).bind(link.board_id),
+      ]);
       if (notionOn(n.env)) await revoke(n, link);
     }
     return links.length;
@@ -639,14 +651,13 @@ export async function callback(n: Notion, viewer: Viewer | null, url: URL): Prom
   // page map; another workspace starts over.
   const old = await linkOf(n, row.id);
   if (old) await revoke(n, old);
-  if (old && old.workspace_id !== t.workspace_id) await n.db.prepare(`DELETE FROM notion_pages WHERE board_id = ?`).bind(row.id).run();
+  if (old && old.workspace_id !== t.workspace_id) await n.db.batch([n.db.prepare(`DELETE FROM notion_pages WHERE board_id = ?`).bind(row.id), n.db.prepare(`DELETE FROM notion_parents WHERE board_id = ?`).bind(row.id)]);
   const now = n.now();
   await n.db
     .prepare(`INSERT OR REPLACE INTO notion_links (board_id, created_by, workspace_id, workspace_name, bot_id, token, refresh, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(row.id, who.viewer.name, t.workspace_id, titleLabel(t.workspace_name ?? "").slice(0, 120), typeof t.bot_id === "string" ? t.bot_id.slice(0, 64) : null, token, refresh, now, now)
     .run();
-  const back = `<p class="small muted" style="margin-top:12px">Publish a doc or the recap: POST /api/integrations/notion/publish {board, doc | recap, parent}. Pull a page in: POST /api/integrations/notion/import {board, page}. Only the pages you shared with Atteo on Notion's screen can be used.</p><div class="row" style="justify-content:flex-end;margin-top:14px"><a class="btn primary" href="/b/${html(encodeURIComponent(row.id))}">Back to ${html(row.title)}</a></div>`;
-  return msgPage(who.viewer, "Notion connected", `${row.title} is connected to the Notion workspace ${titleLabel(t.workspace_name ?? "")}.`, 200, back);
+  return msgPage(who.viewer, "Notion connected", `${row.title} is connected to the Notion workspace ${titleLabel(t.workspace_name ?? "")}.`, 200, connectedHtml(row));
 }
 
 /** What GET /api/integrations/notion shows: never a token. */
@@ -664,7 +675,22 @@ async function view(n: Notion, link: LinkRow | null) {
     created_at: link.created_at,
     published: c?.published ?? 0,
     imported: c?.imported ?? 0,
+    parents: await parentsOf(n, link.board_id),
   };
+}
+
+const parentsOf = async (n: Notion, board: string) =>
+  ((await n.db.prepare(`SELECT page_id AS id, title, added_by FROM notion_parents WHERE board_id = ? ORDER BY created_at`).bind(board).all<{ id: string; title: string | null; added_by: string }>()).results ?? []);
+
+/** Who may do what, and the form that approves a page to publish under (a same-site POST /api/integrations/notion/parents). */
+function connectedHtml(row: BoardLite, note = ""): string {
+  return `${note ? `<p class="small" style="margin-top:12px">${html(note)}</p>` : ""}<ul class="small muted" style="margin:12px 0 0 18px;line-height:1.6">
+<li>Pull a Notion page in as a board doc (every member can read it): the board's owners, or their own agents. POST /api/integrations/notion/import {board, page}</li>
+<li>Publish a doc or the recap: owners and contributors, or their agents, only under a page approved below. POST /api/integrations/notion/publish {board, doc | recap, parent}</li>
+<li>Only the pages you shared with Atteo on Notion's screen can be used at all.</li></ul>
+<form method="post" action="/api/integrations/notion/parents" style="margin-top:14px"><input type="hidden" name="board" value="${html(row.id)}">
+<p class="lbl">Approve a Notion page to publish under (owners)</p><div class="row" style="gap:8px"><input class="input grow" name="parent" required autocomplete="off" placeholder="https://www.notion.so/…" aria-label="Notion page link"><button class="btn">Approve</button></div></form>
+<div class="row" style="justify-content:flex-end;margin-top:14px"><a class="btn primary" href="/b/${html(encodeURIComponent(row.id))}">Back to ${html(row.title)}</a></div>`;
 }
 
 /** GET /api/integrations/notion?board=: whether and how the board is linked (any member; agents too, read only). */
@@ -691,23 +717,24 @@ export async function unlink(n: Notion, viewer: Viewer | null, request: Request,
   return json({ ok: true, linked: false });
 }
 
-type Ready = { ok: true; viewer: Viewer; body: Record<string, unknown>; row: BoardLite; link: LinkRow } | { ok: false; res: Response };
+type Ready = { ok: true; viewer: Viewer; body: Record<string, unknown>; row: BoardLite; link: LinkRow; form: boolean } | { ok: false; res: Response };
 
 /**
- * What publish and import share: signed in (a person, or a member's agent token), same-site, a small JSON body, a
- * member who can write (owner or contributor), a linked board whose linker still owns it and that isn't deleted,
- * archived, encrypted, a DM or "Your agent".
+ * What publish, import and approving parents share: signed in (a person, or a member's agent token), same-site, a
+ * small body (JSON; a form when `form`), a member who can write (`need`: "owner" for import and parents), a linked
+ * board whose linker still owns it and that isn't deleted, archived, encrypted, a DM or "Your agent".
  */
-async function ready(n: Notion, viewer: Viewer | null, request: Request): Promise<Ready> {
+async function ready(n: Notion, viewer: Viewer | null, request: Request, need: "write" | "owner" = "write", form = false): Promise<Ready> {
   if (!notionOn(n.env)) return { ok: false, res: json({ error: NOT_SET_UP }, 503) };
   if (!viewer) return { ok: false, res: json({ error: "sign in required" }, 401) };
   if (!sameSite(request)) return { ok: false, res: json({ error: "Use Atteo's own pages." }, 403) };
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return { ok: false, res: json({ error: "Payload too large" }, 413) };
   const raw = await request.text();
   if (raw.length > MAX_BODY) return { ok: false, res: json({ error: "Payload too large" }, 413) };
+  const isForm = form && (request.headers.get("content-type") ?? "").includes("application/x-www-form-urlencoded");
   let body: Record<string, unknown>;
   try {
-    body = JSON.parse(raw || "{}") as Record<string, unknown>;
+    body = isForm ? Object.fromEntries(new URLSearchParams(raw)) : (JSON.parse(raw || "{}") as Record<string, unknown>);
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error();
   } catch {
     return { ok: false, res: json({ error: "Send JSON." }, 400) };
@@ -717,12 +744,71 @@ async function ready(n: Notion, viewer: Viewer | null, request: Request): Promis
   const role = row && !row.deleted_at ? await roleOf(n, board, viewer.name) : null;
   if (!row || row.deleted_at || !role) return { ok: false, res: json({ error: "No such board." }, 404) };
   if (role === "viewer") return { ok: false, res: json({ error: "You can view this board but not change it (your role is viewer)." }, 403) };
+  if (need === "owner" && role !== "owner") return { ok: false, res: json({ error: "Only the board's owners (or their own agents) can do that: a page pulled in from Notion is readable by every member." }, 403) };
   const bad = unfit(row);
   if (bad) return { ok: false, res: json({ error: bad.error }, bad.status) };
   const link = await linkOf(n, row.id);
   if (!link) return { ok: false, res: json({ error: "This board isn't connected to Notion. A board owner connects it: GET /api/integrations/notion/start?board=<id>." }, 409) };
   if (!(await linkerOk(n, row.id, link.created_by))) return { ok: false, res: json({ error: `${link.created_by} connected Notion here but no longer owns the board: an owner connects it again.` }, 409) };
-  return { ok: true, viewer, body, row, link };
+  return { ok: true, viewer, body, row, link, form: isForm };
+}
+
+/** One more publish or import for this board and caller; why not, when over a limit. Counted in D1 (fixed hour windows). */
+async function overLimit(n: Notion, board: string, user: string): Promise<string | null> {
+  const now = n.now();
+  const h = Math.floor(now / 3_600_000);
+  await n.db.prepare(`DELETE FROM notion_rate WHERE at < ?`).bind(now - 2 * 3_600_000).run().catch(() => {});
+  const checks: [string, number, string][] = [
+    [`u:${user}:h:${h}`, RATE.userPerHour, `You've reached this hour's limit for Notion (${RATE.userPerHour} publishes and imports): try again later.`],
+    [`b:${board}:h:${h}`, RATE.boardPerHour, `This board has reached this hour's limit for Notion (${RATE.boardPerHour} publishes and imports): try again later.`],
+  ];
+  for (const [key, max, why] of checks) {
+    const r = await n.db.prepare(`INSERT INTO notion_rate (key, n, at) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET n = n + 1 RETURNING n`).bind(key, now).first<{ n: number }>();
+    if ((r?.n ?? 0) > max) return why;
+  }
+  return null;
+}
+
+/**
+ * POST /api/integrations/notion/parents {board, parent}: approve a page to publish under (board owners, people only;
+ * JSON, or the connected page's form). The page is checked with Notion first (it must be shared with Atteo).
+ */
+export async function addParent(n: Notion, viewer: Viewer | null, request: Request, url: URL): Promise<Response> {
+  const who = person(n, viewer, url, false);
+  if (!who.ok) return who.res;
+  const r = await ready(n, viewer, request, "owner", true);
+  if (!r.ok) return r.res;
+  const say = (status: number, error: string) => (r.form ? msgPage(r.viewer, status === 200 ? "Approved" : "Not approved", error, status, connectedHtml(r.row)) : json(status === 200 ? { ok: true } : { error }, status));
+  const id = pageIdFrom(r.body.parent);
+  if (!id) return say(400, "parent is a Notion page link or id.");
+  const count = (await n.db.prepare(`SELECT COUNT(*) AS c FROM notion_parents WHERE board_id = ?`).bind(r.row.id).first<{ c: number }>())?.c ?? 0;
+  if (count >= MAX_PARENTS) return say(409, `A board can publish under at most ${MAX_PARENTS} approved pages: remove one first.`);
+  let title: string;
+  try {
+    const p = await new Api(n, r.link).call<any>("GET", `/pages/${id}`);
+    if (p?.in_trash || p?.archived) return say(409, "That Notion page is in the trash.");
+    title = pageTitle(p);
+  } catch (e) {
+    return e instanceof NotionError ? say(e.status, e.message) : say(502, "Notion didn't answer.");
+  }
+  await n.db.prepare(`INSERT OR REPLACE INTO notion_parents (board_id, page_id, title, added_by, created_at) VALUES (?, ?, ?, ?, ?)`).bind(r.row.id, id, title, r.viewer.name, n.now()).run();
+  if (r.form) return msgPage(r.viewer, "Approved", `Docs and the recap of ${r.row.title} can now be published under "${title}".`, 200, connectedHtml(r.row));
+  return json({ ok: true, parent: { id, title }, parents: await parentsOf(n, r.row.id) });
+}
+
+/** DELETE /api/integrations/notion/parents?board=&parent=: stop publishing under that page (board owners, people only). */
+export async function removeParent(n: Notion, viewer: Viewer | null, request: Request, url: URL): Promise<Response> {
+  const who = person(n, viewer, url, false);
+  if (!who.ok) return who.res;
+  if (!sameSite(request)) return json({ error: "Use Atteo's own pages." }, 403);
+  const board = url.searchParams.get("board") ?? "";
+  const role = BOARD_RE.test(board) ? await roleOf(n, board, who.viewer.name) : null;
+  if (!role) return json({ error: "No such board." }, 404);
+  if (role !== "owner") return json({ error: "Only the board's owners can change where it publishes." }, 403);
+  const id = pageIdFrom(url.searchParams.get("parent"));
+  if (!id) return json({ error: "parent is a Notion page link or id." }, 400);
+  await n.db.prepare(`DELETE FROM notion_parents WHERE board_id = ? AND page_id = ?`).bind(board, id).run();
+  return json({ ok: true, parents: await parentsOf(n, board) });
 }
 
 const fail = (e: unknown) => (e instanceof NotionError ? json({ error: e.message }, e.status) : e instanceof RecapError ? json({ error: e.message }, 400) : json({ error: e instanceof Error ? e.message : "Something went wrong" }, 400));
@@ -736,21 +822,22 @@ async function createPage(api: Api, parent: string, title: string, blocks: Block
   return { id: p.id, url: typeof p.url === "string" ? safeUrl(p.url) : null };
 }
 
-/** Replace a page Atteo published before: its title, then its blocks. Null when it's gone (or too big to clear: trashed). */
+/**
+ * Replace a page Atteo published before: its title, then its blocks. Sub-pages and databases someone put in it stay
+ * (they're never deleted). Null when it's gone, or has too many blocks to clear: then a fresh page is made and the map
+ * repointed; the old page is never trashed.
+ */
 async function updatePage(api: Api, id: string, title: string, blocks: Block[]): Promise<{ id: string; url: string | null } | null> {
   const p = await api.call<{ id: string; url?: string; in_trash?: boolean; archived?: boolean }>("GET", `/pages/${id}`, undefined, "null");
   if (!p || p.in_trash || p.archived) return null;
   const old: string[] = [];
   let cursor: string | null = null;
   do {
-    const r: { results?: { id: string }[]; has_more?: boolean; next_cursor?: string | null } | null = await api.call("GET", `/blocks/${id}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`);
-    for (const b of r?.results ?? []) if (typeof b?.id === "string" && BLOCK_ID.test(b.id)) old.push(b.id);
+    const r: { results?: { id: string; type?: string }[]; has_more?: boolean; next_cursor?: string | null } | null = await api.call("GET", `/blocks/${id}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`);
+    for (const b of r?.results ?? []) if (typeof b?.id === "string" && BLOCK_ID.test(b.id) && b.type !== "child_page" && b.type !== "child_database") old.push(b.id);
     cursor = r?.has_more && r.next_cursor ? r.next_cursor : null;
   } while (cursor && old.length <= MAX_CLEAR_BLOCKS);
-  if (old.length > MAX_CLEAR_BLOCKS) {
-    await api.call("PATCH", `/pages/${id}`, { in_trash: true });
-    return null;
-  }
+  if (old.length > MAX_CLEAR_BLOCKS) return null;
   await api.call("PATCH", `/pages/${id}`, { properties: titleProp(title) });
   for (const b of old) await api.call("DELETE", `/blocks/${b}`, undefined, "null");
   for (let i = 0; i < blocks.length; i += CHUNK) await api.call("PATCH", `/blocks/${id}/children`, { children: blocks.slice(i, i + CHUNK) });
@@ -767,6 +854,8 @@ export async function publish(n: Notion, viewer: Viewer | null, request: Request
   if (!parent) return json({ error: "parent is the Notion page to publish under: its link or id." }, 400);
   const hasDoc = typeof body.doc === "string" && body.doc.trim() !== "";
   if (hasDoc === (body.recap !== undefined)) return json({ error: "Send one of doc (a doc's name) or recap (an entry number, or \"last-read\")." }, 400);
+  if (!(await n.db.prepare(`SELECT 1 AS x FROM notion_parents WHERE board_id = ? AND page_id = ?`).bind(row.id, parent).first()))
+    return json({ error: "That Notion page isn't approved for this board to publish under. A board owner approves it: POST /api/integrations/notion/parents {board, parent}." }, 403);
   const boardUrl = `${n.origin}/b/${row.id}`;
   let source: string;
   let title: string;
@@ -791,6 +880,8 @@ export async function publish(n: Notion, viewer: Viewer | null, request: Request
   } catch (e) {
     return fail(e);
   }
+  const limited = await overLimit(n, row.id, who.name);
+  if (limited) return json({ error: limited }, 429);
   const api = new Api(n, link);
   try {
     const before = await pageOf(n, row.id, source);
@@ -826,12 +917,14 @@ async function fetchBlocks(api: Api, id: string, depth: number, budget: { blocks
 
 /** POST /api/integrations/notion/import {board, page}: a Notion page pulled in as the doc notion/<title>.md (origin "notion"). */
 export async function importPage(n: Notion, viewer: Viewer | null, request: Request): Promise<Response> {
-  const r = await ready(n, viewer, request);
+  const r = await ready(n, viewer, request, "owner");
   if (!r.ok) return r.res;
   const { body, row, link } = r;
   const who = r.viewer;
   const id = pageIdFrom(body.page);
   if (!id) return json({ error: "page is the Notion page to pull in: its link or id." }, 400);
+  const limited = await overLimit(n, row.id, who.name);
+  if (limited) return json({ error: limited }, 429);
   const api = new Api(n, link);
   let title: string;
   let url: string | null;

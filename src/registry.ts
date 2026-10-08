@@ -238,6 +238,7 @@ export async function deleteBoard(env: Env, boardId: string) {
     env.DB.prepare(`DELETE FROM discord_links WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM discord_codes WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM notion_pages WHERE board_id = ?`).bind(boardId),
+    env.DB.prepare(`DELETE FROM notion_parents WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM notion_links WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM notion_states WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ?`).bind(boardId),

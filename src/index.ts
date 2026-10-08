@@ -900,6 +900,8 @@ const handler = {
       if (path === "/api/integrations/notion" && method === "DELETE") return await notion.unlink(notion.notionFor(env, origin), viewer, request, url);
       if (path === "/api/integrations/notion/publish" && method === "POST") return await notion.publish(notion.notionFor(env, origin), viewer, request);
       if (path === "/api/integrations/notion/import" && method === "POST") return await notion.importPage(notion.notionFor(env, origin), viewer, request);
+      if (path === "/api/integrations/notion/parents" && method === "POST") return await notion.addParent(notion.notionFor(env, origin), viewer, request, url);
+      if (path === "/api/integrations/notion/parents" && method === "DELETE") return await notion.removeParent(notion.notionFor(env, origin), viewer, request, url);
       if (path === "/api/integrations/slack" && method === "GET") return await slack.boardStatus(slack.bridgeFor(env, origin), viewer, url, request);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed

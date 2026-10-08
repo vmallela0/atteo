@@ -196,6 +196,7 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`UPDATE slack_installs SET created_by = ? WHERE created_by = ?`, t, n),
     // Notion (src/notion.ts): pages they published from others' boards stay mapped, under the tombstone.
     S(`UPDATE notion_pages SET created_by = ? WHERE created_by = ?`, t, n),
+    S(`UPDATE notion_parents SET added_by = ? WHERE added_by = ?`, t, n),
     S(`UPDATE audit SET target = ? WHERE target = ?`, t, n),
     ...(email ? [S(`UPDATE audit SET target = ? WHERE target = ?`, t, email)] : []),
     S(`UPDATE reports SET reporter = ? WHERE reporter = ?`, t, n),
@@ -259,6 +260,7 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`DELETE FROM discord_codes WHERE user = ?`, n),
     // Notion (src/notion.ts): the boards they connected stop publishing; their sealed tokens, page maps and states go.
     S(`DELETE FROM notion_pages WHERE board_id IN (SELECT board_id FROM notion_links WHERE created_by = ?)`, n),
+    S(`DELETE FROM notion_parents WHERE board_id IN (SELECT board_id FROM notion_links WHERE created_by = ?)`, n),
     S(`DELETE FROM notion_links WHERE created_by = ?`, n),
     S(`DELETE FROM notion_states WHERE user = ?`, n),
     S(`DELETE FROM account_audit WHERE user = ?`, n),
