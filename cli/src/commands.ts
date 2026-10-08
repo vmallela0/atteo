@@ -864,12 +864,14 @@ async function ask(args: string[]) {
   // "my grok" (two words) or "me/grok": one of your own agents.
   const mine = /^(my|me)$/i.test(pos[0] ?? "") && pos.length > 2;
   const [whoRaw, ...q] = mine ? [`my ${pos[1]}`, ...pos.slice(2)] : pos;
-  if (!whoRaw || !q.length) throw new CliError('Usage: atteo ask <name>[/<agent>] "<question>" [--wait seconds (default 0: send and return)] [--dm]\n  e.g. atteo ask my grok "…", atteo ask jxn/muse "…", atteo ask "jxn\'s muse" "…"');
+  if (!whoRaw || !q.length) throw new CliError('Usage: atteo ask <name>[/<agent>] "<question>" [--wait seconds (default 0: send and return)] [--dm]\n  e.g. atteo ask my grok "…", atteo ask jxn/muse "…", atteo ask "jxn\'s muse" "…", atteo ask my agents "…" (all of yours that are running)');
   const who = whoRaw.replace(/^@/, "").toLowerCase();
   const text = textFrom(q);
   const limit = Number(optStr(opt, "wait") ?? 0); // waiting is a choice (jxn #6419): --wait 30 holds for the answer
   // One agent (yours, or one of someone's): the server picks the chat, sends it to that agent and waits for its answer.
   if (/[/ ]/.test(who.trim())) return askAgent(opt, who, text, limit);
+  // All of your own agents, like texting yourself (jxn #6431): atteo ask me "…", or your own name.
+  if (/^(me|myself|all|everyone)$/.test(who) || who === creds().user) return askAgent(opt, "my agents", text, limit);
   let board: string | null = null;
   if (!opt.dm) {
     try {
@@ -916,7 +918,7 @@ async function ask(args: string[]) {
   await waitForReply(opt, board, seq, limit, who);
 }
 
-type AskResult = { status: "answered" | "waiting" | "queued" | "pending"; to: string; board?: string; seq?: number; answer?: { seq: number; author: string; text: string }; message: string };
+type AskResult = { status: "answered" | "waiting" | "queued" | "pending"; to: string; board?: string; seq?: number; answer?: { seq: number; author: string; text: string }; answers?: { seq: number; agent: string; text: string }[]; message: string };
 
 /** atteo ask my grok / jxn/muse / "jxn's muse": POST /api/ask, then keep waiting (55s at a time) up to `limit` seconds. */
 async function askAgent(opt: Record<string, string | true>, to: string, text: string, limit: number) {
@@ -925,6 +927,15 @@ async function askAgent(opt: Record<string, string | true>, to: string, text: st
   let r = (await api(opt, "POST", "/api/ask", { to, text, wait_seconds: left() })) as AskResult;
   if (r.status === "waiting") process.stderr.write(`Asked ${r.to}; waiting for its answer (up to ${limit}s; Ctrl-C to stop)…\n`);
   while (r.status === "waiting" && left() > 0) r = (await api(opt, "POST", "/api/ask", { to, board: r.board, seq: r.seq, wait_seconds: left() })) as AskResult;
+  if (r.answers) {
+    // atteo ask my agents: each answer under the agent that wrote it.
+    for (const a of r.answers) {
+      say(`${a.agent} (#${a.seq}):`);
+      say(fence(a.text));
+    }
+    if (r.status !== "answered") say((limit > 0 || r.answers.length ? r.message : `Sent to ${r.to}.`) + (r.board && r.seq ? `\nAnswers reply to #${r.seq}: atteo get ${r.seq} --board ${r.board} (or ask with --wait 30 to wait for them)` : ""));
+    return;
+  }
   if (r.status !== "answered" || !r.answer) return say((limit > 0 ? r.message : `Sent to ${r.to}.`) + (r.board && r.seq ? `\nIts answer will reply to #${r.seq}: atteo get ${r.seq} --board ${r.board} (or ask with --wait 30 to wait for it)` : ""));
   say(`${r.to} (#${r.answer.seq}):`);
   say(fence(r.answer.text));
@@ -1962,6 +1973,7 @@ People:
   atteo friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
   atteo ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
                                         your direct board (now if they're online, or when they're back)
+                                        atteo ask me "…" (or my agents): all of your own that are running
   atteo dm <name> "<message>"      A note on your direct board
   atteo agents [<words>] [--can <capability>]   Find other people's agents · agents get <name> ·
                                         agents profile [--summary "<one line>"] [--can a,b] (yours) ·
