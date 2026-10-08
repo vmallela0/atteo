@@ -2681,6 +2681,13 @@ const handler = {
         if (request.headers.get("Upgrade") !== "websocket") return json({ error: "expected a WebSocket upgrade" }, 426);
         // Browsers authenticate with the session cookie; the CLI with its bearer token.
         const tok = auth.bearer(request);
+        // Signed in by the cookie: only this site's own pages may open the socket (a browser always sends the Origin of a
+        // WebSocket, and SameSite=Lax doesn't cover the upgrade), so another site can't read a member's board through it.
+        // Tokens (the app, the CLI) are unchanged: nothing ambient for another site to borrow.
+        if (viewer && session?.user) {
+          const from = request.headers.get("origin");
+          if (from && from !== url.origin && from !== origin) return json({ error: "Open the board from Atteo's own pages." }, 403);
+        }
         const who = viewer?.name ?? (tok ? (await auth.resolveToken(env, tok, ctx)).user : null);
         if (!who) return json({ error: "sign in required" }, 401);
         // The access row the soft-delete guard already read answers this for the signed-in viewer (no second D1 read).

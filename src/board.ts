@@ -867,9 +867,13 @@ export class Board extends DurableObject<Env> {
     const id = this.meta("id") ?? "";
     const later = async () => {
       let members: LiveMember[] | null = null;
+      let timer: ReturnType<typeof setTimeout> | null = null;
       try {
-        members = await Promise.race([boardMembers(this.env, id), new Promise<never>((_, no) => setTimeout(() => no(new Error("members read timed out")), PUSH_MEMBERS_MS))]);
-      } catch {}
+        members = await Promise.race([boardMembers(this.env, id), new Promise<never>((_, no) => (timer = setTimeout(() => no(new Error("members read timed out")), PUSH_MEMBERS_MS)))]);
+      } catch {
+      } finally {
+        clearTimeout(timer);
+      }
       // No members (D1 didn't answer): web tabs get the signal, as before. Unsent meanwhile: the signal (the tab fetches).
       const still = !!members && !this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", entry.seq).toArray().length;
       await this.fanOut(msg, entry, members, still, "web");
@@ -931,6 +935,9 @@ export class Board extends DurableObject<Env> {
       }
       try {
         ws.send(out);
+        // The lease ran out: the server closes the socket (not just asks), so the tab must reconnect through /ws, where
+        // its sign-in and membership are checked again before it gets another rendered entry.
+        if (plan === "renew") ws.close(4000, "renew");
       } catch {}
     }
   }

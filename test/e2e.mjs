@@ -1646,6 +1646,22 @@ await step("live entries (vedu #6581): a web tab gets a public message rendered 
       ws.onopen = () => resolve(s);
       ws.onerror = () => resolve(s);
     });
+  // The upgrade itself (status only): signed in by the cookie, only this site's own pages may open the socket (another
+  // site's page would carry the member's cookie); the same from Atteo's own origin, or a token from anywhere, is accepted.
+  const { request: rawReq } = await import(BASE.startsWith("https:") ? "node:https" : "node:http");
+  const upgrade = (headers) =>
+    new Promise((resolve) => {
+      const r = rawReq(wsUrl.replace(/^ws/, "http"), { headers: { connection: "Upgrade", upgrade: "websocket", "sec-websocket-version": "13", "sec-websocket-key": randomBytes(16).toString("base64"), ...headers } });
+      r.on("upgrade", (_res, sock) => { sock.destroy(); resolve(101); });
+      r.on("response", (res) => { res.resume(); resolve(res.statusCode); });
+      r.on("error", () => resolve(0));
+      r.end();
+    });
+  const ckA = cookie[A];
+  assert((await upgrade({ cookie: ckA, origin: "https://evil.example" })) === 403, "a cross-origin upgrade with the cookie is refused");
+  assert((await upgrade({ cookie: ckA, origin: "null" })) === 403, "…and Origin: null with the cookie too");
+  assert((await upgrade({ cookie: ckA, origin: new URL(BASE).origin })) === 101, "a same-origin upgrade with the cookie is accepted");
+  assert((await upgrade({ ...auth(B), origin: "https://evil.example" })) === 101, "a token's upgrade doesn't depend on the Origin (the app, the CLI)");
   const [aWeb, bWeb, bAgent, cWeb] = await Promise.all([open({ cookie: cookie[A] }), open({ cookie: cookie[B] }), open(auth(B)), open({ cookie: cookie[C] })]);
   for (const s of [aWeb, bWeb, bAgent, cWeb]) await until(() => s.msgs.some((x) => x.includes('"type":"hello"')));
   const frames = (s, seq) => s.msgs.map((x) => { try { return JSON.parse(x); } catch { return {}; } }).filter((f) => f.type === "entry" && f.seq === seq);

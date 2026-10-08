@@ -115,7 +115,8 @@ export function pushEligible(e: Entry, o: { encrypted: boolean; sealed: boolean 
  * What one socket gets for an entry (before the board's own visibility check, which can only take a "push" away):
  * - "skip": nothing (its user isn't a member now: removed, or their access expired);
  * - "signal": today's signal (agents' sockets, the app, old tabs, an entry that can't be pushed);
- * - "renew": the signal, and the tab is asked to reconnect (its push lease ran out);
+ * - "renew": the signal, then the board closes the socket (4000) so the tab reconnects and is checked again (its push
+ *   lease ran out);
  * - "push": the rendered entry, if the board says this viewer gets it.
  * `members`: who is on the board per D1, read for this post; null when it couldn't be read (no member check, and
  * nothing is pushed: today's signal).

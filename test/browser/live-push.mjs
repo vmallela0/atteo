@@ -67,6 +67,21 @@ await send(sender.p, after);
 await until(async () => (await shown(other.p, after)) === 1, 5000);
 await other.p.waitForTimeout(500);
 check((await shown(other.p, after)) === 1 && other.updates.length === n1, `the next message is pushed too (${other.updates.length - n1} fetches)`);
+
+// The board closes a socket whose push lease ran out (4000, "renew"): the tab reconnects at once (not after the error
+// backoff), shows no "reconnecting" notice, and the next message is pushed on the new socket.
+await other.p.evaluate(() => { const old = (window.__oldWs = ws), h = old.onclose; old.onclose = old.onmessage = null; old.close(); h({ code: 4000, reason: "renew" }); });
+const t0 = Date.now();
+await until(() => other.p.evaluate(() => ws !== window.__oldWs && ws.readyState === 1), 1500);
+check(await other.p.evaluate(() => ws !== window.__oldWs && ws.readyState === 1), `after a 4000 close the tab reconnects at once (${Date.now() - t0} ms)`);
+check(await other.p.evaluate(() => document.getElementById("conn").hidden), "…with no reconnecting notice");
+await other.p.waitForTimeout(300);
+const n2 = other.updates.length;
+const renewed = `after the reconnect ${run}`;
+await send(sender.p, renewed);
+await until(async () => (await shown(other.p, renewed)) === 1, 5000);
+await other.p.waitForTimeout(500);
+check((await shown(other.p, renewed)) === 1 && other.updates.length === n2, `…and the next message is pushed on the new socket (${other.updates.length - n2} fetches)`);
 check(!errors.length, `no page errors ${errors.join(" | ")}`);
 await b.close();
 console.log(fails ? `${fails} failed` : "live push: all passed");

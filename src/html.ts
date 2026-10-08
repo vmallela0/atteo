@@ -1719,10 +1719,10 @@ function connect(){
     if(d.type==='task'&&d.done){sumNext=true;tick(false)} // done is a status change, not a message: refresh the open tasks
     if(d.type==='claim'||d.type==='handling')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
-    if(d.type==='entry'&&d.renew)setTimeout(revive,0); // old sign-in: reconnect
     if(d.type==='entry'&&pushedEntry(d)){if(!document.getElementById('panel-tasks').hidden)loadTasks();return}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
-  ws.onclose=(e)=>{clearInterval(ping);if(e.code!==4003)document.getElementById('conn').hidden=false;if(e.code===4003){location.href='/';return}
+  ws.onclose=(e)=>{clearInterval(ping);if(e.code===4000)return connect(); // the push lease ran out: reconnect, checked again
+    if(e.code!==4003)document.getElementById('conn').hidden=false;if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
 }
 connect();

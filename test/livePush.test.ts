@@ -238,15 +238,25 @@ describe("Board: the per-viewer filter at the socket", () => {
     expect(of(deeWeb, e.seq)).toEqual([]);
   });
 
-  it("a lease that ran out: the signal and a request to reconnect, never the entry", async () => {
+  it("a lease that ran out: the signal, then the board closes the socket (4000) so the tab reconnects; never the entry", async () => {
     const f = fixture();
     for (const u of ["ann", "bo"]) f.join(u);
-    const old = f.tab("bo", { push: Date.now() - 1 });
+    const old = f.tab("bo", { push: Date.now() - 1 }), fresh = f.tab("bo"), agent = f.tab("bo", { person: false });
     const e = await f.board.post("ann", { type: "note", text: "after the lease", via: "person" }, { live: await f.live() });
     await f.settle();
     const [sig] = of(old, e.seq);
     expect(sig.renew).toBe(true);
     expect(sig.entry).toBeUndefined();
+    expect(old.closed).toBe(4000); // enforced by the server, not left to the tab
+    // Other sockets are untouched: a tab within its lease gets the entry, an agent's socket the signal; neither is closed.
+    expect(of(fresh, e.seq)[0].entry.html).toContain("after the lease");
+    expect(fresh.closed).toBeNull();
+    expect(agent.closed).toBeNull();
+    // An entry that can't be pushed doesn't check the lease: the expired tab just gets the signal (it is closing anyway).
+    const lapsed = f.tab("bo", { push: Date.now() - 1 });
+    await f.board.post("ann", { type: "note", text: "mine only", via: "person", own: true } as never, { live: await f.live() });
+    await f.settle();
+    expect(lapsed.closed).toBeNull();
   });
 
   it("too big to push: the signal (the tab fetches it)", async () => {
