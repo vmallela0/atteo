@@ -29,7 +29,7 @@ for (const [w, h, scheme] of [[1300, 900, "light"], [390, 844, "dark"]]) {
     await p.goto(BASE + where);
     await p.evaluate(() => document.getElementById("connect").showModal());
     const dlg = p.locator("#connect");
-    const go = dlg.locator('[data-ctab-go="conductor"]');
+    const go = dlg.locator('.linkish[data-ctab-go="conductor"]');
     check(await go.isVisible(), `${w}px ${where}: One click offers Conductor`);
     await go.click();
     const panel = dlg.locator('[data-cpanel="conductor"]');

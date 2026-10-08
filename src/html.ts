@@ -840,6 +840,9 @@ export function welcomePage(email: string, suggestion: string, error?: string): 
 }
 
 
+/** What a browser-only agent (Instinct) is told to connect (agentWeb.ts AGENT_INSTRUCTION); the tile fills in this origin. */
+const BROWSER_AGENT_SAY = "Connect to my atteo: open https://atteo.dev/a and send me the sign-in link it gives you.";
+
 /** The commands that (re)connect an agent through the CLI. No token involved: login lives in the keychain. */
 export const CLI_STEPS = {
   install: `curl -fsSL https://atteo.example/install.sh | sh`, // the page fills in this server's address
@@ -852,6 +855,7 @@ export const CLI_STEPS = {
 /** The one-click tiles: [name, logo, what it does, attributes]. Shown A–Z (case-insensitive) with "Any other agent" last
  *  (jxn #4124); only the web draws these, so the order lives here. */
 type Tile = [name: string, logo: string, act: string, attrs: string, tag?: "a"];
+const ANY = 'data-cn-say="any"';
 const CONNECT_TILES: Tile[] = [
   ["Cursor", "cursor", "Install", 'data-cn-link="cursor" href="#"', "a"],
   ["VS Code", "vscode", "Install", 'data-cn-link="vscode" href="#"', "a"],
@@ -864,22 +868,40 @@ const CONNECT_TILES: Tile[] = [
   ["Grok CLI", "grok", "Copy command", 'data-cn-cmd="grok"'],
   ["Grok Bot", "grok", "Copy message", 'data-cn-say="grokbot"'],
   ["Muse", "muse", "Get a key", 'href="/connect/muse" data-cn-muse', "a"],
+  // Instinct can't add an MCP server (#6296): it signs in from the browser-agent message (agentWeb.ts, /a).
+  ["Instinct", "instinct", "Copy message", 'data-cn-say="instinct"'],
 ];
-const CONNECT_TILES_AZ: Tile[] = [
-  ...[...CONNECT_TILES].sort((a, b) => a[0].localeCompare(b[0], "en", { sensitivity: "base" })),
-  ["Any other agent", "", "Copy message", 'data-cn-say="any"'],
+/** The rest of the landing's agents (vedu #6558), behind "Show all agents". Only methods known to work: Copilot is VS
+ *  Code's MCP install, Conductor its own panel; the others take the "Any other agent" message (the MCP URL, or the CLI). */
+const CONNECT_MORE: Tile[] = [
+  ["GitHub Copilot", "copilot", "Install", 'data-cn-link="vscode" href="#"', "a"],
+  ["Conductor", "", "Set up", 'data-ctab-go="conductor"'],
+  ...([
+    ["Aider", ""], ["Amp", "amp"], ["Augment", ""], ["Bolt", ""], ["Cline", "cline"], ["DeepSeek", "deepseek"], ["Dots", ""],
+    ["Factory", ""], ["Hermes", ""], ["Jules", "jules"], ["Kimi", "kimi"], ["Kiro", "kiro"], ["Le Chat", "lechat"], ["Lovable", "lovable"],
+    ["Manus", ""], ["OpenClaw", ""], ["OpenCode", "opencode"], ["Perplexity", "perplexity"], ["Qwen", "qwen"], ["Replit", "replit"],
+    ["Roo Code", "roocode"], ["Tabnine", ""], ["v0", "v0"], ["Warp", "warp"], ["Windsurf", "windsurf"], ["Zed", "zed"],
+  ] as const).map(([name, logo]): Tile => [name, logo, "Copy message", ANY]),
 ];
+const az = (a: Tile, b: Tile) => a[0].localeCompare(b[0], "en", { sensitivity: "base" });
+const CONNECT_TILES_AZ: [Tile, boolean][] = [
+  ...[...CONNECT_TILES.map((t): [Tile, boolean] => [t, false]), ...CONNECT_MORE.map((t): [Tile, boolean] => [t, true])].sort((a, b) => az(a[0], b[0])),
+  [["Any other agent", "", "Copy message", ANY], false],
+];
+/** Every tile's name, A–Z then "Any other agent" (tests check it covers the landing's agents). */
+export const CONNECT_TILE_NAMES = CONNECT_TILES_AZ.map(([t]) => t[0]);
 
 export function connectTiles(lang?: Lang): string {
   const T = (s: string) => tr(lang, s);
-  const tile = ([name, logo, act, attrs, tag]: Tile) =>
-    tag === "a"
-      ? `<a class="cn-tile" ${attrs}>${agentLogo(logo)}<b>${esc(T(name))}</b><span>${esc(T(act))}</span></a>`
-      : `<button type="button" class="cn-tile" ${attrs}>${agentLogo(logo)}<b>${esc(T(name))}</b><span>${esc(T(act))}</span></button>`;
+  const tile = ([[name, logo, act, attrs, tag], more]: [Tile, boolean]) => {
+    const inner = `class="cn-tile${more ? " cn-more" : ""}" ${attrs}>${agentLogo(logo)}<b>${esc(T(name))}</b><span>${esc(T(act))}</span>`;
+    return tag === "a" ? `<a ${inner}</a>` : `<button type="button" ${inner}</button>`;
+  };
   return `<div data-cn-box>
     <div class="cn-grid">
-      ${CONNECT_TILES_AZ.map(tile).join("\n      ")}
+      ${CONNECT_TILES_AZ.map(tile).join("")}
     </div>
+    <button type="button" class="linkish cn-all" data-cn-all aria-expanded="false">${esc(T("Show all agents"))}</button>
     <p class="small cn-done" role="status" aria-live="polite"></p>
   </div>`;
 }
@@ -910,7 +932,7 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
   <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="quick" aria-selected="true">${esc(T("One click"))}</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">${esc(T("CLI"))}</button><button type="button" role="tab" data-ctab="url" aria-selected="false">${esc(T("MCP URL"))}</button><button type="button" role="tab" data-ctab="token" aria-selected="false">${esc(T("Token & API"))}</button></div>
   <div data-cpanel="quick" class="stack">
     <p class="small"><b>${esc(T("Browser-only agent, from your phone"))}</b></p>
-    ${copyField("browser-agent-instruction", "Connect to my atteo: open https://atteo.dev/a and send me the sign-in link it gives you.")}
+    ${copyField("browser-agent-instruction", BROWSER_AGENT_SAY)}
     <p class="xs muted">${esc(T("Paste that into the agent. It sends back a one-time link; open it here and approve."))}</p>
     <p class="small muted">${esc(T("Pick your agent. It opens a browser to sign in; choose"))} <b>${esc(T("Allow"))}</b>${esc(T(". No token, no install."))}</p>
     ${connectTiles(viewer.lang)}
@@ -990,9 +1012,10 @@ const CONNECT_JS = `
   // Agents that set themselves up from a message (Grok Bot runs in the cloud). Muse gets a key on /connect/muse instead
   // (#2291): its Custom Connector never got through the sign-in.
   // Grok Bot has no inbound channel: a Routine polling the mailbox is how it hears from other agents.
-  const says={grokbot:${JSON.stringify(grokBotMessage("%URL%"))}.split('%URL%').join(u),
+  // Instinct gets the browser-agent sign-in message (#6296), with this server's address.
+  const says={grokbot:${JSON.stringify(grokBotMessage("%URL%"))}.split('%URL%').join(u),instinct:${JSON.stringify(BROWSER_AGENT_SAY)}.split('https://atteo.dev').join(location.origin),
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
-  const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',any:'Paste it into your agent.'};
+  const signs=' It sets itself up, then asks you to sign in and choose Allow.',sayWhere={grokbot:'Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).'+signs,any:'Copied. Paste it into your agent.'+signs,instinct:tr('Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.')};
   if(location.hash==='#connect'){const d=document.getElementById('connect');if(d&&!d.open)d.showModal()}
   document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.split('https://atteo.example').join(location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
@@ -1001,7 +1024,8 @@ const CONNECT_JS = `
     if(o){copy(u);const app=o.dataset.cnApp&&(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent)));if(app)location.assign(o.dataset.cnApp);else window.open(o.dataset.cnOpen,'_blank','noopener');done('Copied '+u+'. Paste it in '+o.dataset.cnWhere+', then sign in and choose Allow.')}
     else if(c){copy(cmds[c.dataset.cnCmd]);done(tr('Copied. Paste it in your terminal; it opens a browser to sign in.'))}
     else if(l)done('Opening '+(l.dataset.cnLink==='cursor'?'Cursor':'VS Code')+'… confirm the install, then sign in when it asks.');
-    const m=e.target.closest('[data-cn-say]');if(m){copy(says[m.dataset.cnSay]);done('Copied. '+sayWhere[m.dataset.cnSay]+' It sets itself up, then asks you to sign in and choose Allow.')}});})();
+    const m=e.target.closest('[data-cn-say]');if(m){copy(says[m.dataset.cnSay]);done(sayWhere[m.dataset.cnSay])}
+    const all=e.target.closest('[data-cn-all]');if(all){all.setAttribute('aria-expanded','true');box.classList.add('cn-x');box.querySelector('.cn-more')?.focus()}});})();
 window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;
   document.getElementById('cmd').textContent=j.command;const p=document.getElementById('pcmd');if(p&&j.project_command)p.textContent=j.project_command;
   document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
@@ -4071,7 +4095,7 @@ ${
     : ""
 }
 <div class="section-title" id="agent-sign-ins" style="margin-top:32px"><div><h2>${esc(T("Agent sign-ins"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("For browser-only assistants. Send this instruction; the agent asks and you approve on your phone."))}</p></div></div>
-${copyField("agent-connect-instruction", "Connect to my atteo: open https://atteo.dev/a and send me the sign-in link it gives you.")}
+${copyField("agent-connect-instruction", BROWSER_AGENT_SAY)}
 <div class="list scroll-x" style="margin-top:10px"><table class="tbl"><thead><tr><th>${esc(T("Sign-in"))}</th><th class="hide-sm">${esc(T("Last used"))}</th><th>${esc(T("Status"))}</th><th></th></tr></thead><tbody>${agentLoginRows}</tbody></table></div>
 ${accessSection(access, viewer.lang)}
 ${standingSection(rules, side, viewer.lang)}

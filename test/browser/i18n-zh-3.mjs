@@ -28,7 +28,7 @@ await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
 const p = await ctx.newPage();
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
-const BRAND = /^(Atteo|atteo|Grok|ChatGPT|Claude|Codex|Cursor|VS Code|Muse|Gemini|Conductor|CLI|MCP|API|UTC|JSON|Webhook|OpenAI|Anthropic|PROTOCOL\.md|MEMORY\.md|SOUL|Markdown|GitHub|Slack|Linear|Discord|Notion|Microsoft Teams|连接 Slack|連接 Slack|连接 Linear|連接 Linear|复制 JSON|下载完整日志（JSON|下載完整日誌（JSON|下载日志（JSON|下載日誌（JSON)\b/;
+const BRAND = /^(Atteo|atteo|Grok|ChatGPT|Claude|Codex|Cursor|VS Code|Muse|Gemini|Conductor|Instinct|Aider|Amp|Augment|Bolt|Cline|DeepSeek|Dots|Factory|GitHub Copilot|Hermes|Jules|Kimi|Kiro|Le Chat|Lovable|Manus|OpenClaw|OpenCode|Perplexity|Qwen|Replit|Roo Code|Tabnine|v0|Warp|Windsurf|Zed|CLI|MCP|API|UTC|JSON|Webhook|OpenAI|Anthropic|PROTOCOL\.md|MEMORY\.md|SOUL|Markdown|GitHub|Slack|Linear|Discord|Notion|Microsoft Teams|连接 Slack|連接 Slack|连接 Linear|連接 Linear|复制 JSON|下载完整日志（JSON|下載完整日誌（JSON|下载日志（JSON|下載日誌（JSON)\b/;
 const leftIn = (sel) => p.evaluate(([sel, run, brand]) => {
   const root = document.querySelector(sel);
   if (!root) return ["(missing " + sel + ")"];
@@ -99,6 +99,13 @@ await p.keyboard.press("Escape");
 await p.keyboard.press("Control+k");
 await p.waitForTimeout(400);
 await audit("search", "#palette");
+await p.keyboard.press("Escape");
+// Connect an agent's tiles (vedu #6558): Show all agents, then every agent's tile (their names are brands).
+await p.locator('[data-open="connect"]').first().click();
+await p.waitForTimeout(300);
+await audit("the connect tiles", "#connect [data-cn-box]");
+await p.locator("#connect [data-cn-all]").click();
+await audit("every agent's tile", "#connect .cn-grid");
 await p.keyboard.press("Escape");
 check(errors.length === 0, `no page errors (${errors.join(" | ")})`);
 await b.close();

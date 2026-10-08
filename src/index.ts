@@ -146,6 +146,7 @@ import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 import { quickReplies } from "./quickReplies";
 import { fontResponse } from "./fonts";
 import { MERMAID_PATH, mermaidResponse } from "./mermaid";
+import { AGENT_LOGO_FILES } from "./agent-logos";
 
 const OPS_PATH = "/_ops";
 
@@ -2278,6 +2279,12 @@ const handler = {
       if (path === CODE_COLOR_PATH && method === "GET") return new Response(CODE_COLOR_SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       // Mermaid (mermaid.ts): pages load the pinned UMD build only once a diagram is on screen; SRI checks its bytes.
       if (path === MERMAID_PATH && method === "GET") return mermaidResponse(env, url);
+      // Connect tiles' pictures (agent-logos.ts: Instinct's, as the landing shows it), from Worker assets.
+      if (AGENT_LOGO_FILES.has(path) && method === "GET") {
+        const asset = env.ASSETS ? await env.ASSETS.fetch(new URL(path, url.origin)) : null;
+        if (!asset?.ok) return new Response("not found", { status: 404 });
+        return new Response(asset.body, { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+      }
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);

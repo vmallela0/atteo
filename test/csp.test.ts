@@ -159,8 +159,11 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     expect(AGENT_LOGO_CSS).toContain('i.cn-logo[data-lg=chatgpt]{--lg:path(evenodd,"');
     expect(AGENT_LOGO_CSS).not.toMatch(/data:/);
     expect(agentLogo("claude")).toContain('data-lg="claude"');
-    expect(agentLogo("")).toContain("<svg");
+    expect(agentLogo("")).toContain('data-lg="code"');
     expect(agentLogo("nope")).toBe(agentLogo(""));
+    // Instinct's picture is this origin's PNG (vedu #6558), never data: or another host.
+    expect(agentLogo("instinct")).toContain('data-li="instinct"');
+    expect(AGENT_LOGO_CSS).toContain("i.cn-logo[data-li=instinct]{background:url(/agent-logos/instinct.png)");
     // Fonts are this origin's woff2 files, not data: fonts.
     expect(FONT_CSS).toContain('url(/fonts/onest-latin.woff2?v=1)');
     expect(FONT_CSS).not.toMatch(/data:/);

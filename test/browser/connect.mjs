@@ -14,12 +14,30 @@ for (const [w,h] of [[1280,820],[390,800]]) {
   await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(500);
   await p.locator('[data-open="connect"]').first().click();await p.waitForTimeout(300);
   check(await p.locator("[data-ctab]").count()===4&&(await p.locator('[data-ctab][aria-selected="true"]').innerText())==="One click",`${w}px: four tabs, opening on One click`);
-  // jxn #4124/#4151: A–Z, Any other agent last; clip paths and the generic SVG draw in the text colour.
-  // SVG has no offsetWidth. Measure both kinds through Element's bounding box.
-  const tiles=await p.locator("#connect .cn-tile").evaluateAll(ts=>ts.map(t=>{const l=t.querySelector(".cn-logo");if(!l||l.getBoundingClientRect().width!==20||l.getBoundingClientRect().height!==20)return[t.querySelector("b").textContent,false];
-    const svg=l.namespaceURI==="http://www.w3.org/2000/svg",clip=(getComputedStyle(l,"::before").clipPath||"");return[t.querySelector("b").textContent,svg||clip.startsWith("path(")]}));
-  const names=tiles.map(t=>t[0]),az=names.slice(0,-1).toSorted((a,c)=>a.localeCompare(c,"en",{sensitivity:"base"}));
-  check(names.length===12&&names.at(-1)==="Any other agent"&&names.slice(0,-1).join()===az.join()&&tiles.every(t=>t[1]),`One click: A–Z, Any other agent last, a logo on each (${names.join(", ")})`);
+  // jxn #4124/#4151: A–Z, Any other agent last; clip paths (or Instinct's own picture) draw each logo.
+  // vedu #6558: the usual thirteen show first; Show all agents adds the rest of the landing's agents, A–Z among them.
+  const shown=()=>p.locator("#connect .cn-tile:visible").evaluateAll(ts=>ts.map(t=>{const l=t.querySelector(".cn-logo"),r=l&&l.getBoundingClientRect();if(!r||r.width!==20||r.height!==20)return[t.querySelector("b").textContent,false];
+    const clip=getComputedStyle(l,"::before").clipPath||"",bg=getComputedStyle(l).backgroundImage||"";return[t.querySelector("b").textContent,clip.startsWith("path(")||/agent-logos\/instinct\.png/.test(bg)]}));
+  const azOk=(names)=>names.at(-1)==="Any other agent"&&names.slice(0,-1).join()===names.slice(0,-1).toSorted((a,c)=>a.localeCompare(c,"en",{sensitivity:"base"})).join();
+  let tiles=await shown(),names=tiles.map(t=>t[0]);
+  check(names.length===13&&names.includes("Instinct")&&azOk(names)&&tiles.every(t=>t[1]),`One click: A–Z, Any other agent last, a logo on each (${names.join(", ")})`);
+  const more=p.locator("#connect [data-cn-all]");
+  await more.click();
+  tiles=await shown();names=tiles.map(t=>t[0]);
+  check(names.length===41&&azOk(names)&&tiles.every(t=>t[1])&&!(await more.isVisible())&&(await more.getAttribute("aria-expanded"))==="true",`Show all agents: ${names.length} tiles, A–Z, a logo on each${tiles.filter(t=>!t[1]).map(t=>" ✗"+t[0]).join("")}`);
+  check(await p.evaluate(()=>document.activeElement?.classList.contains("cn-more")),"…and focus moves to the first tile it showed");
+  const wide=await p.evaluate(()=>{const d=document.getElementById('connect');return d.scrollWidth>d.clientWidth+1||[...d.querySelectorAll('.cn-tile')].some(t=>t.scrollWidth>t.clientWidth+1)});
+  check(!wide,`${w}px: every tile fits, nothing scrolls sideways`);
+  await p.locator("#connect .cn-grid").screenshot({path:`${SHOTS_DIR}/connect-all-${w}.png`});
+  // Instinct can't add MCP servers (#6296): its tile copies the browser-agent sign-in message, with this server's address.
+  await ctx.grantPermissions(["clipboard-read","clipboard-write"],{origin:BASE});
+  await p.locator('#connect [data-cn-say="instinct"]').click();
+  const said=await p.evaluate(()=>navigator.clipboard.readText()).catch(()=>"");
+  check(said===`Connect to my atteo: open ${BASE}/a and send me the sign-in link it gives you.`,`Instinct copies the sign-in message (${said})`);
+  check(/Paste it into Instinct.*one-time link/.test(await p.locator("#connect .cn-done").innerText()),"…and says where to paste it");
+  // Conductor's tile opens its setup panel.
+  await p.locator('#connect .cn-tile[data-ctab-go="conductor"]').click();
+  check(await p.locator('[data-cpanel="conductor"]').isVisible(),"Conductor's tile opens its setup");
   await p.locator('[data-ctab="cli"]').click();
   check(await p.locator("#cli-install").isVisible()&&(await p.locator("#cli-install").innerText()).includes("install.sh"),"CLI: one line installs and signs in");
   check((await p.locator("#cli-join").innerText())===`atteo join ${board}`,"…then any agent joins this board with one command");
