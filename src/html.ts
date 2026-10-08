@@ -39,6 +39,7 @@ import { E2E_JS } from "./e2eweb";
 import { currentAnalytics, posthogDashboardUrl } from "./analytics";
 import { EXPORT_JS, exportRow } from "./boardExport";
 import { STATUS_JS } from "./status";
+import { DRAG_GATE_JS } from "./dragGate";
 import { EMOJI } from "./emoji";
 import { isRichTextAttachment } from "./richtext";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
@@ -1634,6 +1635,9 @@ let ticking=null,again=false,sumNext=false; // sumNext: a task was finished, so 
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
 async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();pollAfter=d.poll_after_ms||0;
+  applyUpdate(d,sumNow);
+}catch(e){await new Promise(r=>setTimeout(r,5000))}}
+function applyUpdate(d,sumNow){
   const stick=stickNext||pinned;stickNext=false;let added=0;
   let shown=0;for(const e of d.entries){if(addEntry(e)){added++;if(!offChat(document.getElementById('e'+e.seq)))shown++}}
   if(typeof d.last==='number')last=Math.max(last,d.last);
@@ -1645,8 +1649,12 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else if(shown){unseen+=shown;pillSync()}if(window.e2eSync)e2eSync();ghostSoon()}
-  if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();capApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
-}catch(e){await new Promise(r=>setTimeout(r,5000))}}
+  if(d.entries.length||sumNow){if(d.summary!=null){document.getElementById('sum').innerHTML=d.summary;foldApply();capApply()}if(d.count!=null)document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}}
+// #6581: a pushed message, shown without /updates when the page has all before it (prev).
+function pushedEntry(d){const e=d.entry;if(!e||e.seq!==d.seq||typeof e.html!=='string'||typeof d.prev!=='number'||last<d.prev||polling)return false;
+  try{if(d.author===ME0&&d.via==='person'&&!document.getElementById('e'+e.seq))document.querySelector('#thread>.entry.pending')?.remove(); // own post pushed first: drop its copy
+    applyUpdate({entries:[e],count:d.count},false)}catch(x){return false}
+  if(d.sum){sumNext=true;tick(false)}return true}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
 const RXP={};
 // "#412" links read as chips with that message's title, so people never have to think in numbers.
@@ -1668,7 +1676,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove();if(thrOpen&&(t.dataset.root===String(thrOpen)||t.dataset.seq===String(thrOpen)))thrRender()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}} // an open thread shows the unsend at once
     last=Math.max(last,e.seq);return true}
-// Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
+// Live updates: a WebSocket that says what changed (or brings the new message); fall back to long-polling if it can't stay up.
 // A socket gone quiet without closing (sleep, Wi-Fi change) is replaced and the page catches up (#6564).
 let ws,retry=0,polling=false,pollAfter=0,heard=0;
 function revive(){const old=ws;if(!old)return;old.onopen=old.onmessage=old.onclose=null;clearInterval(old.pinger);try{old.close()}catch(e){}connect();tick(false)}
@@ -1711,8 +1719,10 @@ function connect(){
     if(d.type==='task'&&d.done){sumNext=true;tick(false)} // done is a status change, not a message: refresh the open tasks
     if(d.type==='claim'||d.type==='handling')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
+    if(d.type==='entry'&&pushedEntry(d)){if(!document.getElementById('panel-tasks').hidden)loadTasks();return}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
-  ws.onclose=(e)=>{clearInterval(ping);if(e.code!==4003)document.getElementById('conn').hidden=false;if(e.code===4003){location.href='/';return}
+  ws.onclose=(e)=>{clearInterval(ping);if(e.code===4000)return connect(); // the push lease ran out: reconnect, checked again
+    if(e.code!==4003)document.getElementById('conn').hidden=false;if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
 }
 connect();
@@ -2951,7 +2961,9 @@ if(location.hash==='#integrations')setTimeout(()=>document.querySelector('[data-
 // Frozen (vedu #4791): parked for the far future, last and folded until opened; dropping a card on it freezes it.
 const KCOLS=[['todo',tr('To do')],['doing',tr('In progress')],['blocked',tr('Blocked')],['done',tr('Done')],['frozen',tr('Frozen')]];let kFrozenOpen=false;
 const PRI={high:0,medium:1,low:2};
-async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');const j=await r.json().catch(()=>({}));if(!r.ok){document.getElementById('kanban').innerHTML='<p class="muted small">'+esc(j.error||tr('Could not load tasks'))+'</p>';return}
+// Reloads wait out drags (src/dragGate.ts); only the newest draws.
+let kGen=0,kRelease=null;const kGate=dragGate(()=>loadTasks());
+async function loadTasks(){if(!kGate.ask())return;const g=++kGen;const r=await fetch('/api/boards/'+BOARD+'/tasks');const j=await r.json().catch(()=>({}));if(g!==kGen)return;if(kGate.busy){kGate.defer();return}if(!r.ok){document.getElementById('kanban').innerHTML='<p class="muted small">'+esc(j.error||tr('Could not load tasks'))+'</p>';return}
   const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]={...TASKS[t.seq],...t});const open=ts.filter(t=>t.status!=='done'&&t.status!=='frozen').length;document.getElementById('task-count').textContent=open||'';
   document.getElementById('kanban').innerHTML=KCOLS.map(([k,label])=>{const col=ts.filter(t=>(k==='blocked'?(t.status==='blocked'||t.status==='stopped'):t.status===k))
       .sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)||(k==='done'?b.updated_at-a.updated_at:a.seq-b.seq)).slice(0,k==='done'?30:200);
@@ -2973,14 +2985,16 @@ function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const t
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||tr('Could not update'));loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
-kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)return;dragSeq=c.dataset.seq;e.dataTransfer.effectAllowed='move';c.classList.add('dragging')});
+kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)return;dragSeq=c.dataset.seq;kRelease?.();kRelease=kGate.hold();e.dataTransfer.effectAllowed='move';c.classList.add('dragging')});
 // Folded, a click anywhere on the Frozen column opens it; open, its header closes it (a card click opens the card).
 kb.addEventListener('click',e=>{const col=e.target.closest('.kfrozen');if(!col||(kFrozenOpen&&!e.target.closest('.kfz')))return;kFrozenOpen=!kFrozenOpen;
   col.classList.toggle('open',kFrozenOpen);kb.classList.toggle('fz-open',kFrozenOpen);col.querySelector('.kfz').setAttribute('aria-expanded',String(kFrozenOpen));col.querySelector('.kcards').hidden=!kFrozenOpen;
   if(kFrozenOpen)col.scrollIntoView({block:'nearest',inline:'nearest'})}); // on a phone, the now-wider column fully in view
-kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'))});
+kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'));kRelease?.();kRelease=null});
 kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
-kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;taskAct(s,{action:'update',status:col.dataset.status})});
+// The drop keeps the hold until the move is saved.
+kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;
+  const rel=kRelease;kRelease=null;taskAct(s,{action:'update',status:col.dataset.status}).catch(()=>{}).finally(()=>{if(kGate.busy)kGate.defer();rel?.()})});
 kb.addEventListener('click',e=>{const d=e.target.closest('[data-kdone]');if(d){e.preventDefault();e.stopPropagation();taskAct(+d.dataset.kdone,{action:'update',status:'done'});return}
   const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
   const c=e.target.closest('.kcard');if(c)openTask(+c.dataset.seq)});
@@ -3032,7 +3046,7 @@ window.boardKeys=(e,k)=>{
 document.getElementById('thread-scroll')?.removeAttribute('data-wait');
 `;
 export const BOARD_JS_PATH = "/board.js";
-export const BOARD_JS = BOARD_CORE_JS + HOST_LOADER_JS;
+export const BOARD_JS = DRAG_GATE_JS + BOARD_CORE_JS + HOST_LOADER_JS;
 export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // The scripts that run after it: the same for every board with the same four flags (can change its picture, encrypted,
 // your agent chat, can post), so each combination is its own cached file, /board-tail.js?f=<flags> (index.ts). Where

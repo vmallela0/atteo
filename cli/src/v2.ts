@@ -14,6 +14,7 @@ import { flagLine, screenMail } from "./dispatch";
 import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, encHandoffQueue, folderBoard, getEntry, isEncrypted, joinLink, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, sealForMe, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
+import { keepSession } from "./sessionRetry";
 import { createHash } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -146,22 +147,18 @@ export function forgetSession() {
   setSession(null);
 }
 
-/** Runs `fn` with the session; if the server says it has ended (or never existed), starts a new one once and retries. */
-async function withSession<T>(opt: Opt, fn: (s: LocalSession) => Promise<T>): Promise<T> {
-  const s = (await session(opt))!;
-  try {
-    return await fn(s);
-  } catch (e) {
-    const gone = (e as { status?: number }).status === 404 && /No live session/.test((e as Error).message);
-    const ended = /agent session has ended/.test((e as Error).message);
-    if (!(gone || ended) || optStr(opt, "session") || env("SESSION")) throw e;
-    const map = loadMap();
-    delete map[currentKey];
-    saveMap(map);
-    current = null;
-    setSession(null);
-    return fn((await session(opt))!);
-  }
+/** Runs `fn` with the session; if the server says it has ended (or never existed), starts a new one once and retries.
+ *  A 404 for a session this agent has on file is tried again first (sessionRetry.ts, #6591): it can be a deploy blip. */
+function withSession<T>(opt: Opt, fn: (s: LocalSession) => Promise<T>): Promise<T> {
+  return keepSession<LocalSession, T>(
+    {
+      get: async () => (await session(opt))!,
+      drop: forgetSession,
+      explicit: !!(optStr(opt, "session") || env("SESSION")),
+      stored: (s) => !!currentKey && loadMap()[currentKey]?.id === s.id,
+    },
+    fn,
+  );
 }
 
 /** The session joins the board this command is for (this folder's board, from atteo use) if it isn't on it yet. */

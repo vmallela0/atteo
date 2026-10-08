@@ -1631,6 +1631,75 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   assert(!(await open(null)).ok, "signed-out must not connect");
 });
 
+await step("live entries (vedu #6581): a web tab gets a public message rendered over its socket; Just mine reaches only its person, as a signal; agents' sockets and removed members never get the entry", async () => {
+  const lb = (await ops("boards", { user: A, title: `live push ${run}` })).body.board.id;
+  const C = `e2e-livec-${run}`; // removed mid-connection below
+  await makeUser(C);
+  for (const u of [B, C]) await ops("members", { board: lb, user: u });
+  const wsUrl = BASE.replace(/^http/, "ws") + `/api/boards/${lb}/ws`;
+  const open = (headers) =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(wsUrl, { headers });
+      const s = { ws, msgs: [], closed: null };
+      ws.onmessage = (m) => s.msgs.push(String(m.data));
+      ws.onclose = (e) => { s.closed = e.code; };
+      ws.onopen = () => resolve(s);
+      ws.onerror = () => resolve(s);
+    });
+  // The upgrade itself (status only): signed in by the cookie, only this site's own pages may open the socket (another
+  // site's page would carry the member's cookie); the same from Atteo's own origin, or a token from anywhere, is accepted.
+  const { request: rawReq } = await import(BASE.startsWith("https:") ? "node:https" : "node:http");
+  const upgrade = (headers) =>
+    new Promise((resolve) => {
+      const r = rawReq(wsUrl.replace(/^ws/, "http"), { headers: { connection: "Upgrade", upgrade: "websocket", "sec-websocket-version": "13", "sec-websocket-key": randomBytes(16).toString("base64"), ...headers } });
+      r.on("upgrade", (_res, sock) => { sock.destroy(); resolve(101); });
+      r.on("response", (res) => { res.resume(); resolve(res.statusCode); });
+      r.on("error", () => resolve(0));
+      r.end();
+    });
+  const ckA = cookie[A];
+  assert((await upgrade({ cookie: ckA, origin: "https://evil.example" })) === 403, "a cross-origin upgrade with the cookie is refused");
+  assert((await upgrade({ cookie: ckA, origin: "null" })) === 403, "…and Origin: null with the cookie too");
+  assert((await upgrade({ cookie: ckA, origin: new URL(BASE).origin })) === 101, "a same-origin upgrade with the cookie is accepted");
+  assert((await upgrade({ ...auth(B), origin: "https://evil.example" })) === 101, "a token's upgrade doesn't depend on the Origin (the app, the CLI)");
+  const [aWeb, bWeb, bAgent, cWeb] = await Promise.all([open({ cookie: cookie[A] }), open({ cookie: cookie[B] }), open(auth(B)), open({ cookie: cookie[C] })]);
+  for (const s of [aWeb, bWeb, bAgent, cWeb]) await until(() => s.msgs.some((x) => x.includes('"type":"hello"')));
+  const frames = (s, seq) => s.msgs.map((x) => { try { return JSON.parse(x); } catch { return {}; } }).filter((f) => f.type === "entry" && f.seq === seq);
+  const say = async (who, body) => (await (await web(`/api/boards/${lb}/entries`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+
+  // A public note: B's web tab gets it rendered (the same html /updates gives B), B's agent socket the signal only.
+  const pub = await say(A, { text: `live public ${run}` });
+  await until(() => frames(bWeb, pub).length && frames(bAgent, pub).length && frames(cWeb, pub).length);
+  const [pushed] = frames(bWeb, pub);
+  assert(pushed?.entry?.html?.includes(`live public ${run}`) && typeof pushed.prev === "number", `B's web tab: ${JSON.stringify(pushed)?.slice(0, 300)}`);
+  const u = await (await web(`/api/boards/${lb}/updates?after=${pub - 1}`, B)).json();
+  assert(JSON.stringify(u.entries.find((e) => e.seq === pub)) === JSON.stringify(pushed.entry), "the pushed entry is what /updates returns to B");
+  assert(frames(bAgent, pub).every((f) => f.entry === undefined), "an agent's socket gets the signal, never the rendered entry");
+
+  // Just mine from B: B's own tab and agent hear of it (the signal: they fetch it), A and C hear nothing.
+  const mine = await say(B, { text: `live just mine ${run}`, own: true });
+  await until(() => frames(bWeb, mine).length && frames(bAgent, mine).length);
+  for (const s of [bWeb, bAgent]) assert(frames(s, mine).length === 1 && frames(s, mine)[0].entry === undefined && !JSON.stringify(frames(s, mine)).includes(`live just mine ${run}`), `B's own lane: ${JSON.stringify(frames(s, mine))}`);
+  await sleep(300); // guards a negative
+  assert(!frames(aWeb, mine).length && !aWeb.msgs.some((x) => x.includes(`live just mine ${run}`)), `A must not get B's Just mine #${mine}`);
+  assert(!frames(cWeb, mine).length, `C must not get B's Just mine #${mine}`);
+  // The next public message: A's push says its previous visible entry is #pub (the Just mine one isn't A's).
+  const pub2 = await say(B, { text: `live public two ${run}` });
+  await until(() => frames(aWeb, pub2).length);
+  assert(frames(aWeb, pub2)[0].prev === pub && frames(aWeb, pub2)[0].entry, `A's prev: ${JSON.stringify(frames(aWeb, pub2)[0]).slice(0, 200)}`);
+
+  // C is removed while connected: the socket is closed (4003), and nothing after reaches it.
+  const rm = await web(`/api/boards/${lb}/members/${C}/remove`, A, { method: "POST" });
+  assert(rm.ok, `remove: ${rm.status}`);
+  // Told so, and closed (4003; the close frame itself isn't reliably delivered here, so the message is what's checked).
+  await until(() => cWeb.msgs.some((x) => x.includes('"type":"removed"')));
+  assert(cWeb.msgs.some((x) => x.includes('"type":"removed"')) && (cWeb.closed == null || cWeb.closed === 4003), `C's socket: closed ${cWeb.closed}, last ${cWeb.msgs.slice(-1).join("").slice(0, 200)}`);
+  const after = await say(A, { text: `live after removal ${run}` });
+  await until(() => frames(bWeb, after).length);
+  assert(!cWeb.msgs.some((x) => x.includes(`"seq":${after}`) || x.includes(`live after removal ${run}`)), "a removed member gets nothing");
+  for (const s of [aWeb, bWeb, bAgent, cWeb]) s.ws.close();
+});
+
 await step("messaging fast path (vedu #6564): a post says its thread root, /updates and /entries carry roots and reactions, guards unchanged", async () => {
   const fb = (await ops("boards", { user: A, title: `fast ${run}` })).body.board.id;
   await ops("members", { board: fb, user: B });
@@ -3816,6 +3885,46 @@ await step("OAuth refresh tokens: rotate on use (old one rejected), same scope a
   assert((await web(`/api/tokens/${live[0].id}/revoke`, A, { method: "POST" })).status === 200, "revoke");
   const dead = await token({ grant_type: "refresh_token", refresh_token: t2.refresh_token });
   assert(dead.status === 400 && (await dead.json()).error === "invalid_grant", "refresh after revoke is refused");
+});
+
+await step("MCP OAuth with a client metadata document (CIMD, vedu #6575): a URL client_id, no registration, bound to that URL", async () => {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const as = await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json();
+  assert(as.client_id_metadata_document_supported === true && as.registration_endpoint, JSON.stringify(as));
+  // A local test server serves the document itself (/__cimd-test, ALLOW_LOCAL_WEBHOOKS=1 on localhost only); a real
+  // client_id is https on a public host.
+  const id = `${BASE}/__cimd-test/client-${run}`;
+  const cb = "http://localhost:47126/callback";
+  const name = `CIMD Agent ${run}`;
+  const doc = { client_id: id, client_name: `<b>${name}</b>`, redirect_uris: [cb], grant_types: ["authorization_code", "refresh_token"], token_endpoint_auth_method: "none" };
+  assert((await fetch(id, { method: "POST", body: JSON.stringify(doc) })).ok, "test document set");
+  const verifier = randomBytes(32).toString("base64url");
+  const q = new URLSearchParams({ response_type: "code", client_id: id, redirect_uri: cb, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", state: "c1" });
+  const with_ = (o) => `/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(q), ...o })}`;
+  const consent = await (await web(`/oauth/authorize?${q}`, A)).text();
+  has(consent, `&lt;b&gt;${name}&lt;/b&gt; wants to be your agent`); // the name, escaped
+  has(consent, `From <b style="color:var(--ink)">${new URL(BASE).host}</b>`); // and the domain it came from
+  has(consent, "data-loopback");
+  assert((await web(with_({ redirect_uri: "http://localhost:47127/callback" }), A)).status === 400, "a redirect the document doesn't list");
+  for (const bad of ["http://example.com/client.json", "https://10.0.0.1/client.json", "https://localhost/client.json", `${BASE}/__cimd-test/missing-${run}`])
+    assert((await web(with_({ client_id: bad }), A)).status === 400, `client_id ${bad}`);
+  const rid = consent.match(/name="request_id" value="([^"]+)"/)[1];
+  const allow = await web(`/oauth/authorize`, A, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` });
+  const back = new URL(allow.headers.get("location"));
+  assert(back.origin + back.pathname === cb && back.searchParams.get("state") === "c1", allow.headers.get("location"));
+  const code = back.searchParams.get("code");
+  const token = (f) => fetch(`${BASE}/oauth/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(f) });
+  const t = await (await token({ grant_type: "authorization_code", code, redirect_uri: cb, client_id: id, code_verifier: verifier })).json();
+  assert(t.access_token?.startsWith("ab_") && t.refresh_token && t.scope === "board", JSON.stringify(t));
+  has((await tool(t.access_token, null, "list_boards")).text, `e2e ${run}`);
+  // Refresh: the same client_id must be sent.
+  const noId = await token({ grant_type: "refresh_token", refresh_token: t.refresh_token });
+  assert(noId.status === 400 && (await noId.json()).error === "invalid_grant", "refresh without the client_id");
+  const t2 = await (await token({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: id })).json();
+  assert(t2.access_token?.startsWith("ab_") && t2.access_token !== t.access_token, JSON.stringify(t2));
+  // Listed under Agent connections with its domain.
+  const live = (await (await web("/api/tokens", A)).json()).tokens.filter((x) => x.label === `<b>${name}</b> · ${new URL(BASE).host}` && !x.revoked_at);
+  assert(live.length === 1, JSON.stringify(live));
 });
 
 await step("the Atteo app signs in as the person (scope=person, atteo:// only): it can do what only people can; agent tokens still can't", async () => {
