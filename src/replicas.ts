@@ -1,37 +1,23 @@
-// D1 read replicas (vedu #6581): the hot board reads are served by a D1 read replica near the Worker instead of the
-// primary, through the D1 Sessions API. Off unless D1_REPLICAS=1 (staging first; docs in docs/STAGING.md), and only
-// useful once read replication is enabled on the database itself (dashboard, or the REST API's read_replication).
+// D1 read replicas (vedu #6581): the presentational reads of the hot board GETs are served by a D1 read replica near the
+// Worker instead of the primary, through the D1 Sessions API. Off unless D1_REPLICAS=1 (staging first), and only useful
+// once read replication is enabled on the database itself (dashboard, or the REST API's read_replication).
 //
-// Which requests: GET /b/<board> (the board page), GET /api/boards/<board>/updates (every open tab, per message) and
-// GET /api/boards/<board>/entries[/<seq>] (agents, SDKs, "load earlier"). Never the /ws upgrade (its role check) nor
-// anything in the board Durable Object (live pushes and their member reads). Everything else, among it every write, /mcp,
-// sign-in, tokens, OAuth, invites, joins and access changes, keeps plain env.DB, which D1 always serves from the
-// primary: "otherwise all queries will continue to be executed only by the primary database" (D1 docs).
+// The rule (vedu/coordinator, after review): nothing that decides who may see what ever reads a replica. env.DB stays
+// the primary in every request (D1 serves plain binding queries from the primary). For GET /b/<board>, GET
+// /api/boards/<board>/updates and GET /api/boards/<board>/entries[/<seq>] only, the request also gets env.DB_REPLICA, a
+// Session, and a call site opts in to it explicitly through presentational(env), for reads whose staleness can only
+// change what's displayed: the sidebar's boards, pins, presence (agents, sessions, machines), the displayed member list
+// and names, the board row's picture/kind/charter, approval rules shown on the page, linked Slack channels.
+// On the primary, always, whatever the replica lag: the sign-in lookup (sessions, tokens, users), the access check
+// (membership, role, deleted), the role that gates what the page offers (spend, retract), pending invites, mutes,
+// every write, the /ws upgrade, the board Durable Objects, /mcp, OAuth and every other route. A new read is on the
+// primary unless someone opts it in, so the safe side is the default. test/d1Replicas.test.ts pins the opt-in list.
 //
-// How one of those requests reads: a single Session that starts "first-primary". Its first query goes to the primary
-// and gives the Session a bookmark B (the primary's state at that moment); every later read in the request may be
-// served by a replica, but only one that has caught up to at least B (sequential consistency). Whichever query comes
-// first goes to the primary; in these requests that is the sign-in lookup (sessions for a cookie, tokens for a bearer
-// token, or the token's user when the token is in the isolate's short cache, as before), and on these three paths it
-// is awaited before any other D1 query is sent (the bench's hop log: sign-in at +0 ms, access at +1 round trip).
-//
-// Why that's safe for access (the review's question): the request's first query starts after the request arrived, so
-// B covers every write committed before the request began, by anyone: a member removed or demoted, a token revoked, a
-// board deleted. The access check (boardAccess) and every other read here see at least B, so a removal that finished
-// before this request was sent is always seen, exactly as on the primary. The one difference: a removal committed in
-// the one primary round trip between this request's first query and its access read (about 40 ms near the primary,
-// about 150 ms from Europe on staging) is caught on the primary but may not be
-// on a replica; that request then behaves as if it had arrived a moment earlier (it was in flight when the removal
-// happened, so either order is a correct answer). No write reads a replica: writes always go to the primary.
-//
-// Read-your-writes: a write finished before your next request starts, so the next request's B covers it. This holds
-// for every client, with or without a bookmark, which is why the session never starts from the client's bookmark: a
-// client's last bookmark is always older than "first-primary" (it would let the sign-in lookup itself read a replica
-// that hasn't seen a revocation). The response still carries the Session's bookmark (x-d1-bookmark) for observability.
-//
-// Writes inside these GETs (last-seen and last-used stamps, mostly in waitUntil) go to plain env.DB, not the Session:
-// a write through a Session moves its bookmark past the write, and every later read in it would then wait for a replica
-// to catch up to that write. The Board Durable Objects keep their own env.DB (the primary); they never use a Session.
+// Read-your-writes for the replica reads: the Session starts first-primary with a one-row anchor query sent the
+// moment the request arrives (alongside the sign-in lookup, so it adds no wait). It returns a bookmark B covering every
+// write committed before the request began, and every later read in the Session waits for a replica at least at B.
+// So a post, join or rename you made is in the very next page or /updates you load. The client's own bookmark is never
+// used (it's always older than B); the response carries B (x-d1-bookmark) and which instances served (x-d1-served).
 import type { Env } from "./types";
 
 export const BOOKMARK_HEADER = "x-d1-bookmark";
@@ -132,7 +118,24 @@ export function readSession(primary: D1Database): ReadSession {
 export function begin(env: Env, request: Request): ReadSession | null {
   if (env.D1_REPLICAS !== "1" || typeof env.DB?.withSession !== "function") return null;
   if (!isHotRead(request.method, new URL(request.url).pathname)) return null;
-  return readSession(env.DB);
+  const rs = readSession(env.DB);
+  // The anchor: the Session's first query (so, the primary), sent now, so B covers everything before this request.
+  rs.db.prepare(`SELECT 1 AS anchor`).all().catch(() => {});
+  return rs;
+}
+
+/** A displayed member list (maybe from a replica) with the viewer's own row set to `role`, their role as the primary's
+ *  access check read it: what the page offers the viewer never rests on a replica. Added if the list lacks them. */
+export function withRole<M extends { user: string; role: unknown }>(list: M[], viewer: string, role: M["role"] | null): M[] {
+  if (role == null) return list.filter((m) => m.user !== viewer);
+  if (!list.some((m) => m.user === viewer)) return [...list, { user: viewer, role, joined_at: Date.now(), last_seen: 0, display_name: null, agent_name: null, expires_at: null } as unknown as M];
+  return list.map((m) => (m.user === viewer ? { ...m, role } : m));
+}
+
+/** The env for a read that may come from a replica: only presentational reads in the hot GETs (see above). Anywhere
+ *  else, or with the switch off, it's env itself (the primary). Never for a read that decides access or visibility. */
+export function presentational(env: Env): Env {
+  return env.DB_REPLICA ? { ...env, DB: env.DB_REPLICA } : env;
 }
 
 /** The response with the Session's bookmark (when it read anything) and which instances served its reads

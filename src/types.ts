@@ -220,6 +220,7 @@ export interface Env {
   // "1": the hot board reads (page, /updates, /entries GETs) read through a D1 replica Session (src/replicas.ts). Off by
   // default; needs read replication enabled on the database to make any difference. Staging only until reviewed.
   D1_REPLICAS?: string;
+  DB_REPLICA?: D1Database; // set per request by src/replicas.ts (hot GETs only); read it only through presentational(env)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
   // Free-plan guardrails (src/limits.ts; INFRA-ASSESSMENT §4i). All optional vars; the defaults are in limits().
   RATE_AGENT_PER_MIN?: string; // var: requests per minute per agent token (default 600; per isolate)

@@ -756,10 +756,10 @@ const handler = {
     // The hop meter (src/devHops.ts): local bench runs only (DEV_HOPS=1 on localhost); otherwise null and nothing changes.
     const metered = devHops.meter(rawEnv, request);
     const base = metered?.env ?? rawEnv;
-    // D1 read replicas (src/replicas.ts): with D1_REPLICAS=1, the hot board reads go through a first-primary Session;
-    // otherwise null, and env and every request are exactly as before.
+    // D1 read replicas (src/replicas.ts): with D1_REPLICAS=1, a hot board GET also gets DB_REPLICA (a Session) for its
+    // presentational reads; env.DB stays the primary. Otherwise null, and env and every request are exactly as before.
     const rs = replicas.begin(base, request);
-    const env = rs ? { ...base, DB: rs.db } : base;
+    const env = rs ? { ...base, DB_REPLICA: retryingReads(rs.db) } : base;
     let res = await handler.serve(request, env, ctx);
     if (rs) res = replicas.stamp(res, rs);
     return metered ? devHops.stamp(res, metered.hops) : res;
@@ -1270,26 +1270,33 @@ const handler = {
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
         // Everything the page needs, read side by side (vedu #6564): what depends on the members list starts as soon as it
-        // arrives, instead of after every other read, one after another.
-        const membersRead = registry.boardMembers(env, m[2]);
+        // arrives, instead of after every other read, one after another. `pres`: reads that only change what's shown may
+        // come from a D1 replica (src/replicas.ts); what gates (the role, invites, mutes) stays on env.DB, the primary.
+        const pres = replicas.presentational(env);
+        const membersRead = registry.boardMembers(pres, m[2]);
         const early = <T,>(p: Promise<T>) => (p.catch(() => {}), p); // awaited below; a failure surfaces there, not as an unhandled rejection
-        const sessionsRead = early(sessions.onBoard(env, m[2]));
-        const machinesRead = early(membersRead.then((ms) => machines.forUsers(env, ms.map((x) => x.user))).catch(() => []));
-        const spendRead = early(membersRead.then((ms) => (ms.find((x) => x.user === viewer.name)?.role === "viewer" ? null : boardStub(env, m![2]).spend())));
+        const sessionsRead = early(sessions.onBoard(pres, m[2]));
+        const machinesRead = early(membersRead.then((ms) => machines.forUsers(pres, ms.map((x) => x.user))).catch(() => []));
+        // Spend is hidden from viewers: decided by the access row (the primary, read by canSee above), not the shown list.
+        const spendRead = early(accessOf(c, m[2]).then((a) => (a.role === "viewer" ? null : boardStub(env, m![2]).spend())));
         const slackRead = early(slackOn(env, request)
-          ? env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().then((r) => (r.results ?? []).map((x) => x.channel_name)).catch(() => [] as string[])
+          ? pres.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().then((r) => (r.results ?? []).map((x) => x.channel_name)).catch(() => [] as string[])
           : Promise.resolve([] as string[]));
-        const [snap, members, invites, side, live, status, row, muted, approvalRulesForBoard] = await Promise.all([
+        const [snap, shownMembers, invites, side, live, status, row, muted, approvalRulesForBoard, access] = await Promise.all([
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           membersRead,
           registry.pendingInvites(env, m[2]),
-          sideBoardsNamed(env, viewer.name),
-          registry.agentsOnBoard(env, m[2]),
-          registry.agentStatus(env, viewer.name),
-          registry.getBoard(env, m[2]),
+          sideBoardsNamed(pres, viewer.name),
+          registry.agentsOnBoard(pres, m[2]),
+          registry.agentStatus(pres, viewer.name),
+          registry.getBoard(pres, m[2]),
           viewer.via === "agent" ? [] : moderation.mutedOn(env, viewer.name, m[2]).catch(() => []), // whom you muted here (#3602)
-          approvalRules.list(env, m[2]),
+          approvalRules.list(pres, m[2]),
+          accessOf(c, m[2]), // read by canSee above: the viewer's own role, from the primary
         ]);
+        // The page offers owner controls and the composer by the viewer's role in this list: that one row comes from the
+        // primary's access row, whatever the (possibly replica) list says.
+        const members = replicas.withRole(shownMembers, viewer.name, access.role);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
         const sessionsHere = (await sessionsRead).filter((x) => memberSet.has(x.user)).map(({ model, ...x }) => ({ ...x, ...sessions.modelFor({ model }, viewer.via !== "agent") }));
@@ -1301,12 +1308,12 @@ const handler = {
         ].filter((a) => sessions.present(a.last_seen as number));
         const withAgents = members.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
         // People who already have an account show by name, so a friend invited by name never has their email shown.
-        const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
+        const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(pres, i.email))?.name ?? null)));
         const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
         const kind = (row as { kind?: string | null } | null)?.kind ?? null;
         const charter = charterView(storedFromRow(row), members.map((x) => ({ user: x.user, role: x.role })));
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
-        const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
+        const mine = kind === "agent" ? (await sessions.list(pres, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
         const agentNamed = agentNames(members);
         // This board leads the tabs in "Last opened" order (vedu #5192). The page itself records the open when it shows
         // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
@@ -3973,7 +3980,8 @@ const handler = {
           if (refused) return refused;
           // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
           // Roots come with the snapshot (one call to the board, not two in a row: every open tab makes this request per message).
-          const [snap, members0, live] = await Promise.all([stub.snapshot(after, { roots: true }, seer()), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
+          // The members and presence shown with the entries may come from a D1 replica (src/replicas.ts); access was checked on the primary.
+          const [snap, members0, live] = await Promise.all([stub.snapshot(after, { roots: true }, seer()), registry.boardMembers(replicas.presentational(env), id), registry.agentsOnBoard(replicas.presentational(env), id)]);
           const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
           const fresh = snap.entries;
           const roots: Record<number, number> = snap.roots ?? {};
@@ -4016,7 +4024,7 @@ const handler = {
           if (refused) return refused;
           const limit = Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200);
           // Reactions on these entries (agents' 🤔 / ✅ read receipts among them), keyed by seq: with the snapshot, in one call.
-          const [snap, names] = await Promise.all([stub.snapshot(after, { reactionsOfFirst: limit }, seer()), social.boardAgentNames(env, id)]);
+          const [snap, names] = await Promise.all([stub.snapshot(after, { reactionsOfFirst: limit }, seer()), social.boardAgentNames(replicas.presentational(env), id)]);
           const list = withNames(snap.entries.slice(0, limit), names);
           const reactions = list.length ? (snap.entry_reactions ?? {}) : {};
           // last: past any people-only entries this caller doesn't get (all of them, for an agent's token).
@@ -4028,7 +4036,7 @@ const handler = {
           // The same reader post uses (asOpts), registered if new (#3881); a failure is the request's, not hidden.
           if (ack && viewer?.via === "agent" && last > after) await stub.ack(viewer.name, last, (await asOpts()).session, true);
           // One-tap reply chips (vedu #2490), people only (the app shows them; agents don't need them): seq → who and what.
-          const qMembers = seer()?.person && list.some((e) => e.type === "question" && e.via === "agent") ? new Set((await registry.boardMembers(env, id)).map((m) => m.user)) : undefined;
+          const qMembers = seer()?.person && list.some((e) => e.type === "question" && e.via === "agent") ? new Set((await registry.boardMembers(replicas.presentational(env), id)).map((m) => m.user)) : undefined;
           const quick = seer()?.person ? Object.fromEntries(list.flatMap((e) => { const q = quickReplies(e, { members: qMembers }); return q && q.for.includes(viewer!.name) ? [[e.seq, { options: q.options, own: q.own }]] : []; })) : undefined;
           return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions, ...(quick && Object.keys(quick).length ? { quick } : {}) });
         }
@@ -4041,7 +4049,7 @@ const handler = {
             viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
             stub.rootsFor(seqs),
             stub.reactionsFor(seqs, seer()),
-            registry.boardMembers(env, id), // "@Jarvis" chips, as on the page (jxn #1659); who's on it (quick replies)
+            registry.boardMembers(replicas.presentational(env), id), // "@Jarvis" chips, as on the page (jxn #1659); who's on it (quick replies)
             stub.info(),
           ]);
           const pageMembers = new Set(names.map((m) => m.user)), pageNames = agentNames(names), pagePeople = displayMap(names);
@@ -4076,7 +4084,7 @@ const handler = {
         }
         if (what === "entries" && seqStr && method === "GET") {
           try {
-            const [r, names] = await Promise.all([stub.get(parseInt(seqStr, 10), seer()), social.boardAgentNames(env, id)]);
+            const [r, names] = await Promise.all([stub.get(parseInt(seqStr, 10), seer()), social.boardAgentNames(replicas.presentational(env), id)]);
             return json({ ...r, entry: withNames([r.entry], names)[0], replies: withNames(r.replies, names) });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
