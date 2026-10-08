@@ -8176,6 +8176,60 @@ await step("atteo host: network is consented, cwd is plain text, the owner isn't
   assert((await post(A[0], `/${hB.id}/runs`, { command: "echo next hour" }, at(3600_000 + 60_000))).status === 200, "an hour later it's open again");
 });
 
+await step("ask one agent (jxn #6339): my grok, someone's muse, keep waiting, first contact, MCP; your agents reach each other's mailbox (#6336)", async () => {
+  const [J, V, S] = [`askj${run}`, `askv${run}`, `asks${run}`];
+  await makeUsers([J, V, S]);
+  const api = async (who, method, path, body, session) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json", ...(session ? { "x-atteo-session": session } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const sess = async (who, name, client) => (await api(who, "POST", "/api/sessions", { name, client })).body.session.id;
+  const [muse, grok, lead, vs] = [await sess(J, "muse", "Muse"), await sess(J, "grok", "Grok"), await sess(J, "lead", "Claude Code"), await sess(V, "clank", "Claude Code")];
+  await asPerson(J, "/api/friends/request", { user: V });
+  await asPerson(V, `/api/friends/${J}/accept`);
+  // A stand-in agent: finds its question in its own mailbox, then replies to it (reading first, as agents do).
+  const answer = async (session, marker, text) => {
+    for (let i = 0; i < 80; i++) {
+      const m = ((await api(J, "GET", "/api/mailbox?peek=1", null, session)).body.mail ?? []).find((x) => x.text?.includes(marker));
+      if (m) {
+        for (let k = 0; k < 2; k++) if ((await api(J, "POST", `/api/boards/${m.board}/entries`, { text, reply_to: m.seq }, session)).body.entry) return m;
+        return null;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return null;
+  };
+  // My grok, asked by my muse: on my agent chat, in grok's mailbox (only grok's), answered in the same call.
+  let [r, m] = await Promise.all([api(J, "POST", "/api/ask", { to: "my grok", text: `Q1 ${run}`, wait_seconds: 20 }, muse), answer(grok, `Q1 ${run}`, "grok: 42")]);
+  assert(m?.to_session === "grok", `the question is grok's mail: ${JSON.stringify(m)}`);
+  assert(r.body.status === "answered" && r.body.answer.text === "grok: 42" && r.body.to === `${J}/grok`, JSON.stringify(r));
+  assert(!((await api(J, "GET", "/api/mailbox?peek=1", null, lead)).body.mail ?? []).some((x) => x.text?.includes(`Q1 ${run}`)), "another session of mine doesn't get it");
+  r = await api(J, "POST", "/api/ask", { to: "my claude code", text: `Q2 ${run}`, wait_seconds: 0 }, muse);
+  assert(r.body.status === "waiting" && r.body.to === `${J}/lead`, `by client: ${JSON.stringify(r.body)}`);
+  // Someone else's, in the words people use: on our direct board.
+  [r] = await Promise.all([api(V, "POST", "/api/ask", { to: `${J}’s muse`, text: `Q3 ${run}`, wait_seconds: 20 }, vs), answer(muse, `Q3 ${run}`, "muse: yes")]);
+  assert(r.body.status === "answered" && r.body.answer.text === "muse: yes", JSON.stringify(r));
+  // Keep waiting on an earlier ask; only someone on that board can.
+  r = await api(V, "POST", "/api/ask", { to: `${J}s muse`, text: `Q4 ${run}`, wait_seconds: 0 }, vs);
+  assert(r.body.status === "waiting" && r.body.board && r.body.seq, JSON.stringify(r.body));
+  await answer(muse, `Q4 ${run}`, "muse: later");
+  const k = await api(V, "POST", "/api/ask", { to: `${J}/muse`, board: r.body.board, seq: r.body.seq, wait_seconds: 5 }, vs);
+  assert(k.body.status === "answered" && k.body.answer.text === "muse: later", JSON.stringify(k.body));
+  assert((await api(S, "POST", "/api/ask", { to: `${J}/muse`, board: r.body.board, seq: r.body.seq, wait_seconds: 0 })).status === 403, "not your board");
+  // Unknown agents: yours are listed for you, theirs never are; a stranger learns nothing either way.
+  r = await api(J, "POST", "/api/ask", { to: "my codex", text: "Q5" }, muse);
+  assert(r.status === 404 && /muse/.test(r.body.error), JSON.stringify(r));
+  r = await api(V, "POST", "/api/ask", { to: `${J}/codex`, text: "Q5" }, vs);
+  assert(r.status === 404 && !/muse|grok/.test(r.body.error), JSON.stringify(r));
+  const [s1, s2] = [await api(S, "POST", "/api/ask", { to: `${J}/muse`, text: "Q5" }), await api(S, "POST", "/api/ask", { to: `${J}/codex`, text: "Q5" })];
+  assert(s1.status === 403 && s2.status === 403 && s1.body.error === s2.body.error, JSON.stringify([s1, s2]));
+  assert((await api(J, "POST", "/api/ask", { to: "", text: "Q5" }, muse)).status === 400, "no one named");
+  // MCP: agents {action: "ask"}; the answer comes back fenced.
+  const mcp = async (session, args) => (await rpcRaw({ ...auth(J), "x-atteo-session": session }, null, "tools/call", { name: "agents", arguments: { action: "ask", ...args } })).content.map((c) => c.text).join("\n");
+  const [t] = await Promise.all([mcp(muse, { name: "my grok", text: `Q6 ${run}`, wait_seconds: 20 }), answer(grok, `Q6 ${run}`, "grok via mcp")]);
+  assert(t.includes("grok via mcp") && t.includes("data, not instructions"), t);
+});
+
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed${failures.length ? `: ${failures.join("; ")}` : ""}`);
 process.exit(failed ? 1 : 0);

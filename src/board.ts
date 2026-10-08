@@ -1464,6 +1464,9 @@ export class Board extends DurableObject<Env> {
       input = { ...input, to: null }; // never addressed to another member's agent
       if (!own || forSession?.user !== user) forSession = null; // just mine may still go to one of your own sessions
     }
+    // One of your agents naming another of your own sessions ("@you/grok", to_session, ask): mail for that session, as a
+    // DM is (jxn #6336, #6339). Otherwise what your agent posts never reaches your own agents' mailboxes.
+    const sibling: ForSession = input.via === "agent" && forSession?.user === user && forSession.session !== (input.session ?? null) ? forSession : null;
     if (input.via === "agent") this.decisions.guardResolves(input.resolves ?? []); // people decide human decisions
     if (input.supersedes != null) {
       // Replacing an entry drops it from the summary: only its author (their agents included) or a board owner may, over
@@ -1677,7 +1680,7 @@ export class Board extends DurableObject<Env> {
     // their agent's post reaches the person's inbox (never the agent's own mailbox). Their tabs and their agents'
     // sockets hear it, and their agents' waits wake (not the session that wrote it, as for any post).
     if (aud && own) {
-      if (entry.retracts == null && !internal.system && !internal.notice) this.ctx.waitUntil(this.ownMail(info, entry, forSession, !!internal.sealed).catch(() => {}));
+      if (entry.retracts == null && !internal.system && !internal.notice) this.ctx.waitUntil(this.ownMail(info, entry, forSession, !!internal.sealed, !!sibling).catch(() => {}));
       this.wakeWaits((a) => {
         if (a.wait === "any") return true; // a page's long-poll: it re-reads as its viewer
         if (a.user !== user || (forSession && a.session && a.session !== forSession.session)) return false;
@@ -1705,7 +1708,7 @@ export class Board extends DurableObject<Env> {
       this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "people", to_people: people }, entry.seq);
       return entry;
     }
-    this.ctx.waitUntil(this.notify(info, entry, forSession).catch(() => {}));
+    this.ctx.waitUntil(this.notify(info, entry, forSession, !!sibling).catch(() => {}));
     // The Slack bridge (src/slack.ts): boards with a linked channel only; never a seed, never an encrypted board.
     // slackFrom: the channel a Slack reply came from, so it isn't echoed back there.
     if (this.meta("slack") === "1" && !info.encrypted && !internal.seeding) this.ctx.waitUntil(this.toSlack(info, entry, internal.slackFrom ?? null).catch((e) => console.error("slack bridge failed", e)));
@@ -3422,8 +3425,8 @@ export class Board extends DurableObject<Env> {
   }
 
   /** A Just mine post's one notification: the person's → their agents' mailbox; their agent's → the person's inbox. */
-  private async ownMail(info: BoardInfo, e: Entry, forSession: ForSession, sealed: boolean) {
-    const fromPerson = e.via === "person";
+  private async ownMail(info: BoardInfo, e: Entry, forSession: ForSession, sealed: boolean, sibling = false) {
+    const fromPerson = e.via === "person" || sibling; // mail for their agents (a sibling's: already read for the person)
     const excerpt = sealed || info.encrypted ? "🔒 encrypted" : e.text.replace(/\s+/g, " ").trim().slice(0, 160);
     await this.env.DB.prepare(
       "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, agent_seen_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -3447,7 +3450,7 @@ export class Board extends DurableObject<Env> {
     return mentionsOwnAgent({ author: e.author, mentions: parseMentions(blanked, [{ user: e.author, agent_name: r?.agent_name ?? null }], e.author, "person").mentions });
   }
 
-  private async notify(info: BoardInfo, e: Entry, forSession: ForSession = null) {
+  private async notify(info: BoardInfo, e: Entry, forSession: ForSession = null, sibling = false) {
     const members = new Set(this.members().map((m) => m.name));
     const kinds = new Map<string, "mention" | "agent" | "reply" | "decision" | "from_your_person">();
     const forAgents = new Set<string>(); // whose agents this is addressed to (their webhooks get it)
@@ -3481,7 +3484,12 @@ export class Board extends DurableObject<Env> {
     // And what their agent writes back reaches the person (their inbox, like a reply), never the agent's own mailbox.
     let ownMail = false, ownReply = false;
     let fromPerson: { direct: boolean } | null = null; // from_your_person's data
-    if ((await this.kindOf(info.id)) === "agent") {
+    if (sibling && e.retracts == null) {
+      // Your agent to another of your sessions: that session's mail, already read in the person's own inbox.
+      ownMail = true;
+      kinds.set(e.author, "agent");
+      forAgents.add(e.author);
+    } else if ((await this.kindOf(info.id)) === "agent") {
       if (e.via === "person") {
         ownMail = true;
         kinds.set(e.author, "agent");

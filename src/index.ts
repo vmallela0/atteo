@@ -29,6 +29,7 @@ import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
 import * as agents from "./agents";
+import * as askAgent from "./askAgent";
 import * as dm from "./dm";
 import { settle, waitForBoard } from "./waits";
 import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "./retry";
@@ -1849,6 +1850,34 @@ const handler = {
         // The sessions you can address one by one ("@you/<name>" in the text, or to_session when posting).
         const mine = (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ id: x.id, name: x.name, client: x.client, state: x.state, status: x.status ?? null }));
         return json({ ok: true, board: d.id, title: d.title, kind: "agent", created: d.created, sessions: mine });
+      }
+
+      // ---- ask one agent ("my grok", "jxn/muse", "jxn's muse") and wait for its answer (src/askAgent.ts, jxn #6339) ----
+      if (path === "/api/ask" && method === "POST") {
+        if (!viewer) return needLogin();
+        const b = (await request.json().catch(() => ({}))) as { to?: unknown; text?: unknown; wait_seconds?: unknown; board?: unknown; seq?: unknown };
+        const to = typeof b.to === "string" ? b.to : "";
+        const waitMs = Math.max(0, Math.min(MAX_WAIT_MS, Number.isFinite(Number(b.wait_seconds ?? 45)) ? Number(b.wait_seconds ?? 45) * 1000 : 45_000));
+        try {
+          // Keep waiting on an earlier ask: its board and seq.
+          if (b.seq != null) {
+            const seq = Number(b.seq);
+            if (!Number.isInteger(seq) || seq < 1 || typeof b.board !== "string") return json({ error: "To keep waiting, give the board and seq the ask returned." }, 400);
+            return json({ ok: true, ...(await askAgent.keepWaiting(env, (bid) => boardStub(env, bid), { me: viewer.name, to, board: b.board, seq, waitMs, signal: request.signal })) });
+          }
+          const text = typeof b.text === "string" ? b.text : "";
+          const blocked = egressRefusal(env, ctx, { text });
+          if (blocked) return json({ error: blocked }, 400);
+          const idemError = badMessageId(request.headers.get("idempotency-key"));
+          if (idemError) return json({ error: idemError }, 400);
+          const s = await asess();
+          const r = await askAgent.ask(env, (bid) => boardStub(env, bid), { me: viewer.name, to, text, via: pv(), session: s?.id ?? null, sessionName: s?.name ?? null, client: pv() === "agent" && s ? `${s.name} · ${s.client ?? "agent"}` : null, waitMs, idem: messageId(request.headers.get("idempotency-key")), signal: request.signal });
+          return json({ ok: true, ...r }, r.status === "pending" ? 202 : 200);
+        } catch (e) {
+          if (e instanceof askAgent.AskError) return json({ error: e.message }, e.status);
+          if (e instanceof dm.DmError) return json({ error: e.message }, e.status);
+          throw e;
+        }
       }
 
       // ---- social: people, friends, presence, direct boards ----

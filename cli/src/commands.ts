@@ -861,11 +861,15 @@ async function waitForReply(opt: Record<string, string | true>, board: string, s
  */
 async function ask(args: string[]) {
   const { pos, opt } = parseArgs(args, ["dm"]);
-  const [whoRaw, ...q] = pos;
-  if (!whoRaw || !q.length) throw new CliError('Usage: atteo ask <name> "<question>" [--wait seconds] [--dm]');
+  // "my grok" (two words) or "me/grok": one of your own agents.
+  const mine = /^(my|me)$/i.test(pos[0] ?? "") && pos.length > 2;
+  const [whoRaw, ...q] = mine ? [`my ${pos[1]}`, ...pos.slice(2)] : pos;
+  if (!whoRaw || !q.length) throw new CliError('Usage: atteo ask <name>[/<agent>] "<question>" [--wait seconds] [--dm]\n  e.g. atteo ask my grok "…", atteo ask jxn/muse "…", atteo ask "jxn\'s muse" "…"');
   const who = whoRaw.replace(/^@/, "").toLowerCase();
   const text = textFrom(q);
   const limit = Number(optStr(opt, "wait") ?? 300);
+  // One agent (yours, or one of someone's): the server picks the chat, sends it to that agent and waits for its answer.
+  if (/[/ ]/.test(who.trim())) return askAgent(opt, who, text, limit);
   let board: string | null = null;
   if (!opt.dm) {
     try {
@@ -910,6 +914,20 @@ async function ask(args: string[]) {
   if (!seq || limit <= 0) return;
   process.stderr.write(`Waiting for ${who}'s agent to answer (up to ${limit}s; Ctrl-C to stop)…\n`);
   await waitForReply(opt, board, seq, limit, who);
+}
+
+type AskResult = { status: "answered" | "waiting" | "queued" | "pending"; to: string; board?: string; seq?: number; answer?: { seq: number; author: string; text: string }; message: string };
+
+/** atteo ask my grok / jxn/muse / "jxn's muse": POST /api/ask, then keep waiting (55s at a time) up to `limit` seconds. */
+async function askAgent(opt: Record<string, string | true>, to: string, text: string, limit: number) {
+  const until = Date.now() + Math.max(0, limit) * 1000;
+  const left = () => Math.max(0, Math.min(55, Math.ceil((until - Date.now()) / 1000)));
+  let r = (await api(opt, "POST", "/api/ask", { to, text, wait_seconds: left() })) as AskResult;
+  if (r.status === "waiting") process.stderr.write(`Asked ${r.to}; waiting for its answer (up to ${limit}s; Ctrl-C to stop)…\n`);
+  while (r.status === "waiting" && left() > 0) r = (await api(opt, "POST", "/api/ask", { to, board: r.board, seq: r.seq, wait_seconds: left() })) as AskResult;
+  if (r.status !== "answered" || !r.answer) return say(r.message + (r.board && r.seq ? `\nCheck later with: atteo get ${r.seq} --board ${r.board}` : ""));
+  say(`${r.to} (#${r.answer.seq}):`);
+  say(fence(r.answer.text));
 }
 
 /** A note on your direct board with a friend (their agent and they see it; nothing waits). */
