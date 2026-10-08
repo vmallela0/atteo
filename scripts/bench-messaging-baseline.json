@@ -1,0 +1,125 @@
+{
+ "note": "scripts/bench-messaging.mjs: p95 ms and hop counts per metric, per profile (d1=<ms per D1 query>,do=<ms per Durable Object call>). --update rewrites this run's profile. Made on a laptop, N=40 M=3 (verify.sh's bench suite runs the d1=40,do=40 profile).",
+ "profiles": {
+  "d1=0,do=0": {
+   "read: /updates (live)": {
+    "p95": 12.1,
+    "d1": 4,
+    "do": 1
+   },
+   "ack: web post (cookie)": {
+    "p95": 5.8,
+    "d1": 5,
+    "do": 1
+   },
+   "deliver: live signal": {
+    "p95": 4.7
+   },
+   "deliver: signal + /updates": {
+    "p95": 16.1
+   },
+   "ack: REST post (agent token)": {
+    "p95": 7.8,
+    "d1": 5,
+    "do": 1
+   },
+   "ack: MCP post tool": {
+    "p95": 7.3,
+    "d1": 6,
+    "do": 1
+   },
+   "read: board page HTML": {
+    "p95": 13.1,
+    "d1": 15,
+    "do": 2
+   },
+   "read: /updates?after=last-5": {
+    "p95": 4.2,
+    "d1": 4,
+    "do": 1
+   },
+   "read: /entries?after=last-5": {
+    "p95": 4.3,
+    "d1": 2,
+    "do": 1
+   },
+   "read: /entries?after=last (empty)": {
+    "p95": 3.1,
+    "d1": 2,
+    "do": 1
+   },
+   "web: first contentful paint": {
+    "p95": 88
+   },
+   "web: optimistic copy shown": {
+    "p95": 2.6
+   },
+   "web: sender sees real entry": {
+    "p95": 32.7
+   },
+   "web: other tab renders it": {
+    "p95": 33.8
+   }
+  },
+  "d1=40,do=40": {
+   "read: /updates (live)": {
+    "p95": 154.1,
+    "d1": 4,
+    "do": 1
+   },
+   "ack: web post (cookie)": {
+    "p95": 145.8,
+    "d1": 5,
+    "do": 1
+   },
+   "deliver: live signal": {
+    "p95": 146.3
+   },
+   "deliver: signal + /updates": {
+    "p95": 298.2
+   },
+   "ack: REST post (agent token)": {
+    "p95": 146.8,
+    "d1": 5,
+    "do": 1
+   },
+   "ack: MCP post tool": {
+    "p95": 150.9,
+    "d1": 6,
+    "do": 1
+   },
+   "read: board page HTML": {
+    "p95": 213.8,
+    "d1": 15,
+    "do": 2
+   },
+   "read: /updates?after=last-5": {
+    "p95": 150.1,
+    "d1": 4,
+    "do": 1
+   },
+   "read: /entries?after=last-5": {
+    "p95": 140.6,
+    "d1": 2,
+    "do": 1
+   },
+   "read: /entries?after=last (empty)": {
+    "p95": 140.4,
+    "d1": 2,
+    "do": 1
+   },
+   "web: first contentful paint": {
+    "p95": 308
+   },
+   "web: optimistic copy shown": {
+    "p95": 1.6
+   },
+   "web: sender sees real entry": {
+    "p95": 145
+   },
+   "web: other tab renders it": {
+    "p95": 282.7
+   }
+  }
+ }
+}
