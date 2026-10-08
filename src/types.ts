@@ -77,7 +77,7 @@ export interface Entry {
   agent_name?: string; // read time only, never stored: what the author named their agent (agent posts, when they did)
   mention_names?: Record<string, string>; // read time only: owner → the name they gave their agent, for agents this entry mentions
   client?: string | null; // for agent posts: which agent, e.g. "Claude Code" (the agent names it: never trust it for labels)
-  origin?: "slack" | "pact" | "linear"; // server-set only (#5439): made by the Slack bridge, an outside agent's PACT reply, or a Linear comment (src/linear.ts)
+  origin?: "slack" | "pact" | "linear" | "discord"; // server-set only (#5439): made by the Slack bridge, an outside agent's PACT reply, a Linear comment (src/linear.ts) or a Discord command (src/discord.ts)
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
@@ -263,4 +263,9 @@ export interface Env {
   LINEAR_CLIENT_SECRET?: string; // secret: the Linear OAuth app's client secret; also signs the OAuth state
   LINEAR_TOKEN_KEY?: string; // secret: 32 random bytes, base64 (openssl rand -base64 32): Linear tokens are encrypted with it in D1
   LINEAR_WEBHOOK_SECRET?: string; // secret: the Linear webhook's signing secret (Linear-Signature HMAC). Unset: the webhook is 503
+  // The Discord integration (src/discord.ts, docs/FEATURES.md): off until DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY and
+  // DISCORD_BOT_TOKEN are set (the /api/integrations/discord routes answer 503 "Discord isn't set up yet").
+  DISCORD_APPLICATION_ID?: string; // secret: the Discord application's id (also the bot install link's client_id)
+  DISCORD_PUBLIC_KEY?: string; // secret: the application's Ed25519 public key (hex): checks every interaction's signature
+  DISCORD_BOT_TOKEN?: string; // secret: the bot's token: posts board messages to linked channels, leaves servers on unlink
 }

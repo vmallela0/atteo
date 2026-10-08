@@ -8,6 +8,7 @@ import { agentNameIndex, foldAgentName } from "./mentions";
 import { noteInviteRedeemed, type Later } from "./observe";
 import { PERSON_ONLY_KINDS, type Env } from "./types";
 import { dropLinksFor as dropLinearLinks } from "./linear";
+import { dropLinksFor as dropDiscordLinks } from "./discord";
 
 export interface BoardRow {
   id: string;
@@ -162,6 +163,7 @@ export async function setMemberAccess(env: Env, boardId: string, user: string, c
   if (change.role) await env.DB.prepare(`UPDATE members SET role = ? WHERE board_id = ? AND user = ?`).bind(change.role, boardId, user).run();
   // A Linear link lasts while its maker owns the board (src/linear.ts).
   if (change.role && change.role !== "owner") await dropLinearLinks(env, { board: boardId, by: user });
+  if (change.role && change.role !== "owner") await dropDiscordLinks(env, { board: boardId, by: user }); // the same for Discord (src/discord.ts)
   if (change.expires_at !== undefined) await env.DB.prepare(`UPDATE members SET expires_at = ? WHERE board_id = ? AND user = ?`).bind(change.expires_at, boardId, user).run();
 }
 
@@ -186,6 +188,7 @@ export async function expiredMembers(env: Env): Promise<{ board_id: string; user
 
 export async function removeMember(env: Env, boardId: string, user: string) {
   await dropLinearLinks(env, { board: boardId, by: user }); // their Linear link goes with them (src/linear.ts)
+  await dropDiscordLinks(env, { board: boardId, by: user }); // and their Discord link (src/discord.ts)
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user),
     env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ? AND user = ?`).bind(boardId, user),
@@ -218,6 +221,7 @@ export async function deletedAt(env: Env, boardId: string): Promise<number | nul
 /** Removes a board from the directory: memberships, invitations, repo links, joined sessions, and the board row. */
 export async function deleteBoard(env: Env, boardId: string) {
   await dropLinearLinks(env, { board: boardId }); // revokes its Linear token
+  await dropDiscordLinks(env, { board: boardId }); // its Discord channel stops following it
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM notifications WHERE kind = 'repo_join' AND json_extract(data, '$.join') IN (SELECT id FROM repo_join_requests WHERE board_id = ?)`).bind(boardId),
     env.DB.prepare(`DELETE FROM repo_join_requests WHERE board_id = ?`).bind(boardId),
@@ -227,6 +231,8 @@ export async function deleteBoard(env: Env, boardId: string) {
     env.DB.prepare(`DELETE FROM board_pictures WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM linear_issues WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM linear_links WHERE board_id = ?`).bind(boardId),
+    env.DB.prepare(`DELETE FROM discord_links WHERE board_id = ?`).bind(boardId),
+    env.DB.prepare(`DELETE FROM discord_codes WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM boards WHERE id = ?`).bind(boardId),
   ]);

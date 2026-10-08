@@ -115,9 +115,15 @@ export function linearLabel(meta: unknown, linker: string): string {
   return `Linear comment by ${name} (via ${linker}'s Linear link)`;
 }
 
+/** A Discord message's author, as agents read it (src/discord.ts): outside Atteo, through someone's Discord link. */
+export function discordLabel(meta: unknown, linker: string): string {
+  return linearLabel(meta, linker).replace(/^Linear comment by /, "Discord message by ").replace(/'s Linear link\)$/, "'s Discord link)");
+}
+
 export function authorLabel(e: Entry, names?: Record<string, string>): string {
   if (/^deleted-[0-9a-f]{10}$/.test(e.author)) return "Deleted user"; // a deleted account's tombstone (accountDelete.ts)
   if (e.origin === "linear") return linearLabel(e.data?.linear, e.author); // someone outside Atteo, not the linker's agent
+  if (e.origin === "discord") return discordLabel(e.data?.discord, e.author);
   if (e.via !== "agent") return e.via === "person" ? `${e.author} (person)` : e.author;
   const name = e.agent_name ?? names?.[e.author];
   return name ? `${name} (${e.author}'s agent)` : `${e.author}'s agent`;

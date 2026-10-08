@@ -83,6 +83,7 @@ import * as voice from "./voice";
 import * as calls from "./calls";
 import * as slack from "./slack";
 import * as linear from "./linear";
+import * as discord from "./discord";
 import { slackOn } from "./slackCore";
 import { CALL_CSS, CALL_CSS_PATH, CALL_CSS_SRC, CALL_JS, CALL_JS_PATH, callPageBody } from "./callWeb";
 import { MAX_SCHEDULES } from "./schedules";
@@ -884,6 +885,12 @@ const handler = {
       if (path === "/api/integrations/linear" && method === "GET") return await linear.status(linear.linearFor(env, origin), viewer, url);
       if (path === "/api/integrations/linear" && method === "POST") return await linear.choose(linear.linearFor(env, origin), viewer, request, url);
       if (path === "/api/integrations/linear" && method === "DELETE") return await linear.unlink(linear.linearFor(env, origin), viewer, request, url);
+      // ---- Discord (src/discord.ts): a channel follows a board; Discord's signed interactions (no session) ----
+      if (path === "/api/integrations/discord/interactions" && method === "POST") return await discord.interactions(discord.discordFor(env, origin), request, ctx);
+      if (path === "/api/integrations/discord/start" && method === "GET") return await discord.start(discord.discordFor(env, origin), viewer, url);
+      if (path === "/api/integrations/discord/code" && method === "POST") return await discord.code(discord.discordFor(env, origin), viewer, request, url);
+      if (path === "/api/integrations/discord" && method === "GET") return await discord.status(discord.discordFor(env, origin), viewer, url);
+      if (path === "/api/integrations/discord" && method === "DELETE") return await discord.unlink(discord.discordFor(env, origin), viewer, request, url);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed
       // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.

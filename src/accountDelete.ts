@@ -10,6 +10,7 @@
 import * as registry from "./registry";
 import { forgetUserTokens, sha256hex } from "./auth";
 import { dropLinksFor as dropLinearLinks } from "./linear";
+import { dropLinksFor as dropDiscordLinks } from "./discord";
 import type { Env } from "./types";
 
 /** Tombstones look like "deleted-3f9a1c2b7e": a handle no one can register (bugBoard.isReservedUser). */
@@ -250,6 +251,9 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     // Linear (src/linear.ts): the boards they connected stop syncing; their sealed tokens and the issue maps go.
     S(`DELETE FROM linear_issues WHERE board_id IN (SELECT board_id FROM linear_links WHERE created_by = ?)`, n),
     S(`DELETE FROM linear_links WHERE created_by = ?`, n),
+    // Discord (src/discord.ts): the channels they linked stop following their boards; their codes go.
+    S(`DELETE FROM discord_links WHERE created_by = ?`, n),
+    S(`DELETE FROM discord_codes WHERE user = ?`, n),
     S(`DELETE FROM account_audit WHERE user = ?`, n),
     S(`DELETE FROM approval_terminal_confirms WHERE user = ?`, n),
     S(`DELETE FROM approval_confirm_starts WHERE user = ?`, n),
@@ -272,6 +276,7 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`DELETE FROM users WHERE name = ?`, n),
   ];
   await dropLinearLinks(env, { by: n }); // their Linear tokens are revoked at Linear (best effort) before the rows go
+  await dropDiscordLinks(env, { by: n }); // their Discord links go (the bot leaves servers nothing else needs)
   // D1 runs a batch as one transaction; keep each batch modest.
   for (let i = 0; i < rename.length; i += 20) await env.DB.batch(rename.slice(i, i + 20));
   for (let i = 0; i < drop.length; i += 20) await env.DB.batch(drop.slice(i, i + 20));

@@ -99,6 +99,10 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put LINEAR_CLIENT_SECRET
    npx wrangler secret put LINEAR_TOKEN_KEY      # openssl rand -base64 32: Linear tokens are encrypted with it
    npx wrangler secret put LINEAR_WEBHOOK_SECRET # the Linear webhook's signing secret; omit and the webhook is 503
+   # optional: Discord (src/discord.ts; docs/FEATURES.md "Discord"); omit any of these and the routes are 503
+   npx wrangler secret put DISCORD_APPLICATION_ID
+   npx wrangler secret put DISCORD_PUBLIC_KEY    # hex, from the application's General Information
+   npx wrangler secret put DISCORD_BOT_TOKEN     # Bot → Reset Token
    # outbound Checks (omit and postGithubChange never fetches; do not put these in wrangler.jsonc):
    # npx wrangler secret put GITHUB_APP_ID
    # npx wrangler secret put GITHUB_APP_PRIVATE_KEY
@@ -118,6 +122,9 @@ your team on your own Cloudflare account in about 15 minutes.
    uses a stub Slack that records calls; see [SLACK.md](SLACK.md)).
    If `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` or `LINEAR_TOKEN_KEY` is absent, `/api/integrations/linear/*` answers 503
    "Linear isn't set up yet"; without `LINEAR_WEBHOOK_SECRET` the Linear webhook does too.
+   If `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY` or `DISCORD_BOT_TOKEN` is absent, `/api/integrations/discord/*`
+   answers 503 "Discord isn't set up yet". Set the application's Interactions Endpoint URL to
+   `https://<your host>/api/integrations/discord/interactions` and register `/atteo` once (docs/FEATURES.md "Discord").
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
    If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).
