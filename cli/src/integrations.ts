@@ -86,12 +86,13 @@ export function teamsLine(s: Status): string {
   return `connected · ${where} · by ${j.created_by}${j.active === false ? " (no longer an owner: inactive)" : ""}`;
 }
 
-/** One line about Discord's link, from GET /api/integrations/discord (no server or channel names: Atteo keeps only ids). */
+/** One line about Discord's link, from GET /api/integrations/discord (channel and server names only, never ids). */
 export function discordLine(s: Status): string {
   if (!s.ok) return s.status === 503 ? notSetUp : `couldn't check (${s.error})`;
   const j = s.j;
   if (!j.linked) return "not connected";
-  return `connected · by ${j.created_by}${j.active === false ? " (no longer an owner: inactive)" : ""}`;
+  const where = [j.channel_name, j.guild_name].filter(Boolean).join(" in ") || "a Discord channel";
+  return `connected · ${where} · by ${j.created_by}${j.active === false ? " (no longer an owner: inactive)" : ""}`;
 }
 
 /** One line about Slack's channels, from GET /api/integrations/slack. */

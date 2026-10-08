@@ -15,7 +15,7 @@ const cookie={[A]:(await ops("sessions",{user:A})).cookie,[B]:(await ops("sessio
 let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
 const LINKED={linked:true,ready:true,org:{id:"o1",name:"Acme"},team:{id:"t1",key:"ENG",name:"Engineering"},project:{id:"p1",name:"Checkout"},blocked_label:false,created_by:A,created_at:1,issues:2};
 const TEAMS_LINKED={linked:true,active:true,team_name:"Acme Team",channel_name:"eng",created_by:A,linked_by_name:"Jane Doe",created_at:1};
-const DISCORD_LINKED={linked:true,active:true,guild_id:"g9",channel_id:"c9",created_by:A,linked_by_name:"Ann",created_at:1};
+const DISCORD_LINKED={linked:true,active:true,guild_name:"Acme HQ",channel_name:"general",created_by:A,linked_by_name:"Ann",created_at:1};
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 // state: what GET /api/integrations/linear answers ("off" = 503, as on a server without Linear's secrets)
 const open=async(user,w,phone,state)=>{
@@ -72,11 +72,11 @@ for(const [label,w,phone] of [["desktop",1280,false],["phone",390,true]]){
   check(s.includes("Engineering · Checkout")&&s.includes(`connected by ${A}`),`${label}: linked shows team · project and who connected it`);
   await settle(p);await p.screenshot({path:`${SHOTS_DIR}/integrations-${label}-linked.png`});
   p.once("dialog",d=>d.accept());await p.locator("[data-linear-disconnect]").click();
-  // Discord linked: who connected it (no Discord ids), and Disconnect (with a confirm) back to not connected.
+  // Discord linked: the channel and server by name, who connected it, and Disconnect (with a confirm) back to not connected.
   st.d="linked";await p.locator("#invite [data-close]").first().click();await panel(p,"Not connected");
   await p.locator("#int-discord .int-st").filter({hasText:`connected by ${A}`}).waitFor({timeout:8000}).catch(()=>{});
   const ds=await p.locator("#int-discord .int-st").innerText();
-  check(ds.includes(`connected by ${A}`)&&!/g9|c9/.test(ds),`${label}: Discord linked shows who connected it, no ids`);
+  check(ds.includes("general · Acme HQ")&&ds.includes(`connected by ${A}`),`${label}: Discord linked shows the channel and server by name and who connected it`);
   p.once("dialog",d=>d.accept());await p.locator("[data-discord-disconnect]").click();
   await p.locator("#int-discord .int-st").filter({hasText:"Not connected"}).waitFor({timeout:8000});
   check(dDeletes.length===1&&dDeletes[0].includes(`board=${board}`),`${label}: Discord's Disconnect asks, then DELETEs this board's link`);

@@ -1320,7 +1320,7 @@ async function intDiscord(){const li=document.getElementById('int-discord');if(!
   if(r&&r.status===503){st.textContent=tr('Not set up on this server yet');act.innerHTML='';return}
   if(!r||!r.ok){st.textContent=j.error||tr('Couldn’t load');act.innerHTML='';return}
   if(!j.linked){st.textContent=tr('Not connected');act.innerHTML=sec.dataset.can==='1'?'<a class="btn sm" href="/api/integrations/discord/start?board='+encodeURIComponent(BOARD)+'">'+esc(tr('Connect Discord'))+'</a>':'';return}
-  st.innerHTML=esc(tr('Connected'))+' <span class="faint">· '+esc(tr('connected by {name}',{name:j.created_by||''}))+'</span>';
+  st.innerHTML=esc([j.channel_name,j.guild_name].filter(Boolean).join(' · ')||'Discord')+' <span class="faint">· '+esc(tr('connected by {name}',{name:j.created_by||''}))+'</span>';
   act.innerHTML=j.created_by===ME||BC.isOwner?'<button class="btn ghost sm danger" type="button" data-discord-disconnect>'+esc(tr('Disconnect'))+'</button>':''}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-discord-disconnect]');if(!b)return;
   if(!confirm(tr('Disconnect Discord from this board? Its channel stops getting posts.')))return;b.disabled=true;

@@ -10,7 +10,7 @@ const NOTION = `/api/integrations/notion?board=${B}`;
 const TEAMS = `/api/integrations/teams?board=${B}`;
 const teamsLinked = { linked: true, active: true, team_name: "Acme Team", channel_name: "eng", created_by: "vedu", linked_by_name: "Jane Doe", created_at: 1 };
 const DISCORD = `/api/integrations/discord?board=${B}`;
-const discordLinked = { linked: true, active: true, guild_id: "g1", channel_id: "c1", created_by: "ann", linked_by_name: "Ann", created_at: 1 };
+const discordLinked = { linked: true, active: true, guild_name: "Acme HQ", channel_name: "general", created_by: "ann", linked_by_name: "Ann", created_at: 1 };
 const notionLinked = { linked: true, active: true, workspace: { id: "w1", name: "Acme HQ" }, created_by: "ann", created_at: 1, published: 2, imported: 1 };
 const linked = { linked: true, ready: true, org: { id: "o1", name: "Acme" }, team: { id: "t1", key: "ENG", name: "Engineering" }, project: { id: "p1", name: "Checkout" }, created_by: "ann", created_at: 1, issues: 3 };
 
@@ -54,8 +54,7 @@ describe("atteo connect (the list)", () => {
     expect(p).toMatch(/slack\s+connected · #eng, #old \(paused\)/);
     expect(p).toMatch(/notion\s+connected · Acme HQ · by ann · 2 published, 1 imported/);
     expect(p).toMatch(/teams\s+connected · eng in Acme Team · by vedu/);
-    expect(p).toMatch(/discord\s+connected · by ann\n/);
-    expect(p).not.toMatch(/g1|c1/); // no Discord ids
+    expect(p).toMatch(/discord\s+connected · general in Acme HQ · by ann\n/);
     expect(p).not.toContain("coming soon");
   });
   it("says when an integration isn't set up on the server, or isn't connected", async () => {
@@ -144,7 +143,7 @@ describe("atteo connect linear", () => {
     out = [];
     answers[`GET ${DISCORD}`] = { status: 200, body: discordLinked };
     await connectIntegration("discord", { "no-open": true }, deps({ open }));
-    expect(printed()).toContain("Discord on b_folderboard1: connected · by ann");
+    expect(printed()).toContain("Discord on b_folderboard1: connected · general in Acme HQ · by ann");
     expect(printed()).toContain("To move it to another channel");
     answers[`GET ${DISCORD}`] = { status: 503, body: { error: "Discord isn't set up yet" } };
     await expect(connectIntegration("discord", {}, deps({ open }))).rejects.toThrow("Discord isn't set up on https://atteo.test yet.");

@@ -101,14 +101,14 @@ async function signedRequest(raw: string, o: { ts?: number; key?: CryptoKey; sig
   return new Request(`${ORIGIN}/api/integrations/discord/interactions`, { method: "POST", headers, body: raw });
 }
 
-const command = (sub: string, options: Record<string, string> = {}, o: { perms?: string; channel?: string; guild?: string; nick?: string } = {}) => ({
+const command = (sub: string, options: Record<string, string> = {}, o: { perms?: string; channel?: string; channelName?: string; guild?: string; nick?: string } = {}) => ({
   id: crypto.randomUUID(),
   application_id: "APP1",
   type: 2,
   token: `tok-${sub}`,
   guild_id: o.guild ?? GUILD,
   channel_id: o.channel ?? CHANNEL,
-  channel: { id: o.channel ?? CHANNEL, type: 0 },
+  channel: { id: o.channel ?? CHANNEL, type: 0, ...(o.channelName ? { name: o.channelName } : {}) },
   member: { nick: o.nick ?? null, permissions: o.perms ?? "0", user: { id: "U9", username: "jane", global_name: "Jane Doe" } },
   data: { name: "atteo", options: [{ type: 1, name: sub, options: Object.entries(options).map(([name, value]) => ({ type: 3, name, value })) }] },
 });
@@ -242,6 +242,24 @@ describe("Discord: linking", () => {
     expect(s.notices).toEqual([{ board: BOARD, user: "vedu", text: "Discord: now followed by #C200 in Acme HQ, linked by Jane Doe." }]);
     const reuse = await send(s, command("link", { code: body.code }, { perms: MANAGER, channel: "C999" }));
     expect(reuse.reply?.content).toMatch(/wrong, used or expired/);
+  });
+
+  it("keeps the server's and channel's names for the status (names only, never ids); a server Discord won't name stays null", async () => {
+    const s = setup();
+    const u = new URL(`${ORIGIN}/api/integrations/discord?board=${BOARD}`);
+    let { body } = await mintCode(s);
+    await send(s, command("link", { code: body.code }, { perms: MANAGER, channelName: "general" }));
+    expect(s.db.prepare("SELECT guild_name, channel_name FROM discord_links").get()).toEqual({ guild_name: "Acme HQ", channel_name: "general" });
+    expect(s.notices.pop()?.text).toBe("Discord: now followed by #general in Acme HQ, linked by Jane Doe.");
+    expect(await (await D.status(s.d, agent("ann"), u)).json()).toMatchObject({ guild_name: "Acme HQ", channel_name: "general" });
+    // Moved to a server whose name the bot API doesn't give: the name is null, the notice says the id as before.
+    ({ body } = await mintCode(s));
+    await send(s, command("link", { code: body.code }, { perms: MANAGER, guild: "G555", channel: "C555", channelName: "dev" }));
+    expect(s.db.prepare("SELECT guild_name, channel_name FROM discord_links").get()).toEqual({ guild_name: null, channel_name: "dev" });
+    expect(s.notices.pop()?.text).toBe("Discord: now followed by #dev in server G555, linked by Jane Doe.");
+    const sj = (await (await D.status(s.d, person("ann"), u)).json()) as Record<string, unknown>;
+    expect(sj).toMatchObject({ linked: true, guild_name: null, channel_name: "dev" });
+    expect(JSON.stringify(sj)).not.toMatch(/G555|C555/);
   });
 
   it("refuses an expired code, a code whose maker no longer owns the board or whose board was encrypted, and a channel another board has", async () => {
@@ -440,7 +458,11 @@ describe("Discord: unlinking", () => {
     await link(s);
     const u = new URL(`${ORIGIN}/api/integrations/discord?board=${BOARD}`);
     const st = await D.status(s.d, agent("ann"), u);
-    expect(await st.json()).toMatchObject({ linked: true, active: true, guild_id: GUILD, channel_id: CHANNEL, created_by: "vedu" });
+    // Names only, never ids (as Teams'): no channel name in this interaction, so the fallback.
+    const sj = (await st.json()) as Record<string, unknown>;
+    expect(sj).toMatchObject({ linked: true, active: true, guild_name: "Acme HQ", channel_name: "a Discord channel", created_by: "vedu" });
+    expect(JSON.stringify(sj)).not.toMatch(new RegExp(`${GUILD}|${CHANNEL}|U9`));
+    expect(Object.keys(sj)).not.toContain("guild_id");
     expect((await D.status(s.d, person("mallory"), u)).status).toBe(404);
     const del = (who: Viewer, site = "same-origin") => D.unlink(s.d, who, new Request(u, { method: "DELETE", headers: { "sec-fetch-site": site } }), u);
     expect((await del(person("ann"))).status).toBe(403);

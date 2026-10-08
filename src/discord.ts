@@ -232,6 +232,8 @@ export interface LinkRow {
   channel_id: string;
   linked_by: string | null;
   linked_by_name: string | null;
+  guild_name: string | null; // names for the status, which never shows ids (0095)
+  channel_name: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -497,11 +499,11 @@ export async function runCommand(d: Discord, p: Interaction): Promise<string> {
   return clip(`${asked}\n\n**${label}:** ${neutral(a.text)}`, 2000 - tail.length) + tail;
 }
 
-/** The server's name for the board's notice (the interaction doesn't carry it); its id when Discord won't say. */
-async function guildName(d: Discord, guild: string): Promise<string> {
+/** The server's name (the interaction doesn't carry it); null when Discord won't say. */
+async function guildName(d: Discord, guild: string): Promise<string | null> {
   const res = await api(d, "GET", `/guilds/${encodeURIComponent(guild)}`).catch(() => null);
   const j = res?.ok ? ((await res.json().catch(() => null)) as { name?: unknown } | null) : null;
-  return typeof j?.name === "string" && j.name.trim() ? nameLabel(j.name) : `server ${guild}`;
+  return typeof j?.name === "string" && j.name.trim() ? nameLabel(j.name) : null;
 }
 
 async function linkCommand(d: Discord, p: Interaction, code: string): Promise<string> {
@@ -520,23 +522,24 @@ async function linkCommand(d: Discord, p: Interaction, code: string): Promise<st
   const old = await linkOf(d, b.id);
   const who = whoOf(p);
   const now = d.now();
+  // The names the notice shows are kept for the status too (names only, never ids: GET /api/integrations/discord).
+  const server = await guildName(d, p.guild_id!);
+  const chanName = p.channel?.name ? nameLabel(p.channel.name) : null;
   try {
     // Only this board's row is replaced: a channel another board took meanwhile fails the unique index instead.
     await d.db
       .prepare(
-        `INSERT INTO discord_links (board_id, created_by, guild_id, channel_id, linked_by, linked_by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(board_id) DO UPDATE SET created_by = excluded.created_by, guild_id = excluded.guild_id, channel_id = excluded.channel_id, linked_by = excluded.linked_by, linked_by_name = excluded.linked_by_name, updated_at = excluded.updated_at`,
+        `INSERT INTO discord_links (board_id, created_by, guild_id, channel_id, linked_by, linked_by_name, guild_name, channel_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(board_id) DO UPDATE SET created_by = excluded.created_by, guild_id = excluded.guild_id, channel_id = excluded.channel_id, linked_by = excluded.linked_by, linked_by_name = excluded.linked_by_name, guild_name = excluded.guild_name, channel_name = excluded.channel_name, updated_at = excluded.updated_at`,
       )
-      .bind(b.id, row.user, p.guild_id!, channel, who.id, who.name, now, now)
+      .bind(b.id, row.user, p.guild_id!, channel, who.id, who.name, server, chanName, now, now)
       .run();
   } catch {
     return "This channel already follows another Atteo board. /atteo unlink first.";
   }
   await d.board.setDiscord(b.id, true);
   if (old && old.guild_id !== p.guild_id) await leaveIfUnused(d, old.guild_id);
-  const server = await guildName(d, p.guild_id!);
-  const chan = p.channel?.name ? nameLabel(p.channel.name) : channel;
-  await d.board.notice(b.id, row.user, `Discord: now followed by #${chan} in ${server}, linked by ${who.name}.`).catch((e) => console.error("discord notice failed", e));
+  await d.board.notice(b.id, row.user, `Discord: now followed by #${chanName ?? channel} in ${server ?? `server ${p.guild_id}`}, linked by ${who.name}.`).catch((e) => console.error("discord notice failed", e));
   return `This channel now follows ${neutral(b.title)} on Atteo (linked for ${row.user}). Board posts show here; /atteo post and /atteo ask reach the board, labelled as from Discord.`;
 }
 
@@ -663,7 +666,8 @@ export async function status(d: Discord, viewer: Viewer | null, url: URL): Promi
   if (!/^b_[a-z0-9]{8,32}$/.test(board) || !(await roleOf(d, board, viewer.name))) return json({ error: "No such board." }, 404);
   const link = await linkOf(d, board);
   if (!link) return json({ linked: false });
-  return json({ linked: true, active: await linkerOk(d, board, link.created_by), guild_id: link.guild_id, channel_id: link.channel_id, created_by: link.created_by, linked_by_name: link.linked_by_name, created_at: link.created_at });
+  // Names only: no Discord server, channel or user ids (as Microsoft Teams').
+  return json({ linked: true, active: await linkerOk(d, board, link.created_by), guild_name: link.guild_name, channel_name: link.channel_name ?? "a Discord channel", created_by: link.created_by, linked_by_name: link.linked_by_name, created_at: link.created_at });
 }
 
 /** DELETE /api/integrations/discord?board=: unlink (who linked it, or a board owner). */
