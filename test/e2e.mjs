@@ -4606,10 +4606,18 @@ await step("delete a board: creator only, typed confirmation, everything goes", 
   assert(!(await ops("overview")).body.boards.some((b) => b.id === del), "deleted board still in ops overview");
 });
 
+// Polls the way the CLI does: a too-soon poll gets 429 slow_down with Retry-After, so wait it out (security review #6364).
+const devicePoll = async (device_code) => {
+  for (;;) {
+    const r = await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code }) });
+    if (r.status !== 429) return r;
+    await new Promise((ok) => setTimeout(ok, Number(r.headers.get("retry-after") || 3) * 1000));
+  }
+};
 await step("CLI login: device code, approve in the browser, token works once; deny and expiry", async () => {
   const start = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: "e2e laptop" }) })).json();
   assert(/^[A-Z]{4}-[A-Z]{4}$/.test(start.user_code) && start.verification_uri_complete.endsWith(start.user_code), JSON.stringify(start));
-  const poll = () => fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: start.device_code }) });
+  const poll = () => devicePoll(start.device_code);
   assert((await poll()).status === 428, "should be pending before approval");
   // A link never fills the code in (alt-c #5841): the person types it, and the page shows where and when it started.
   assert(!(await (await web(`/device?code=${start.user_code}`, A)).text()).includes("Approve the Atteo CLI?"), "a link alone shows the code form");
@@ -4627,7 +4635,7 @@ await step("CLI login: device code, approve in the browser, token works once; de
   const s3 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
   const self = await fetch(`${BASE}/api/device/decide`, { method: "POST", headers: { authorization: `Bearer ${got.token}`, "content-type": "application/json" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
   assert(self.status === 401 || self.status === 403, `a CLI token approving a sign-in got ${self.status}`);
-  assert((await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: s3.device_code }) })).status === 428, "still pending after a token's try");
+  assert((await devicePoll(s3.device_code)).status === 428, "still pending after a token's try");
   // Nor the app's token, a form posted as text/plain, or a request from another site (Codex review)
   const appTok = (await ops("tokens", { user: A, kind: "app", label: "e2e device app" })).body.token;
   const viaApp = await fetch(`${BASE}/api/device/decide`, { method: "POST", headers: { authorization: `Bearer ${appTok}`, "content-type": "application/json" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
@@ -4636,11 +4644,11 @@ await step("CLI login: device code, approve in the browser, token works once; de
   assert(asText.status === 403, `text/plain decide got ${asText.status}`);
   const sibling = await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json", "sec-fetch-site": "same-site" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
   assert(sibling.status === 403, `same-site decide got ${sibling.status}`);
-  assert((await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: s3.device_code }) })).status === 428, "still pending after those tries");
+  assert((await devicePoll(s3.device_code)).status === 428, "still pending after those tries");
   // deny
   const s2 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
   await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: s2.user_code, approve: false }) });
-  const d2 = await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: s2.device_code }) });
+  const d2 = await devicePoll(s2.device_code);
   assert((await d2.json()).status === "denied", "denied login should say so");
   // expired token
   const exp = (await ops("tokens", { user: A, label: "expired", expires_in_s: "-60" })).body.token;

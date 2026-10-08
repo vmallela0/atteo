@@ -32,7 +32,7 @@ async function width(w, scheme) {
     check(m.tbl.r <= m.wrap.r + 1 && m.btn.r <= m.wrap.r, `${tag}: Agent connections fit, Revoke on screen (${m.btn.r} ≤ ${m.wrap.r})`);
     check(m.used === "inline", `${tag}: "used …" moves under the connection's name`);
     await p.evaluate(() => document.querySelector(".tbl").scrollIntoView({ block: "center" }));
-    await p.locator(".tbl").screenshot({ path: `${OUT}account-${w}-${scheme}.png` }); await p.close(); }
+    await p.locator(".tbl").first().screenshot({ path: `${OUT}account-${w}-${scheme}.png` }); await p.close(); }
   if (run("connect")) { const p = await page(`/me`);
     await p.click('[data-open="connect"]'); await p.waitForSelector("#connect[open] .tabs"); await settle(p, "#connect");
     const m = await p.evaluate(`(()=>{const R=${R};const t=document.querySelector("#connect .tabs");return{tabs:R(t),btns:[...t.children].map(R),dlg:R(document.getElementById("connect"))}})()`);
