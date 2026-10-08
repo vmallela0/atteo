@@ -56,6 +56,11 @@ check(!!pending && pending.httpOnly && pending.path === AGENT, `the pending requ
 // Before the person approves: Continue doesn't sign in, and neither do link previews of the link.
 await Promise.all([p.waitForURL((u) => u.pathname === `${AGENT}/continue`), p.getByRole("button", { name: /continue/i }).click()]);
 check(/still waiting/i.test(await p.content()) && !(await instinct.cookies(`${BASE}${AGENT}`)).some((c) => c.name === "atteo_agent"), "Continue before approval only says it's still waiting");
+// Pressed again too soon (Continue is polled at most every few seconds): still a page the agent can go on from.
+await Promise.all([p.waitForURL((u) => u.pathname === `${AGENT}/continue`), p.getByRole("button", { name: /continue/i }).click()]);
+check(await p.getByRole("button", { name: /continue/i }).isVisible().catch(() => false), `pressing Continue again too soon still shows a Continue button (${(await p.evaluate(() => document.body.innerText)).slice(0, 40).replace(/\s+/g, " ")})`);
+// (If not, the test goes on from a Continue form of its own on that page.)
+if (!(await p.getByRole("button", { name: /continue/i }).isVisible().catch(() => false))) await p.evaluate((a) => { document.body.innerHTML = `<form method="post" action="${a}/continue"><button type="submit">Continue</button></form>`; }, AGENT);
 for (const ua of ["Twitterbot/1.0", "facebookexternalhit/1.1", "Slackbot-LinkExpanding 1.0"]) {
   const r = await fetch(approveUrl, { headers: { "user-agent": ua }, redirect: "manual" });
   check(!/atteo_agent=/.test(r.headers.get("set-cookie") || "") && !/Approved/.test(await r.text()), `a ${ua.split("/")[0]} preview of the link approves nothing (${r.status})`);
@@ -78,7 +83,8 @@ await pp.locator("#device-approve").click();
 await pp.getByText(/Approved/).waitFor({ timeout: 8000 }).catch(() => {});
 check(/Approved/.test(await pp.content()), "the person approves with one board chosen");
 
-// Continue now signs the agent in, once.
+// Continue now signs the agent in, once (a person takes more than the poll interval to approve).
+await p.waitForTimeout(3500);
 await p.getByRole("button", { name: /continue/i }).click();
 await p.waitForURL((u) => u.pathname.replace(/\/$/, "") === AGENT, { timeout: 10000 }).catch(() => {});
 const ck = (await instinct.cookies(`${BASE}${AGENT}`)).find((c) => c.name === "atteo_agent");
