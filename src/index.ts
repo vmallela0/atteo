@@ -1855,7 +1855,7 @@ const handler = {
         if (!viewer) return needLogin();
         const b = (await request.json().catch(() => ({}))) as { to?: unknown; text?: unknown; wait_seconds?: unknown; board?: unknown; seq?: unknown };
         const to = typeof b.to === "string" ? b.to : "";
-        const waitMs = Math.max(0, Math.min(MAX_WAIT_MS, Number.isFinite(Number(b.wait_seconds ?? 45)) ? Number(b.wait_seconds ?? 45) * 1000 : 45_000));
+        const waitMs = Math.max(0, Math.min(MAX_WAIT_MS, Number.isFinite(Number(b.wait_seconds ?? 0)) ? Number(b.wait_seconds ?? 0) * 1000 : 0)); // waiting is a choice (jxn #6419)
         try {
           // Keep waiting on an earlier ask: its board and seq.
           if (b.seq != null) {

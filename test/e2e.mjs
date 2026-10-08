@@ -8212,7 +8212,7 @@ await step("ask one agent (jxn #6339): my grok, someone's muse, keep waiting, fi
   assert(m?.to_session === "grok", `the question is grok's mail: ${JSON.stringify(m)}`);
   assert(r.body.status === "answered" && r.body.answer.text === "grok: 42" && r.body.to === `${J}/grok`, JSON.stringify(r));
   assert(!((await api(J, "GET", "/api/mailbox?peek=1", null, lead)).body.mail ?? []).some((x) => x.text?.includes(`Q1 ${run}`)), "another session of mine doesn't get it");
-  r = await api(J, "POST", "/api/ask", { to: "my claude code", text: `Q2 ${run}`, wait_seconds: 0 }, muse);
+  r = await api(J, "POST", "/api/ask", { to: "my claude code", text: `Q2 ${run}` }, muse); // no wait_seconds: sends and returns (jxn #6419)
   assert(r.body.status === "waiting" && r.body.to === `${J}/lead`, `by client: ${JSON.stringify(r.body)}`);
   // Someone else's, in the words people use: on our direct board.
   [r] = await Promise.all([api(V, "POST", "/api/ask", { to: `${J}’s muse`, text: `Q3 ${run}`, wait_seconds: 20 }, vs), answer(muse, `Q3 ${run}`, "muse: yes")]);

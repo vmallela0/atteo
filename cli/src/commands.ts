@@ -864,10 +864,10 @@ async function ask(args: string[]) {
   // "my grok" (two words) or "me/grok": one of your own agents.
   const mine = /^(my|me)$/i.test(pos[0] ?? "") && pos.length > 2;
   const [whoRaw, ...q] = mine ? [`my ${pos[1]}`, ...pos.slice(2)] : pos;
-  if (!whoRaw || !q.length) throw new CliError('Usage: atteo ask <name>[/<agent>] "<question>" [--wait seconds] [--dm]\n  e.g. atteo ask my grok "…", atteo ask jxn/muse "…", atteo ask "jxn\'s muse" "…"');
+  if (!whoRaw || !q.length) throw new CliError('Usage: atteo ask <name>[/<agent>] "<question>" [--wait seconds (default 0: send and return)] [--dm]\n  e.g. atteo ask my grok "…", atteo ask jxn/muse "…", atteo ask "jxn\'s muse" "…"');
   const who = whoRaw.replace(/^@/, "").toLowerCase();
   const text = textFrom(q);
-  const limit = Number(optStr(opt, "wait") ?? 300);
+  const limit = Number(optStr(opt, "wait") ?? 0); // waiting is a choice (jxn #6419): --wait 30 holds for the answer
   // One agent (yours, or one of someone's): the server picks the chat, sends it to that agent and waits for its answer.
   if (/[/ ]/.test(who.trim())) return askAgent(opt, who, text, limit);
   let board: string | null = null;
@@ -925,7 +925,7 @@ async function askAgent(opt: Record<string, string | true>, to: string, text: st
   let r = (await api(opt, "POST", "/api/ask", { to, text, wait_seconds: left() })) as AskResult;
   if (r.status === "waiting") process.stderr.write(`Asked ${r.to}; waiting for its answer (up to ${limit}s; Ctrl-C to stop)…\n`);
   while (r.status === "waiting" && left() > 0) r = (await api(opt, "POST", "/api/ask", { to, board: r.board, seq: r.seq, wait_seconds: left() })) as AskResult;
-  if (r.status !== "answered" || !r.answer) return say(r.message + (r.board && r.seq ? `\nCheck later with: atteo get ${r.seq} --board ${r.board}` : ""));
+  if (r.status !== "answered" || !r.answer) return say((limit > 0 ? r.message : `Sent to ${r.to}.`) + (r.board && r.seq ? `\nIts answer will reply to #${r.seq}: atteo get ${r.seq} --board ${r.board} (or ask with --wait 30 to wait for it)` : ""));
   say(`${r.to} (#${r.answer.seq}):`);
   say(fence(r.answer.text));
 }
