@@ -77,7 +77,7 @@ export interface Entry {
   agent_name?: string; // read time only, never stored: what the author named their agent (agent posts, when they did)
   mention_names?: Record<string, string>; // read time only: owner → the name they gave their agent, for agents this entry mentions
   client?: string | null; // for agent posts: which agent, e.g. "Claude Code" (the agent names it: never trust it for labels)
-  origin?: "slack" | "pact"; // server-set only (#5439): made by the Slack bridge, or an outside agent's PACT reply
+  origin?: "slack" | "pact" | "linear"; // server-set only (#5439): made by the Slack bridge, an outside agent's PACT reply, or a Linear comment (src/linear.ts)
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
@@ -257,4 +257,10 @@ export interface Env {
   SLACK_SIGNING_SECRET?: string; // secret: proves /slack/events, /slack/commands and /slack/interactivity requests are Slack's
   SLACK_TOKEN_KEY?: string; // secret: 32 random bytes, base64 (openssl rand -base64 32): bot tokens are encrypted with it in D1
   DEV_FAKE_SLACK?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost → a stub Slack that records calls instead of making them
+  // The Linear integration (src/linear.ts, docs/FEATURES.md): off until LINEAR_CLIENT_ID, LINEAR_CLIENT_SECRET and LINEAR_TOKEN_KEY are set
+  // (the /api/integrations/linear routes answer 503 "Linear isn't set up yet"). The webhook also needs LINEAR_WEBHOOK_SECRET.
+  LINEAR_CLIENT_ID?: string; // secret: the Linear OAuth app's client id. Never in wrangler.jsonc
+  LINEAR_CLIENT_SECRET?: string; // secret: the Linear OAuth app's client secret; also signs the OAuth state
+  LINEAR_TOKEN_KEY?: string; // secret: 32 random bytes, base64 (openssl rand -base64 32): Linear tokens are encrypted with it in D1
+  LINEAR_WEBHOOK_SECRET?: string; // secret: the Linear webhook's signing secret (Linear-Signature HMAC). Unset: the webhook is 503
 }

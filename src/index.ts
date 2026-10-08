@@ -82,6 +82,7 @@ import * as xCard from "./xCard";
 import * as voice from "./voice";
 import * as calls from "./calls";
 import * as slack from "./slack";
+import * as linear from "./linear";
 import { slackOn } from "./slackCore";
 import { CALL_CSS, CALL_CSS_PATH, CALL_CSS_SRC, CALL_JS, CALL_JS_PATH, callPageBody } from "./callWeb";
 import { MAX_SCHEDULES } from "./schedules";
@@ -876,6 +877,13 @@ const handler = {
       }
       // ---- the Slack bridge (src/slack.ts): Slack's own requests (signed, no session) and the people's pages ----
       if (path.startsWith("/slack/")) return await slack.route(request, env, ctx, path, viewer, origin);
+      // ---- Linear (src/linear.ts): link a board's tasks to a Linear team; Linear's signed webhook (no session) ----
+      if (path === "/api/integrations/linear/webhook" && method === "POST") return await linear.webhook(linear.linearFor(env, origin), request, ctx);
+      if (path === "/api/integrations/linear/start" && method === "GET") return await linear.start(linear.linearFor(env, origin), viewer, url);
+      if (path === "/api/integrations/linear/callback" && method === "GET") return await linear.callback(linear.linearFor(env, origin), viewer, url);
+      if (path === "/api/integrations/linear" && method === "GET") return await linear.status(linear.linearFor(env, origin), viewer, url);
+      if (path === "/api/integrations/linear" && method === "POST") return await linear.choose(linear.linearFor(env, origin), viewer, request, url);
+      if (path === "/api/integrations/linear" && method === "DELETE") return await linear.unlink(linear.linearFor(env, origin), viewer, url);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed
       // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.

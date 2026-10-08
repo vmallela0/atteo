@@ -73,7 +73,7 @@ export async function sign(secret: string, ts: string, body: string): Promise<st
   return "v0=" + hex(await crypto.subtle.sign("HMAC", key, enc.encode(`v0:${ts}:${body}`)));
 }
 
-function sameText(a: string, b: string): boolean {
+export function sameText(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let d = 0;
   for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -91,27 +91,40 @@ export async function verify(secret: string | null, ts: string | null, signature
 // ---- bot tokens at rest: AES-GCM with SLACK_TOKEN_KEY (32 bytes, base64) ----
 
 function keyBytes(env: SlackEnv): Uint8Array {
-  const b64 = env.SLACK_TOKEN_KEY || (fakeSlack(env) ? FAKE_TOKEN_KEY : "");
-  if (!b64) throw new Error("SLACK_TOKEN_KEY isn't set");
-  const raw = Uint8Array.from(atob(b64.trim()), (c) => c.charCodeAt(0));
-  if (raw.length !== 32) throw new Error("SLACK_TOKEN_KEY must be 32 bytes, base64 (openssl rand -base64 32)");
+  return keyFromB64(env.SLACK_TOKEN_KEY || (fakeSlack(env) ? FAKE_TOKEN_KEY : ""), "SLACK_TOKEN_KEY");
+}
+
+/** A 32-byte AES key from its base64 secret (`name` says which, in errors). Shared with the Linear integration. */
+export function keyFromB64(b64key: string, name: string): Uint8Array {
+  if (!b64key) throw new Error(`${name} isn't set`);
+  const raw = Uint8Array.from(atob(b64key.trim()), (c) => c.charCodeAt(0));
+  if (raw.length !== 32) throw new Error(`${name} must be 32 bytes, base64 (openssl rand -base64 32)`);
   return raw;
 }
 const b64 = (u: Uint8Array) => btoa(String.fromCharCode(...u));
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
-export async function sealToken(env: SlackEnv, token: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", keyBytes(env), "AES-GCM", false, ["encrypt"]);
+/** A third-party token sealed for D1: "v1:<iv>:<ciphertext>", AES-GCM with a fresh IV. */
+export async function sealWith(key: Uint8Array, token: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(token)));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, enc.encode(token)));
   return `v1:${b64(iv)}:${b64(ct)}`;
 }
 
-export async function openToken(env: SlackEnv, sealed: string): Promise<string> {
+export async function openWith(key: Uint8Array, sealed: string): Promise<string> {
   const [v, iv, ct] = sealed.split(":");
   if (v !== "v1" || !iv || !ct) throw new Error("not a sealed token");
-  const key = await crypto.subtle.importKey("raw", keyBytes(env), "AES-GCM", false, ["decrypt"]);
-  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv) }, key, unb64(ct)));
+  const k = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["decrypt"]);
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv) }, k, unb64(ct)));
+}
+
+export async function sealToken(env: SlackEnv, token: string): Promise<string> {
+  return sealWith(keyBytes(env), token);
+}
+
+export async function openToken(env: SlackEnv, sealed: string): Promise<string> {
+  return openWith(keyBytes(env), sealed);
 }
 
 // ---- text: board → Slack (escaped) and Slack → board ----

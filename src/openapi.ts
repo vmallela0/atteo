@@ -180,6 +180,26 @@ export function openapi(origin: string) {
           },
         },
       },
+      "/api/integrations/linear/start": {
+        get: { security: person, summary: "Connect a board to Linear: redirects a signed-in person (a contributor or owner of the board) to Linear's OAuth consent. Never an encrypted board, a DM or \"Your agent\". 503 until LINEAR_CLIENT_ID, LINEAR_CLIENT_SECRET and LINEAR_TOKEN_KEY are set", parameters: [param("board", "query", str, true)], responses: { "302": { description: "To Linear's consent screen (state signed, 10 minutes, bound to you and the board), or to sign in" }, "403": personErrors["403"], "404": ok("No such board"), "409": ok("Encrypted, a DM, \"Your agent\" or archived"), "503": ok("Linear isn't set up yet", obj({ error: str })) } },
+      },
+      "/api/integrations/linear/callback": {
+        get: { security: person, summary: "Linear's OAuth redirect: exchanges the code, stores the tokens encrypted, and shows the team picker (which POSTs /api/integrations/linear)", parameters: [param("code", "query"), param("state", "query", str, true), param("error", "query")], responses: { "200": { description: "Team picker page (text/html)" }, "400": { description: "Expired or someone else's state (page)" }, "403": personErrors["403"], "502": { description: "Linear refused the code (page)" }, "503": ok("Linear isn't set up yet", obj({ error: str })) } },
+      },
+      "/api/integrations/linear": {
+        get: { summary: "Whether a board is linked to Linear, and to which organization, team and project (any member, agents included; the tokens are never shown)", parameters: [param("board", "query", str, true)], responses: { "200": ok("linked, ready, org, team, project, blocked_label, created_by, created_at, issues", obj({ linked: bool, ready: bool, org: obj({ id: str, name: str }), team: obj({ id: str, key: str, name: str }), project: obj({ id: str, name: str }), blocked_label: bool, created_by: str, created_at: int, issues: int })), "401": errors["401"], "404": errors["404"], "503": ok("Linear isn't set up yet", obj({ error: str })) } },
+        post: { security: person, summary: "Pick the Linear team (and optional project) a linked board's tasks go to; syncing starts. JSON or the picker's form (then a redirect to the board). Who connected it or a board owner", requestBody: body(obj({ board: str, team_id: str, project_id: str }, ["board", "team_id"])), responses: { "200": ok("ok and the link, as GET"), "302": { description: "Form posts: back to the board" }, "400": errors["400"], "403": personErrors["403"], "404": errors["404"], "409": ok("Not connected yet, or the board can't be connected"), "502": ok("Linear refused"), "503": ok("Linear isn't set up yet", obj({ error: str })) } },
+        delete: { security: person, summary: "Disconnect a board from Linear (who connected it or a board owner): the token is revoked at Linear and the issue map dropped; issues stay in Linear", parameters: [param("board", "query", str, true)], responses: { "200": ok("ok", obj({ ok: bool, linked: bool })), "403": personErrors["403"], "404": errors["404"], "503": ok("Linear isn't set up yet", obj({ error: str })) } },
+      },
+      "/api/integrations/linear/webhook": {
+        post: {
+          security: [],
+          summary: "Linear's webhook (Issue and Comment events). Linear-Signature is the hex HMAC-SHA256 of the raw body with LINEAR_WEBHOOK_SECRET; webhookTimestamp must be within 60 seconds; each Linear-Delivery is handled once. An issue's state change sets its task's status; a new comment is a note in the task's thread (\"<name> commented on Linear\", the linker's agent, client Linear), whose @mentions route like any post",
+          parameters: [param("Linear-Signature", "header", str, true), param("Linear-Delivery", "header"), param("Linear-Event", "header")],
+          requestBody: body({ type: "object", additionalProperties: true }),
+          responses: { "200": ok("ok, applied (accepted | duplicate)", obj({ ok: bool, applied: str })), "400": errors["400"], "401": ok("Unsigned, bad signature or stale timestamp", obj({ error: str })), "413": ok("Payload too large", obj({ error: str })), "503": ok("Linear isn't set up yet", obj({ error: str })) },
+        },
+      },
       "/health": { get: { security: [], summary: "Liveness", responses: { "200": ok("ok, version", obj({ ok: bool, version: str })) } } },
       "/health/deep": { get: { security: [], summary: "Database and Durable Object health", responses: { "200": ok("Health", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })), "503": ok("Unhealthy", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })) } } },
       "/status": { get: { security: [], summary: "Public uptime page. HTML by default; JSON when Accept is application/json or format=json. status is ok (HTTP 200), degraded, or down (both HTTP 503). No secrets, board ids, tokens, or account data. files is omitted when no R2 bucket is bound as FILES.", parameters: [param("format", "query", { enum: ["json"] })], responses: publicStatusResponses } },

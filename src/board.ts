@@ -38,6 +38,7 @@ import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
 import { onApprovalDecided as slackOnApproval, onEntry as slackOnEntry } from "./slack";
+import { linearFor, syncTask as linearSyncTask } from "./linear";
 import type { Listener } from "./listen";
 import { memberRole } from "./registry";
 import { LIVE_MS } from "./sessions";
@@ -332,7 +333,7 @@ function toEntry(r: Row): Entry {
     retracts: (r.retracts as number | null) ?? null,
     via: ((r.via as string | null) ?? null) as Entry["via"],
     client: (r.client as string | null) ?? null,
-    ...(r.origin === "slack" || r.origin === "pact" ? { origin: r.origin as Entry["origin"] } : {}),
+    ...(r.origin === "slack" || r.origin === "pact" || r.origin === "linear" ? { origin: r.origin as Entry["origin"] } : {}),
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
     artifact_version: (r.artifact_version as number | null) ?? null,
@@ -803,6 +804,9 @@ export class Board extends DurableObject<Env> {
    *  its people's own person tabs; just mine: its person's tabs and their agents' sockets). */
   private broadcast(msg: object, about?: number | null) {
     this.changes++;
+    // Every task change ends here: a board linked to Linear syncs that task (src/linear.ts).
+    const tm = msg as { type?: string; seq?: number };
+    if (tm.type === "task" && typeof tm.seq === "number") this.linearKick(tm.seq);
     const data = JSON.stringify(msg);
     const aud = about != null ? this.audienceOf(about) : null;
     for (const ws of this.tabs()) {
@@ -1385,7 +1389,7 @@ export class Board extends DurableObject<Env> {
     return { price_date: PRICE_DATE, self_reported: true, this_week: sum(seen), agents: grouped("agent"), tasks: grouped("task_seq"), days: grouped("day").sort((a, b) => String((a as Record<string, unknown>).day).localeCompare(String((b as Record<string, unknown>).day))) };
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" | "linear" } = {}): Promise<Entry> {
     this.renewLeases(user, input.session);
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
@@ -1551,7 +1555,8 @@ export class Board extends DurableObject<Env> {
       if (typeof m?.user !== "string" || !USER_RE.test(m.user)) continue;
       const clean = { user: m.user, agent: m.agent === true || typeof m.session === "string", ...(typeof m.session === "string" && SESSION_NAME_RE.test(m.session) ? { session: m.session } : {}) };
       if (people && ((!own && clean.agent) || !people.includes(clean.user))) continue; // people-only: its own people, never an agent; just mine: its person and their agents
-      if (keep(clean, user, input.via) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
+      // A Linear comment (src/linear.ts) is someone else's words under the linker's name: their own agent counts too.
+      if ((internal.origin === "linear" || keep(clean, user, input.via)) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
       if (mentions.length >= cap) break;
     }
     if (mentions.length > 1 && !internal.seeding && hasGroupMention(text, ALL_MEMBERS)) this.allLimit(user);
@@ -1713,6 +1718,7 @@ export class Board extends DurableObject<Env> {
     // The Slack bridge (src/slack.ts): boards with a linked channel only; never a seed, never an encrypted board.
     // slackFrom: the channel a Slack reply came from, so it isn't echoed back there.
     if (this.meta("slack") === "1" && !info.encrypted && !internal.seeding) this.ctx.waitUntil(this.toSlack(info, entry, internal.slackFrom ?? null).catch((e) => console.error("slack bridge failed", e)));
+    if (entry.type === "task" && !internal.seeding) this.linearKick(entry.seq); // a new task, to Linear when the board is linked
     // Workflow triggers: a post (not a notice, a system line, a seed or an unsend); a task post is also a new task.
     if (!internal.seeding && !internal.notice && !internal.system && entry.retracts == null) {
       this.fireTriggers({ on: "entry", actor: user, via: entry.via ?? null, seq: entry.seq, entry });
@@ -2285,6 +2291,50 @@ export class Board extends DurableObject<Env> {
       this.ctx.waitUntil(slackOnApproval(this.env, { id: info.id, title: info.title }, seq, ref).catch((e) => console.error("slack approval failed", e)));
     }
     return seq;
+  }
+
+  /** The Linear integration's switch (src/linear.ts): on once a team is picked, off when it's unlinked. */
+  async setLinear(on: boolean): Promise<void> {
+    this.info();
+    this.setMeta("linear", on ? "1" : "0");
+  }
+
+  private linearPending = new Set<number>();
+  private linearBusy = false;
+
+  /**
+   * A task changed on a board linked to Linear: sync it after this change is stored, one task at a time (so a task
+   * gets one issue however fast it changes), each with its state at the time it's sent. Never on an encrypted board.
+   */
+  private linearKick(seq: number) {
+    if (this.meta("linear") !== "1") return;
+    this.linearPending.add(seq);
+    if (this.linearBusy) return;
+    this.linearBusy = true;
+    this.ctx.waitUntil(
+      (async () => {
+        try {
+          await new Promise((r) => setTimeout(r, 20)); // let the change that kicked it finish (taskCreate sets fields after its post)
+          const l = linearFor(this.env);
+          while (this.linearPending.size) {
+            const [s] = this.linearPending;
+            this.linearPending.delete(s);
+            const info = this.info();
+            if (info.encrypted || this.meta("linear") !== "1") break;
+            let t: TaskView;
+            try {
+              t = this.task(s);
+            } catch {
+              continue; // not a task (any more)
+            }
+            await linearSyncTask(l, info.id, t).catch((e) => console.error("linear sync failed", e));
+          }
+        } finally {
+          this.linearBusy = false;
+          this.linearPending.clear();
+        }
+      })(),
+    );
   }
 
   /** The Slack bridge's switch (src/slack.ts): on when a channel is linked, off when the last one goes. */
@@ -3475,7 +3525,8 @@ export class Board extends DurableObject<Env> {
     for (const m of e.mentions ?? []) {
       // Your own agent pinging you counts; you mentioning yourself doesn't, and handing work to your own agent is mail
       // of its own (from_your_person, below), not a mention.
-      if (m.user === e.author && !(e.via === "agent" && !m.agent)) continue;
+      // A Linear comment (origin "linear", server-set) isn't the author's own words: "@<author>'s agent" in it is mail.
+      if (m.user === e.author && !(e.via === "agent" && !m.agent) && e.origin !== "linear") continue;
       add(m.user, m.agent ? "agent" : "mention");
       if (m.agent) forAgents.add(m.user);
     }

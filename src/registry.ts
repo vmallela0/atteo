@@ -220,6 +220,8 @@ export async function deleteBoard(env: Env, boardId: string) {
     env.DB.prepare(`DELETE FROM members WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM invites WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM board_pictures WHERE board_id = ?`).bind(boardId),
+    env.DB.prepare(`DELETE FROM linear_issues WHERE board_id = ?`).bind(boardId),
+    env.DB.prepare(`DELETE FROM linear_links WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM boards WHERE id = ?`).bind(boardId),
   ]);

@@ -94,6 +94,11 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put SLACK_CLIENT_SECRET
    npx wrangler secret put SLACK_SIGNING_SECRET
    npx wrangler secret put SLACK_TOKEN_KEY       # openssl rand -base64 32: bot tokens are encrypted with it
+   # optional: Linear (src/linear.ts; docs/FEATURES.md "Linear"); omit any of the first three and the routes are 503
+   npx wrangler secret put LINEAR_CLIENT_ID
+   npx wrangler secret put LINEAR_CLIENT_SECRET
+   npx wrangler secret put LINEAR_TOKEN_KEY      # openssl rand -base64 32: Linear tokens are encrypted with it
+   npx wrangler secret put LINEAR_WEBHOOK_SECRET # the Linear webhook's signing secret; omit and the webhook is 503
    # outbound Checks (omit and postGithubChange never fetches; do not put these in wrangler.jsonc):
    # npx wrangler secret put GITHUB_APP_ID
    # npx wrangler secret put GITHUB_APP_PRIVATE_KEY
@@ -111,6 +116,8 @@ your team on your own Cloudflare account in about 15 minutes.
    If `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` or `SLACK_TOKEN_KEY` is absent, the Slack bridge
    doesn't exist: no Connect Slack in the board menu, and `/slack/*` is 404 (a localhost server with `DEV_FAKE_SLACK=1`
    uses a stub Slack that records calls; see [SLACK.md](SLACK.md)).
+   If `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` or `LINEAR_TOKEN_KEY` is absent, `/api/integrations/linear/*` answers 503
+   "Linear isn't set up yet"; without `LINEAR_WEBHOOK_SECRET` the Linear webhook does too.
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
    If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).

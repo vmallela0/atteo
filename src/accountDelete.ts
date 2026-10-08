@@ -246,6 +246,9 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`DELETE FROM slack_people WHERE user = ?`, n),
     S(`DELETE FROM slack_nonces WHERE user = ?`, n),
     S(`DELETE FROM slack_links WHERE created_by = ?`, n),
+    // Linear (src/linear.ts): the boards they connected stop syncing; their sealed tokens and the issue maps go.
+    S(`DELETE FROM linear_issues WHERE board_id IN (SELECT board_id FROM linear_links WHERE created_by = ?)`, n),
+    S(`DELETE FROM linear_links WHERE created_by = ?`, n),
     S(`DELETE FROM account_audit WHERE user = ?`, n),
     S(`DELETE FROM approval_terminal_confirms WHERE user = ?`, n),
     S(`DELETE FROM approval_confirm_starts WHERE user = ?`, n),
