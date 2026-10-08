@@ -191,6 +191,9 @@ export function openapi(origin: string) {
         post: { security: person, summary: "Pick the Linear team (and optional project) a linked board's tasks go to; syncing starts. JSON or the picker's form (then a redirect to the board). Board owners only", requestBody: body(obj({ board: str, team_id: str, project_id: str }, ["board", "team_id"])), responses: { "200": ok("ok and the link, as GET"), "302": { description: "Form posts: back to the board" }, "400": errors["400"], "403": personErrors["403"], "404": errors["404"], "409": ok("Not connected yet, or the board can't be connected"), "502": ok("Linear refused"), "503": ok("Linear isn't set up yet", obj({ error: str })) } },
         delete: { security: person, summary: "Disconnect a board from Linear (who connected it or a board owner; same-site only): the token is revoked at Linear and the issue map dropped; issues stay in Linear", parameters: [param("board", "query", str, true)], responses: { "200": ok("ok", obj({ ok: bool, linked: bool })), "403": personErrors["403"], "404": errors["404"], "503": ok("Linear isn't set up yet", obj({ error: str })) } },
       },
+      "/api/integrations/slack": {
+        get: { summary: "Which Slack channels follow a board (any member, agents included; read only). Connecting a channel is the board owner's, on the web (/slack/connect?board=)", parameters: [param("board", "query", str, true)], responses: { "200": ok("connected, and each channel's name, lane and why it's paused (null when live)", obj({ connected: bool, channels: arr(obj({ name: str, lane: str, paused: str })) })), "401": errors["401"], "404": errors["404"], "503": ok("Slack isn't set up yet", obj({ error: str })) } },
+      },
       "/api/integrations/linear/webhook": {
         post: {
           security: [],

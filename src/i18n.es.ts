@@ -1182,4 +1182,18 @@ export const ES: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "Integraciones",
+  "Not connected": "No conectado",
+  "Disconnect": "Desconectar",
+  "Couldn’t load": "No se pudo cargar",
+  "Not set up on this server yet": "Aún no está configurado en este servidor",
+  "Pick a team": "Elegir un equipo",
+  "Not available on end-to-end encrypted boards": "No disponible en tableros cifrados de extremo a extremo",
+  "Connect Linear": "Conectar Linear",
+  "No team picked yet": "Aún no se eligió un equipo",
+  "connected by {name}": "conectado por {name}",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "¿Desconectar Linear de este tablero? Sus issues se quedan en Linear; las tareas dejan de sincronizarse.",
+  "Couldn’t disconnect": "No se pudo desconectar",
+  "Linear disconnected": "Linear desconectado",
 };

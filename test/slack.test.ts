@@ -17,6 +17,7 @@ import {
   personLinkPage,
   pickChannel,
   sweep,
+  boardStatus,
   type Bridge,
   type BoardOps,
 } from "../src/slack";
@@ -605,5 +606,29 @@ describe("the gate", () => {
     expect(core.slackOn({ DEV_FAKE_SLACK: "1" }, new Request("http://localhost:8787/slack/connect"))).toBe(true);
     expect(core.slackOn({ DEV_FAKE_SLACK: "1", PUBLIC_URL: "https://atteo.dev" })).toBe(false);
     expect(core.signingSecret({ DEV_FAKE_SLACK: "1" }, new Request("https://atteo.dev/x"))).toBe(null);
+  });
+});
+
+// Board info → Integrations and `atteo connect` (vedu #6508): which channels follow a board, read only, for any member.
+describe("GET /api/integrations/slack", () => {
+  const url = (board = BOARD) => new URL(`${ORIGIN}/api/integrations/slack?board=${board}`);
+  it("says which channels follow the board, to any member (a viewer too), and never a token", async () => {
+    const s = setup();
+    expect(await (await boardStatus(s.b, s.viewer("vi"), url())).json()).toEqual({ connected: false, channels: [] });
+    await install(s);
+    const r = await boardStatus(s.b, s.viewer("vi"), url());
+    expect(r.status).toBe(200);
+    const text = await r.text();
+    expect(JSON.parse(text)).toEqual({ connected: true, channels: [{ name: "general", lane: "decisions", paused: null }] });
+    expect(text).not.toContain("xoxb");
+  });
+  it("is 404 for someone not on the board or a bad id, 401 signed out, 503 when Slack isn't set up", async () => {
+    const s = setup();
+    expect((await boardStatus(s.b, s.viewer("stranger"), url())).status).toBe(404);
+    expect((await boardStatus(s.b, s.viewer("ann"), url("nope"))).status).toBe(404);
+    expect((await boardStatus(s.b, null, url())).status).toBe(401);
+    const off = await boardStatus({ ...s.b, env: {} as Env }, s.viewer("ann"), url());
+    expect(off.status).toBe(503);
+    expect(await off.json()).toEqual({ error: "Slack isn't set up yet" });
   });
 });

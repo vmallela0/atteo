@@ -510,6 +510,8 @@ a.xc{display:block;min-width:0;padding:9px 12px;border:1px solid var(--line);bor
 .badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .bc-last{margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.4}.bc-last b{color:var(--text);font-weight:500}
 /* board settings: triggers (a rule per line; yours have Pause / Delete) and the form to add one */
+.int-list{list-style:none;margin:0;padding:0}.int-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.int-row:first-child{border-top:0;padding-top:0}.int-row>.grow{min-width:0}.int-name{font-weight:600}.int-act{gap:6px;flex-wrap:wrap;justify-content:flex-end}.int-act:empty{display:none}.int-row[data-soon] .int-name,.int-row.off .int-name{color:var(--muted);font-weight:500}.int-row[data-soon] .int-st{color:var(--faint)}
+@media(max-width:640px){.int-row{flex-wrap:wrap;row-gap:6px}.int-row>.grow{flex:1 1 60%}}
 .acc-sec[hidden]{display:none}.trg-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.trg-row:first-child{border-top:0;padding-top:0}.trg-row.off .small{color:var(--muted)}
 .trg-p{margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.trg-acts{flex:none;gap:2px}
 .trg-new{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}

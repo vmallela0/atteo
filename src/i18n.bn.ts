@@ -1182,4 +1182,18 @@ export const BN: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "ইন্টিগ্রেশন",
+  "Not connected": "সংযুক্ত নয়",
+  "Disconnect": "সংযোগ বিচ্ছিন্ন করুন",
+  "Couldn’t load": "লোড করা যায়নি",
+  "Not set up on this server yet": "এই সার্ভারে এখনও সেট আপ করা হয়নি",
+  "Pick a team": "একটি দল বাছুন",
+  "Not available on end-to-end encrypted boards": "এন্ড-টু-এন্ড এনক্রিপ্টেড বোর্ডে উপলভ্য নয়",
+  "Connect Linear": "Linear সংযুক্ত করুন",
+  "No team picked yet": "এখনও কোনো দল বাছা হয়নি",
+  "connected by {name}": "{name} সংযুক্ত করেছেন",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "এই বোর্ড থেকে Linear বিচ্ছিন্ন করবেন? এর ইস্যুগুলো Linear-এ থাকবে; টাস্ক সিঙ্ক হওয়া বন্ধ হবে।",
+  "Couldn’t disconnect": "বিচ্ছিন্ন করা যায়নি",
+  "Linear disconnected": "Linear বিচ্ছিন্ন হয়েছে",
 };

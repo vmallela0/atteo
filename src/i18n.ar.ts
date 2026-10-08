@@ -1182,4 +1182,18 @@ export const AR: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "التكاملات",
+  "Not connected": "غير متصل",
+  "Disconnect": "قطع الاتصال",
+  "Couldn’t load": "تعذّر التحميل",
+  "Not set up on this server yet": "لم يُعدّ على هذا الخادم بعد",
+  "Pick a team": "اختر فريقًا",
+  "Not available on end-to-end encrypted boards": "غير متاح في اللوحات المشفّرة من طرف إلى طرف",
+  "Connect Linear": "ربط Linear",
+  "No team picked yet": "لم يُختر فريق بعد",
+  "connected by {name}": "ربطه {name}",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "قطع اتصال Linear بهذه اللوحة؟ تبقى مشكلاته في Linear، وتتوقف مزامنة المهام.",
+  "Couldn’t disconnect": "تعذّر قطع الاتصال",
+  "Linear disconnected": "تم قطع اتصال Linear",
 };

@@ -16,7 +16,7 @@ import { pingTail, type PingContent, type PingFor } from "../../src/ping";
 import { pongFor } from "../../src/listen";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
-import { api, askYes, boardIdIn, boardMap, CliError, COMMANDS, COMMANDS_HELP, createHere, decryptEntry, folderBoard, isEncrypted, openKeys, optStr, parseArgs, tool } from "./commands";
+import { api, askYes, boardIdIn, boardMap, CliError, COMMANDS, COMMANDS_HELP, createHere, creds, currentBoard, decryptEntry, folderBoard, isEncrypted, openKeys, optStr, parseArgs, server, tool } from "./commands";
 import { AcpAgent, type AcpBoard } from "./acp";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, screenMail, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, setUp, splitCommand } from "./harness";
@@ -27,6 +27,7 @@ import { EncryptedTools } from "./e2emcp";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
 import { hostCmd, runCmd } from "./host";
+import { connectIntegration, disconnectIntegration, INTEGRATION_FLAGS, INTEGRATIONS, type IntegrationDeps, listIntegrations } from "./integrations";
 import { commitLink, repoContext, repoLink } from "./repoInit";
 import { displayCommand as terminalLabel } from "./verify";
 import { type DeviceStart, startLogin as startDevice, waitForApproval as waitDevice } from "./deviceLogin";
@@ -1478,10 +1479,54 @@ function connectHelp(name?: string) {
   const names = name ? [name] : Object.keys(HARNESSES);
   for (const n of names) {
     const h = HARNESSES[n];
-    if (!h) throw new CliError(`Unknown agent "${n}". Known: ${Object.keys(HARNESSES).join(", ")}.`);
+    if (!h) throw new CliError(`Unknown agent or integration "${n}". Agents: ${Object.keys(HARNESSES).join(", ")}. Integrations: ${INTEGRATIONS.join(", ")}.`);
     console.log(`\n${n}${which(h.bin) ? " (installed)" : ""}\n  ${h.connect.split("\n").join("\n  ")}`);
   }
   console.log(`\nAny other MCP client: run "atteo mcp" as a stdio server. Editors that speak ACP (Zed, JetBrains): "atteo acp" as a custom agent server (atteo help --all). Agents with only a shell: the atteo commands (atteo --help). Hosted agents: the JSON API with a token (${DEFAULT_SERVER}/openapi.json) and webhooks (Account → Agent webhooks).`);
+}
+
+/** atteo connect [linear|slack|…] [--board <id|name>] [--no-open]: a board's integrations (the list, or the link that
+ *  connects one); atteo connect <claude|codex|…>: how to give that agent the board (connectHelp). */
+async function connectCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args, INTEGRATION_FLAGS);
+  const name = pos[0]?.toLowerCase();
+  if (name && INTEGRATIONS.includes(name)) {
+    await prepare(quiet);
+    return connectIntegration(name, opt, integrationDeps(opt));
+  }
+  if (name) return connectHelp(name);
+  try {
+    await prepare(quiet);
+    await listIntegrations(opt, integrationDeps(opt));
+  } catch (e) {
+    if (!(e instanceof CliError)) throw e;
+    err(`${e.message}\n(Integrations need a board: --board <id|name>. How to connect an agent instead:)`);
+    return connectHelp();
+  }
+  if (opt.json !== true) console.log(`Connect an agent to the board: atteo connect <${Object.keys(HARNESSES).join("|")}>`);
+}
+
+/** atteo disconnect <linear|slack> [--board <id|name>] [--yes]. */
+async function disconnectCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args, INTEGRATION_FLAGS);
+  await prepare(quiet);
+  return disconnectIntegration(pos[0]?.toLowerCase(), opt, integrationDeps(opt));
+}
+
+/** What cli/src/integrations.ts needs from the login (commands.ts) and this terminal. */
+function integrationDeps(opt: Record<string, string | true>): IntegrationDeps {
+  return {
+    api: (method, path) => api(opt, method, path),
+    base: () => server(creds(), opt),
+    board: (o) => currentBoard(o),
+    say: (s) => console.log(s),
+    fail: (m) => new CliError(m),
+    open: openBrowser,
+    async confirm(question) {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) throw new CliError(`${question}\nNot in a terminal: add --yes to go ahead.`);
+      return askYes(question, false);
+    },
+  };
 }
 
 // ---------- entry ----------
@@ -1503,6 +1548,12 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
   atteo harness <agent>   Set up this machine for ${Object.keys(HARNESSES).join(", ")} in one go: sign in (a code you approve in the
                          browser), a board for this folder (a new end-to-end encrypted one), keys, the agent's MCP; no
                          questions. Also the agent that answers for you; or "<command> {prompt}"; off. --no-open
+  atteo connect [--board <id|name>] [--json]   The board's integrations and their status: Linear, Slack; Discord,
+                         Notion and Microsoft Teams are coming soon. atteo connect <agent>: how to give that agent the board
+  atteo connect linear [--board <id|name>] [--no-open]   Prints (and opens) the link that connects the board to Linear:
+                         a board owner signs in on Atteo, approves on Linear and picks the team. atteo connect slack: the same for Slack
+  atteo disconnect linear [--board <id|name>] [--yes]   Disconnect Linear (who connected it, or a board owner). People
+                         only: the server refuses a CLI login, so it names the board's web panel (⋯ → Integrations)
   atteo dispatch   You stay the main agent: every message for your agent gets a fork, its own session running your
                          harness, which claims it, does the work, replies in the thread and ends
     --max N              Forks at once (default 3); more wait in the mailbox. --max-per-hour N (default 12)
@@ -1678,7 +1729,8 @@ const run: Record<string, () => unknown> = {
   host: () => hostCmd(rest),
   run: () => runCmd(rest),
   hooks: () => hooksCmd(rest), // no session: the hook posts as you, not as whichever agent ran git push
-  connect: () => connectHelp(rest[0]),
+  connect: () => connectCmd(rest),
+  disconnect: () => disconnectCmd(rest),
   harness: () => harnessCmd(rest),
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),

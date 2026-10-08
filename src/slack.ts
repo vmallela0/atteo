@@ -1113,6 +1113,17 @@ ${links.length ? `<ul style="list-style:none;padding:0;margin:14px 0 0">${rows}<
   );
 }
 
+/** GET /api/integrations/slack?board=: which Slack channels follow a board (any member, agents too: read only, never a
+ *  token). 503 when the bridge isn't set up on this server. Connecting stays on the owner's pages (/slack/connect). */
+export async function boardStatus(b: Bridge, viewer: Viewer | null, url: URL, request: Request | null = null): Promise<Response> {
+  if (!core.slackOn(b.env, request)) return json({ error: "Slack isn't set up yet" }, 503);
+  if (!viewer) return json({ error: "sign in required" }, 401);
+  const board = url.searchParams.get("board") ?? "";
+  if (!/^b_[a-z0-9]{8,32}$/.test(board) || !(await roleOf(b, board, viewer.name))) return json({ error: "No such board." }, 404);
+  const links = (await b.db.prepare(`SELECT channel_name, lane, paused FROM slack_links WHERE board_id = ? ORDER BY created_at`).bind(board).all<{ channel_name: string; lane: string; paused: string | null }>()).results;
+  return json({ connected: links.some((l) => !l.paused), channels: links.map((l) => ({ name: l.channel_name, lane: l.lane, paused: l.paused ?? null })) });
+}
+
 // ---- the router's hook: /slack/… ----
 
 export async function route(request: Request, env: Env, ctx: Later, path: string, viewer: Viewer | null, origin: string): Promise<Response> {
