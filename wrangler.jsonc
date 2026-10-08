@@ -75,6 +75,56 @@
     "VOICE_GLOBAL_MONTHLY_MINUTES": "600",
     "TTS_MONTHLY_CHARS": "150000",
     "TTS_GLOBAL_MONTHLY_CHARS": "2000000"
+  },
+  // Staging (vedu #6570; docs/STAGING.md): `scripts/staging.sh` deploys the current checkout here with --env staging. Plain
+  // `wrangler deploy` (ship.sh) still deploys only the top level above, i.e. prod. Wrangler does not inherit bindings or
+  // vars into an env, so everything the Worker binds is restated here, pointing at staging-only resources: its own D1, its
+  // own Durable Object namespaces (per Worker), its own rate-limit counter, and no backup bucket. No prod var that names
+  // a prod board, analytics project or sign-in app. The one cron stays: with none of the backup, email, cost-guard or
+  // north-star settings here it only runs housekeeping on staging's own data.
+  "env": {
+    "staging": {
+      "name": "atteo-staging",
+      "workers_dev": true,
+      "preview_urls": false,
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "assets": { "directory": "./public", "binding": "ASSETS", "html_handling": "none", "not_found_handling": "none", "run_worker_first": true },
+      "durable_objects": {
+        "bindings": [{ "name": "BOARD", "class_name": "Board" }, { "name": "SLACK", "class_name": "SlackTeam" }, { "name": "MAILBOX_SIGNAL", "class_name": "MailboxSignal" }]
+      },
+      "ratelimits": [{ "name": "PUBLIC_WRITES", "namespace_id": "6570", "simple": { "limit": 20, "period": 60 } }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "agent-board-staging",
+          "database_id": "770fadc3-ab53-4bb3-aa3c-7232e151f2a1",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [], // backups off: no bucket, and no BACKUP_PUBLIC_KEY
+      "vars": {
+        "PUBLIC_URL": "https://atteo-staging.vedu-mallela.workers.dev",
+        // Off here, stated as blanks: sign-in (prod's WorkOS app), the cost guard, calls, /_ops by email (ops go through
+        // ADMIN_KEY), the bug and north-star boards (prod board ids) and analytics (prod's PostHog project).
+        "WORKOS_CLIENT_ID": "",
+        "CF_ACCOUNT_ID": "",
+        "CF_REALTIME_APP_ID": "",
+        "ADMIN_EMAIL": "",
+        "BUGS_BOARD": "",
+        "NORTH_STAR_BOARD": "",
+        "POSTHOG_KEY": "",
+        "POSTHOG_HOST": "",
+        "OPERATORS": "vedu,jxn",
+        "TEAM_USERS": "vedu,jxn",
+        "VOICE_MONTHLY_MINUTES": "60",
+        "VOICE_GLOBAL_MONTHLY_MINUTES": "600",
+        "TTS_MONTHLY_CHARS": "150000",
+        "TTS_GLOBAL_MONTHLY_CHARS": "2000000"
+      }
+      // Secrets (wrangler secret put X --env staging): ADMIN_KEY only, a fresh random value staging.sh makes. Never a prod
+      // secret: no WORKOS_*, RESEND_*, SENTRY_DSN, STRIPE_*, BACKUP_* or integration keys, so sign-in, email, error
+      // reporting, payments, backups and integrations are all off here.
+    }
   }
   // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, XAI_API_KEY (read aloud and voice; without it /api/app/tts and /api/app/voice/session answer 503). Optional GitHub App: GITHUB_WEBHOOK_SECRET (POST /github/webhook); GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, optional GITHUB_APP_INSTALLATION_ID for outbound Checks (docs/github-app.md). Never put App credentials in vars — hosted production leaves them unset. Optional product analytics (docs/ANALYTICS.md): POSTHOG_KEY (public project API key, phc_…) and POSTHOG_HOST ("eu" or "us"; default eu). Unset: the web loader does nothing. Locally they come from .dev.vars.
 }
