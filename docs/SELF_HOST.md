@@ -87,6 +87,8 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put APNS_TOPIC            # iOS app bundle id
    npx wrangler secret put XAI_API_KEY            # xAI read-aloud and Grok voice; omit for device-voice fallback
    npx wrangler secret put A2A_SIGNING_KEY       # optional: `node scripts/a2a-key.mjs keygen`; the Agent Card stays unsigned until set
+   npx wrangler secret put MCP_REGISTRY_AUTH     # optional: MCP Registry domain proof (docs/MCP_LISTINGS.md); 404 until set
+   npx wrangler secret put GLAMA_CLAIM           # optional: Glama connector claim code (docs/MCP_LISTINGS.md); 404 until set
    npx wrangler secret put GITHUB_WEBHOOK_SECRET # GitHub App webhook HMAC; omit and POST /github/webhook is 503
    npx wrangler secret put CF_ANALYTICS_TOKEN    # optional: Account Analytics:Read, for the cost guard (with the CF_ACCOUNT_ID var)
    npx wrangler secret put CF_REALTIME_APP_TOKEN # optional: board calls (with the CF_REALTIME_APP_ID var: a Cloudflare Realtime app); omit and there are no calls

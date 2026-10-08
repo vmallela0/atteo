@@ -235,6 +235,8 @@ export interface Env {
   // Nightly encrypted backups (src/backup.ts, docs/BACKUPS.md): to R2 through BACKUP_R2, or to an S3-compatible bucket when
   // every BACKUP_S3_* below but the optional ones is set (that wins). Off until BACKUP_PUBLIC_KEY is set as well.
   BACKUP_R2?: R2Bucket; // binding: the atteo-backups bucket (local wrangler dev gets a local one)
+  MCP_REGISTRY_AUTH?: string; // secret: the MCP Registry domain proof served at /.well-known/mcp-registry-auth ("v=MCPv1; k=ed25519; p=<public key>", docs/MCP_LISTINGS.md); unset: 404
+  GLAMA_CLAIM?: string; // secret: Glama's connector claim code, served in /.well-known/glama.json (docs/MCP_LISTINGS.md); unset: 404
   A2A_SIGNING_KEY?: string; // secret: the Agent Card's ES256 private key (JWK, from scripts/a2a-key.mjs); unset: the card is served unsigned. Never kept in D1
   BACKUP_PUBLIC_KEY?: string; // secret in production (so local servers stay off): X25519 public key from scripts/backup.mjs keygen; the private key stays offline
   BACKUP_S3_ENDPOINT?: string; // var: S3-compatible endpoint, e.g. https://s3.us-west-004.backblazeb2.com

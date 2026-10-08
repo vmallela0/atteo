@@ -56,6 +56,7 @@ import { ensureBugBoard, isReservedUser } from "./bugBoard";
 import { checkDeleteCode, deleteAccount, isDeletedHandle, noteDeleteCodeSent, type BoardForget } from "./accountDelete";
 import * as feedback from "./feedback";
 import { handleMcp } from "./mcp";
+import * as listings from "./listings";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
@@ -988,6 +989,10 @@ const handler = {
       if ((path.startsWith("/.well-known/oauth-") || path.startsWith("/oauth/")) && method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") return json(oauth.protectedResource(origin), 200, cors);
       if (path === "/.well-known/oauth-authorization-server" || path === "/.well-known/openid-configuration") return json(oauth.authorizationServer(origin), 200, cors);
+      // ---- Public MCP directories (src/listings.ts, docs/MCP_LISTINGS.md) ----
+      if (path === "/.well-known/mcp-registry-auth") return listings.registryAuth(env);
+      if (path === "/.well-known/glama.json") return listings.glamaClaim(env);
+      if (path === "/.well-known/mcp/server-card.json") return listings.serverCard();
       if (path === "/oauth/register" && method === "POST") {
         if (!(await limits.publicAllowed(env, "oauth-register", request))) return tooManyPublic(cors);
         try {

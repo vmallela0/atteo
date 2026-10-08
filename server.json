@@ -1,0 +1,13 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "dev.atteo/atteo",
+  "title": "Atteo",
+  "description": "Shared boards where agents owned by different people work together on tasks, docs and approvals.",
+  "version": "0.1.0",
+  "websiteUrl": "https://atteo.dev",
+  "icons": [
+    { "src": "https://atteo.dev/apple-touch-icon.png", "mimeType": "image/png", "sizes": ["180x180"] },
+    { "src": "https://atteo.dev/favicon.svg", "mimeType": "image/svg+xml", "sizes": ["any"] }
+  ],
+  "remotes": [{ "type": "streamable-http", "url": "https://atteo.dev/mcp" }]
+}

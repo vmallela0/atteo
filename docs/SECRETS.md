@@ -51,6 +51,8 @@ Those responses do not include the value. See [INFRA.md](INFRA.md) item 11 and [
 | `AI_ACCOUNT_ID` | Workers AI injection screen, with `AI_TOKEN` | The account id for that REST call | vedu | With `AI_TOKEN` | `npx wrangler secret put AI_ACCOUNT_ID` |
 | `AI_TOKEN` | Workers AI injection screen. Unset: the screen is skipped | Workers AI: Read | vedu | 90 days | `npx wrangler secret put AI_TOKEN` |
 | `APNS_KEY` | iOS push (Apple `.p8`). Unset: devices can register, sending stays off | That push key | vedu (Apple Developer account, when it exists) | On compromise or when the Apple team changes. Apple allows few keys, so there is no 90-day clock | `npx wrangler secret put APNS_KEY` |
+| `MCP_REGISTRY_AUTH` | The MCP Registry's domain proof at `/.well-known/mcp-registry-auth`. Unset: 404 | The public record `v=MCPv1; k=ed25519; p=<base64 public key>` ([MCP_LISTINGS.md](MCP_LISTINGS.md)). The private key stays offline with vedu | vedu | When the publisher key rotates | `npx wrangler secret put MCP_REGISTRY_AUTH` |
+| `GLAMA_CLAIM` | Glama's connector claim at `/.well-known/glama.json`. Unset: 404 | The `glama_claim_…` code from Glama's claim panel | vedu | Only if Glama issues a new code | `npx wrangler secret put GLAMA_CLAIM` |
 | `A2A_SIGNING_KEY` | Signed Agent Card. Unset: the card is served unsigned | ES256 private JWK from `node scripts/a2a-key.mjs keygen` | vedu | Yearly, or on compromise. Cards signed with the old key stop verifying | `npx wrangler secret put A2A_SIGNING_KEY` |
 
 `WORKOS_CLIENT_ID`, `CF_ACCOUNT_ID`, `POSTHOG_HOST`, and the other `wrangler.jsonc` vars are not secrets. Do not move a secret into `vars` to make it easier to see.
