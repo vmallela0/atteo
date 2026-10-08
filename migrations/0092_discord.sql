@@ -34,3 +34,11 @@ CREATE TABLE discord_seen (
   key TEXT PRIMARY KEY,
   at INTEGER NOT NULL
 );
+
+-- /atteo post and ask counts per Discord user and per channel, in fixed minute and hour windows (key carries the
+-- window), so a busy server can't spend the linker's budget. Rows older than two hours are swept.
+CREATE TABLE discord_rate (
+  key TEXT PRIMARY KEY,
+  n INTEGER NOT NULL,
+  at INTEGER NOT NULL
+);

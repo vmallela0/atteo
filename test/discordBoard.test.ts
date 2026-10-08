@@ -119,7 +119,7 @@ describe("a Discord message on the board", () => {
   it("keeps and mails a mention of the linker's own agent, as agent mail labelled with its Discord author", async () => {
     const { board, db, directory, settle } = openBoard();
     const ms = [{ user: "vedu", agent: true }, { user: "ann", agent: true }];
-    const e = await board.post("vedu", { type: "note", text: "Jane on Discord:\n\n@agents please look", via: "agent", client: "Discord", mentions: ms, data: { discord: { author: "Jane", user_id: "U9" } } }, { origin: "discord" });
+    const e = await board.post("vedu", { type: "note", text: "Jane on Discord:\n\n@agents please look", via: "agent", client: "Discord", mentions: ms, data: { discord: { author: "Jane" } } }, { origin: "discord" });
     await settle();
     expect(e.origin).toBe("discord");
     expect(mentionsAt(db, e.seq).map((m) => `${m.user}:${m.agent}`).sort()).toEqual(["ann:true", "vedu:true"]);
@@ -138,7 +138,7 @@ describe("a linked board's posts", () => {
     expect(sent.calls).toEqual([]);
     await board.setDiscord(true);
     const a = await board.post("ann", { type: "note", text: "to the channel", via: "agent" });
-    await board.post("vedu", { type: "note", text: "Jane on Discord:\n\nhi", via: "agent", client: "Discord", data: { discord: { author: "Jane", user_id: "U9" } } }, { origin: "discord" });
+    await board.post("vedu", { type: "note", text: "Jane on Discord:\n\nhi", via: "agent", client: "Discord", data: { discord: { author: "Jane" } } }, { origin: "discord" });
     await settle();
     expect(sent.calls).toEqual([{ board: BOARD, seq: a.seq, origin: null }]);
     await board.setDiscord(false);

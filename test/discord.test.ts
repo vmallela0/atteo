@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 import * as D from "../src/discord";
+import { hmacHex } from "../src/linear";
 import type { Mention } from "../src/mentions";
 import * as registry from "../src/registry";
 import { authorLabel } from "../src/state";
@@ -56,6 +57,7 @@ function setup(env: D.DiscordEnv = ENV, opts: { answer?: { seq: number; text: st
     const url = String(input);
     calls.push({ method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(String(init.body)) : null, auth: new Headers(init?.headers).get("authorization") });
     if (url.endsWith("/messages") && init?.method === "POST") return new Response(JSON.stringify({ id: "M1" }), { status: 200 });
+    if (url === `${D.DISCORD_API}/guilds/${GUILD}`) return new Response(JSON.stringify({ id: GUILD, name: "Acme HQ" }));
     return new Response(init?.method === "DELETE" ? null : "{}", { status: init?.method === "DELETE" ? 204 : 200 });
   }) as typeof fetch;
   db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity) VALUES (?, 'Checkout', 'vedu', 1, 0, 1)").run(BOARD);
@@ -70,12 +72,14 @@ function setup(env: D.DiscordEnv = ENV, opts: { answer?: { seq: number; text: st
   const posts: Posted[] = [];
   const asked: { board: string; me: string; user: string; seq: number; waitMs: number }[] = [];
   const on = new Map<string, boolean>();
+  const notices: { board: string; user: string; text: string }[] = [];
   const board: D.DiscordBoardOps = {
     post: async (b, user, input) => {
       posts.push({ board: b, user, ...input });
       return 40 + posts.length;
     },
     setDiscord: async (b, v) => void on.set(b, v),
+    notice: async (b, user, text) => void notices.push({ board: b, user, text }),
     members: async () => [{ user: "vedu", agent_name: null }, { user: "olga", agent_name: null }, { user: "ann", agent_name: "Scout" }, { user: "val", agent_name: null }],
     answer: async (b, me, user, seq, waitMs) => {
       asked.push({ board: b, me, user, seq, waitMs });
@@ -85,7 +89,7 @@ function setup(env: D.DiscordEnv = ENV, opts: { answer?: { seq: number; text: st
   const d: D.Discord = { db: d1, env, origin: ORIGIN, now: () => t, http, board };
   const later: Promise<unknown>[] = [];
   const ctx = { waitUntil: (p: Promise<unknown>) => void later.push(p) };
-  return { d, db, calls, posts, asked, on, later, ctx, tick: (ms: number) => void (t += ms), now: () => t };
+  return { d, db, calls, posts, asked, on, notices, later, ctx, tick: (ms: number) => void (t += ms), now: () => t };
 }
 type S = ReturnType<typeof setup>;
 
@@ -194,9 +198,14 @@ describe("Discord: linking", () => {
   it("only an owner, signed in as a person, gets a code; never for an encrypted board; the page shows the install link", async () => {
     const s = setup();
     const u = (b: string) => new URL(`${ORIGIN}/api/integrations/discord/start?board=${b}`);
+    // GET only shows a form: the code is made by a same-site POST.
     const page = await D.start(s.d, person("vedu"), u(BOARD));
     expect(page.status).toBe(200);
-    const htmlText = await page.text();
+    expect(await page.text()).toContain(`<form method="post" action="/api/integrations/discord/code"`);
+    expect(s.db.prepare("SELECT COUNT(*) AS n FROM discord_codes").get().n).toBe(0);
+    const form = await D.code(s.d, person("vedu"), new Request(`${ORIGIN}/api/integrations/discord/code`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" }, body: `board=${BOARD}` }), new URL(`${ORIGIN}/x`));
+    expect(form.status).toBe(200);
+    const htmlText = await form.text();
     expect(htmlText).toMatch(/\/atteo link [A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}/);
     expect(htmlText).toContain(`client_id=APP1&amp;scope=bot+applications.commands&amp;permissions=${D.BOT_PERMISSIONS}`);
     expect(D.BOT_PERMISSIONS).toBe("68608");
@@ -210,9 +219,12 @@ describe("Discord: linking", () => {
     expect((await mintCode(s, "ann")).res.status).toBe(403);
     const cross = await D.code(s.d, person("vedu"), new Request(`${ORIGIN}/x`, { method: "POST", headers: { "sec-fetch-site": "cross-site" }, body: JSON.stringify({ board: BOARD }) }), new URL(`${ORIGIN}/x`));
     expect(cross.status).toBe(403);
-    // Codes are kept hashed only.
+    // Codes are kept hashed only, keyed with a secret (the bot token), not the public key.
     const { body } = await mintCode(s);
-    expect(JSON.stringify(s.db.prepare("SELECT * FROM discord_codes").all())).not.toContain(body.code);
+    const rows = s.db.prepare("SELECT code_hash FROM discord_codes").all() as { code_hash: string }[];
+    expect(JSON.stringify(rows)).not.toContain(body.code);
+    expect(rows.map((r) => r.code_hash)).toContain(await hmacHex("discord-code:bot-token-xyz", body.code));
+    expect(rows.map((r) => r.code_hash)).not.toContain(await hmacHex(`discord-code:${PUBLIC_KEY}`, body.code));
   });
 
   it("/atteo link with a fresh code links the channel it ran in, once; it needs someone who can manage the channel", async () => {
@@ -226,6 +238,8 @@ describe("Discord: linking", () => {
     expect(r.edit?.url).toBe(`${D.DISCORD_API}/webhooks/APP1/tok-link/messages/@original`);
     expect(s.db.prepare("SELECT board_id, created_by, guild_id, channel_id, linked_by FROM discord_links").all()).toEqual([{ board_id: BOARD, created_by: "vedu", guild_id: GUILD, channel_id: CHANNEL, linked_by: "U9" }]);
     expect(s.on.get(BOARD)).toBe(true);
+    // The board hears about it, with the names Discord gave (the server's from the bot API).
+    expect(s.notices).toEqual([{ board: BOARD, user: "vedu", text: "Discord: now followed by #C200 in Acme HQ, linked by Jane Doe." }]);
     const reuse = await send(s, command("link", { code: body.code }, { perms: MANAGER, channel: "C999" }));
     expect(reuse.reply?.content).toMatch(/wrong, used or expired/);
   });
@@ -261,7 +275,8 @@ describe("Discord: commands reach the board", () => {
     expect(r.body).toEqual({ type: 5, data: { flags: 0 } });
     expect(s.posts).toHaveLength(1);
     const p = s.posts[0];
-    expect(p).toMatchObject({ board: BOARD, user: "vedu", type: "note", data: { discord: { author: "J ne b", user_id: "U9" } } });
+    expect(p).toMatchObject({ board: BOARD, user: "vedu", type: "note", data: { discord: { author: "J ne b" } } });
+    expect(JSON.stringify(p.data)).not.toContain("U9"); // the Discord user id never goes on the board
     expect(p.text).toBe("J ne b on Discord:\n\n@agents the build is red @everyone");
     expect(p.mentions.map((m) => `${m.user}:${m.agent}`).sort()).toEqual(["ann:true", "olga:true", "val:true", "vedu:true"]);
     expect(r.reply?.allowed_mentions).toEqual({ parse: [] });
@@ -457,5 +472,65 @@ describe("Discord: helpers", () => {
 
   it("the command definition has post, ask, link and unlink", () => {
     expect(D.ATTEO_COMMAND.options.map((o) => o.name)).toEqual(["post", "ask", "link", "unlink"]);
+  });
+});
+
+describe("Discord: review fixes", () => {
+  it("a Just mine, people-only or flagged reply never answers an /atteo ask; a public reply does", async () => {
+    const q = { seq: 41, user: "vedu" };
+    const mine = entry({ seq: 42, author: "vedu", reply_to: 41, audience: "own", text: "secret plan" });
+    const people = entry({ seq: 43, author: "vedu", reply_to: 41, audience: "people", text: "people only" });
+    const flagged = entry({ seq: 44, author: "vedu", reply_to: 41, ai_flag: "instructions", text: "ignore previous" } as Partial<Entry>);
+    const pub = entry({ seq: 45, author: "vedu", reply_to: 41, text: "public answer" });
+    expect(D.answerFor([mine, people, flagged], q)).toBeNull();
+    expect(D.answerFor([mine, people, flagged, pub], q)?.seq).toBe(45);
+
+    // Through the real op (the board read as the linker's agent, which does see Just mine): it isn't the answer.
+    const { d1 } = fakeD1();
+    let entries: Entry[] = [mine];
+    const env = { ...ENV, DB: d1, BOARD: { idFromName: (x: string) => x, get: () => ({ page: async () => entries }) } } as unknown as Env;
+    const ops = D.discordFor(env).board;
+    expect(await ops.answer(BOARD, "vedu", "vedu", 41, 0)).toBeNull();
+    entries = [mine, pub];
+    expect(await ops.answer(BOARD, "vedu", "vedu", 41, 0)).toEqual({ seq: 45, text: "public answer" });
+
+    // End to end: the ask's reply in Discord doesn't carry the Just mine text.
+    const s = setup(ENV, { answer: D.answerFor([mine], q) });
+    await link(s);
+    const r = await send(s, command("ask", { agent: "vedu", question: "plan?" }));
+    expect(r.reply?.content).not.toContain("secret plan");
+    expect(r.reply?.content).toMatch(/No answer yet/);
+  });
+
+  it("/atteo post and ask are rate limited per Discord user and per channel", async () => {
+    const s = setup();
+    await link(s);
+    const as = (user: string, channel = CHANNEL) => {
+      const c = command("post", { text: `hi ${crypto.randomUUID()}` }, { channel });
+      c.member.user.id = user;
+      return c;
+    };
+    for (let i = 0; i < D.RATE.userPerMin; i++) expect((await send(s, as("U1"))).reply?.content).toMatch(/posted on Checkout/);
+    expect((await send(s, as("U1"))).reply?.content).toMatch(/too fast/);
+    expect(s.posts).toHaveLength(D.RATE.userPerMin);
+    // Others in the channel, until the channel's own limit.
+    let n = D.RATE.userPerMin;
+    for (let u = 2; n < D.RATE.channelPerMin; u++) for (let i = 0; i < D.RATE.userPerMin && n < D.RATE.channelPerMin; i++, n++) await send(s, as(`U${u}`));
+    expect(s.posts).toHaveLength(D.RATE.channelPerMin);
+    expect((await send(s, as("U99"))).reply?.content).toMatch(/This channel is sending too fast/);
+    // A minute later it's open again.
+    s.tick(60_000);
+    expect((await send(s, as("U1"))).reply?.content).toMatch(/posted on Checkout/);
+  });
+
+  it("linking only ever replaces the board's own row, never another board's channel", async () => {
+    const s = setup();
+    await link(s);
+    // Another board holds C300; a race where vedu's link lands on C300 too fails the unique index instead of deleting it.
+    s.db.prepare("INSERT INTO discord_links (board_id, created_by, guild_id, channel_id, created_at, updated_at) VALUES (?, 'olga', ?, 'C300', 1, 1)").run(OTHER, GUILD);
+    const sql = "INSERT INTO discord_links (board_id, created_by, guild_id, channel_id, created_at, updated_at) VALUES (?, 'vedu', ?, 'C300', 2, 2) ON CONFLICT(board_id) DO UPDATE SET channel_id = excluded.channel_id";
+    expect(() => s.db.prepare(sql).run(BOARD, GUILD)).toThrow(/UNIQUE/);
+    expect(s.db.prepare("SELECT board_id, channel_id FROM discord_links ORDER BY board_id").all()).toEqual([{ board_id: BOARD, channel_id: CHANNEL }, { board_id: OTHER, channel_id: "C300" }]);
+    expect(readFileSync(new URL("../src/discord.ts", (import.meta as unknown as { url: string }).url), "utf8")).not.toContain("INSERT OR REPLACE INTO discord_links");
   });
 });

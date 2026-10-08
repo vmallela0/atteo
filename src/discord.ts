@@ -2,11 +2,12 @@
 // bridge: the board's posts show in the channel, and /atteo post and /atteo ask in the channel reach the board.
 //
 // - Link: a board owner, signed in on Atteo (never an agent token), opens GET /api/integrations/discord/start?board=<id>
-//   (or POST /api/integrations/discord/code {board}). That mints a one-time code (10 minutes, single use, only its hash
-//   kept, bound to them and the board) and shows the bot's install link. In the channel, someone who can manage it runs
+//   and presses Get a link code, a same-site POST /api/integrations/discord/code {board} (JSON works too). That mints a
+//   one-time code (10 minutes, single use, only its hash kept, keyed with the bot token, bound to them and the board) and
+//   shows the bot's install link. In the channel, someone who can manage it runs
 //   `/atteo link <code>`: the channel is where the command ran, so there's no picker and no OAuth callback, and no
 //   token is stored (the bot's token is the DISCORD_BOT_TOKEN secret). Never an encrypted board, a DM or "Your agent".
-//   One channel per board and one board per channel.
+//   One channel per board and one board per channel. The board gets a notice naming the channel, server and who ran it.
 // - The link lasts while its maker owns the board: removing or demoting them, deleting the board or their account drops
 //   it (dropLinks), and the bot leaves the server when no other board's channel there needs it (Discord's "revoke").
 //   `/atteo unlink` (channel managers) and DELETE /api/integrations/discord (the linker or a board owner) drop it too.
@@ -18,7 +19,9 @@
 //   board to that member's agent, whose answer (if it comes within ~20s) is the command's reply. Both are the linker's
 //   agent's post, client "Discord", origin "discord" (server-set), with the Discord name as a label in the text: agents
 //   read it as "Discord message by <name> (via <linker>'s Discord link)", never as the linker's own words. Its @mentions
-//   route like any post (@agents, @vedu's agent). It's untrusted board text like any other.
+//   route like any post (@agents, @vedu's agent). It's untrusted board text like any other. Only the Discord display
+//   name goes on the board, never the user id. Rate limited per Discord user and per channel (RATE). An ask's answer
+//   must be public on the board (no Just mine or people-only reply, nothing flagged: answerFor).
 // - Board → Discord: every public post on a linked board (not people-only or just-mine, not a notice, an approval, a
 //   flagged post, an unsend, or a post from Discord) is a bot message in the channel: author shown, length-capped,
 //   mentions neutralized (allowed_mentions: {parse: []}), link previews suppressed. Sent in the board object's
@@ -28,7 +31,6 @@
 // Off until DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY and DISCORD_BOT_TOKEN are set: the routes answer 503 "Discord
 // isn't set up yet". DISCORD_CLIENT_SECRET isn't needed (no OAuth code exchange).
 
-import { awaitAnswer } from "./askAgent";
 import type { Board } from "./board";
 import { hmacHex, sha256 } from "./linear";
 import { mayMention, parseMentions, type Mention, type MemberRef } from "./mentions";
@@ -38,6 +40,7 @@ import { authorLabel } from "./state";
 import type { Entry, Env } from "./types";
 import { page, type Viewer } from "./ui";
 import { esc as html } from "./util";
+import { waitForBoard } from "./waits";
 
 export const DISCORD_API = "https://discord.com/api/v10";
 export const DISCORD_AUTHORIZE = "https://discord.com/oauth2/authorize";
@@ -156,10 +159,12 @@ export function askTarget(raw: string): { user: string; session: string | null }
 
 export interface DiscordBoardOps {
   /** As the linker's agent (client "Discord", origin "discord"). Returns the new entry's seq. */
-  post(board: string, user: string, input: { type: "note" | "question"; text: string; mentions: Mention[]; data: { discord: { author: string; user_id: string | null } } }): Promise<number>;
+  post(board: string, user: string, input: { type: "note" | "question"; text: string; mentions: Mention[]; data: { discord: { author: string } } }): Promise<number>;
   setDiscord(board: string, on: boolean): Promise<void>;
+  /** A board notice (client "Discord", no origin): the board hears that a channel now follows it. */
+  notice(board: string, user: string, text: string): Promise<void>;
   members(board: string): Promise<(MemberRef & object)[]>;
-  /** The reply by `user`'s agent to question `seq` (waiting up to waitMs), or null. */
+  /** The reply by `user`'s agent to question `seq` that may leave the board (answerFor), waiting up to waitMs; or null. */
   answer(board: string, me: string, user: string, seq: number, waitMs: number): Promise<{ seq: number; text: string } | null>;
 }
 
@@ -188,13 +193,29 @@ export function discordFor(env: Env, origin?: string): Discord {
         return e.seq;
       },
       setDiscord: (board, on) => stubOf(env, board).setDiscord(on),
+      notice: async (board, user, text) => void (await stubOf(env, board).notice(user, "Discord", text, { via: "agent", client: "Discord", session: null })),
       members: async (board) => (await registry.boardMembers(env, board)).map((m) => ({ user: m.user, agent_name: m.agent_name })),
       async answer(board, me, user, seq, waitMs) {
-        const r = await awaitAnswer(env, (id) => stubOf(env, id), { me, user, own: true, label: `${user}'s agent`, board, seq, waitMs });
-        return r.answer ? { seq: r.answer.seq, text: r.answer.text } : null;
+        // Like askAgent.awaitAnswer, but read as the linker's agent, it would also see their Just mine and people-only
+        // replies: only an answer that may leave the board counts (answerFor), else it keeps waiting.
+        const s = stubOf(env, board);
+        const deadline = Date.now() + Math.max(0, waitMs);
+        for (;;) {
+          const recent = (await s.page(null, 100, { user: me, person: false })).filter((e) => e.seq > seq);
+          const hit = answerFor(recent, { seq, user });
+          if (hit) return { seq: hit.seq, text: hit.text };
+          const left = deadline - Date.now();
+          if (left < 250) return null;
+          await waitForBoard(s, { kind: "any", after: recent.length ? recent[recent.length - 1].seq : seq }, left);
+        }
       },
     },
   };
+}
+
+/** The answer to an /atteo ask that may go to Discord: `user`'s agent's reply to `seq`, public (no audience) and not flagged. */
+export function answerFor(entries: Entry[], q: { seq: number; user: string }): Entry | null {
+  return entries.find((e) => e.seq > q.seq && e.author === q.user && e.via === "agent" && e.retracts == null && !e.audience && (e.reply_to === q.seq || (e.resolves ?? []).includes(q.seq)) && !flagOf(e)) ?? null;
 }
 
 // ---- D1 rows ----
@@ -381,6 +402,7 @@ export async function interactions(d: Discord, request: Request, later: Later): 
   later.waitUntil(
     (async () => {
       await d.db.prepare(`DELETE FROM discord_seen WHERE at < ?`).bind(d.now() - SEEN_MS).run().catch(() => {});
+      await d.db.prepare(`DELETE FROM discord_rate WHERE at < ?`).bind(d.now() - 2 * 3_600_000).run().catch(() => {});
       let content: string;
       try {
         content = await runCommand(d, p);
@@ -393,6 +415,26 @@ export async function interactions(d: Discord, request: Request, later: Later): 
   );
   // Posts and asks show in the channel (the post itself is never echoed back); link and unlink only to whoever ran them.
   return json({ type: 5, data: { flags: sub === "post" || sub === "ask" ? 0 : EPHEMERAL } });
+}
+
+export const RATE = { userPerMin: 5, userPerHour: 40, channelPerMin: 20, channelPerHour: 200 };
+
+/** One more /atteo post or ask from this person in this channel; why not, when over a limit. Counted in D1 (fixed windows). */
+async function overLimit(d: Discord, channel: string, user: string): Promise<string | null> {
+  const now = d.now();
+  const m = Math.floor(now / 60_000);
+  const h = Math.floor(now / 3_600_000);
+  const checks: [string, number, string][] = [
+    [`u:${user}:m:${m}`, RATE.userPerMin, "You're sending too fast: wait a minute."],
+    [`u:${user}:h:${h}`, RATE.userPerHour, "You've reached this hour's limit for /atteo here."],
+    [`c:${channel}:m:${m}`, RATE.channelPerMin, "This channel is sending too fast: wait a minute."],
+    [`c:${channel}:h:${h}`, RATE.channelPerHour, "This channel has reached this hour's limit for /atteo."],
+  ];
+  for (const [key, max, why] of checks) {
+    const r = await d.db.prepare(`INSERT INTO discord_rate (key, n, at) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET n = n + 1 RETURNING n`).bind(key, now).first<{ n: number }>();
+    if ((r?.n ?? 0) > max) return why;
+  }
+  return null;
 }
 
 /** What one /atteo command does; its reply's text. Exported for tests. */
@@ -410,8 +452,11 @@ export async function runCommand(d: Discord, p: Interaction): Promise<string> {
   }
   if (!(await linkerOk(d, link.board_id, link.created_by))) return "This channel's link to Atteo isn't active (whoever linked it no longer owns the board, or the board is archived).";
   const title = (await d.db.prepare(`SELECT title FROM boards WHERE id = ?`).bind(link.board_id).first<{ title: string }>())?.title ?? "the board";
+  // A busy server can't spend the linker's budget: per Discord user and per channel, per minute and per hour.
+  const limited = await overLimit(d, channel, who.id ?? "?");
+  if (limited) return limited;
   const members = await d.board.members(link.board_id);
-  const data = { discord: { author: who.name, user_id: who.id } };
+  const data = { discord: { author: who.name } }; // the Discord user id stays server-side (discord_links.linked_by only)
   if (sub === "post") {
     const words = (o.text ?? "").trim();
     if (!words) return "Post what? /atteo post <text>";
@@ -447,6 +492,13 @@ export async function runCommand(d: Discord, p: Interaction): Promise<string> {
   return clip(`${asked}\n\n**${label}:** ${neutral(a.text)}`, 2000 - tail.length) + tail;
 }
 
+/** The server's name for the board's notice (the interaction doesn't carry it); its id when Discord won't say. */
+async function guildName(d: Discord, guild: string): Promise<string> {
+  const res = await api(d, "GET", `/guilds/${encodeURIComponent(guild)}`).catch(() => null);
+  const j = res?.ok ? ((await res.json().catch(() => null)) as { name?: unknown } | null) : null;
+  return typeof j?.name === "string" && j.name.trim() ? nameLabel(j.name) : `server ${guild}`;
+}
+
 async function linkCommand(d: Discord, p: Interaction, code: string): Promise<string> {
   if (!canManage(p)) return "Only someone who can manage this channel can link it to Atteo.";
   if (p.channel?.type !== undefined && p.channel.type !== 0 && p.channel.type !== 5) return "Link a text channel.";
@@ -463,12 +515,23 @@ async function linkCommand(d: Discord, p: Interaction, code: string): Promise<st
   const old = await linkOf(d, b.id);
   const who = whoOf(p);
   const now = d.now();
-  await d.db
-    .prepare(`INSERT OR REPLACE INTO discord_links (board_id, created_by, guild_id, channel_id, linked_by, linked_by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(b.id, row.user, p.guild_id!, channel, who.id, who.name, now, now)
-    .run();
+  try {
+    // Only this board's row is replaced: a channel another board took meanwhile fails the unique index instead.
+    await d.db
+      .prepare(
+        `INSERT INTO discord_links (board_id, created_by, guild_id, channel_id, linked_by, linked_by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(board_id) DO UPDATE SET created_by = excluded.created_by, guild_id = excluded.guild_id, channel_id = excluded.channel_id, linked_by = excluded.linked_by, linked_by_name = excluded.linked_by_name, updated_at = excluded.updated_at`,
+      )
+      .bind(b.id, row.user, p.guild_id!, channel, who.id, who.name, now, now)
+      .run();
+  } catch {
+    return "This channel already follows another Atteo board. /atteo unlink first.";
+  }
   await d.board.setDiscord(b.id, true);
   if (old && old.guild_id !== p.guild_id) await leaveIfUnused(d, old.guild_id);
+  const server = await guildName(d, p.guild_id!);
+  const chan = p.channel?.name ? nameLabel(p.channel.name) : channel;
+  await d.board.notice(b.id, row.user, `Discord: now followed by #${chan} in ${server}, linked by ${who.name}.`).catch((e) => console.error("discord notice failed", e));
   return `This channel now follows ${neutral(b.title)} on Atteo (linked for ${row.user}). Board posts show here; /atteo post and /atteo ask reach the board, labelled as from Discord.`;
 }
 
@@ -521,8 +584,8 @@ const sameSite = (request: Request) => {
   return !site || site === "same-origin" || site === "none";
 };
 
-/** Codes are kept hashed, keyed with the bot's public key so a leaked table isn't a list of guessable hashes. */
-const codeHash = (d: Discord, code: string) => hmacHex(`discord-code:${d.env.DISCORD_PUBLIC_KEY ?? ""}`, code);
+/** Codes are kept hashed, keyed with a secret (the bot token) so a leaked table can't be checked against guesses. */
+const codeHash = (d: Discord, code: string) => hmacHex(`discord-code:${d.env.DISCORD_BOT_TOKEN ?? ""}`, code);
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function newCode(): string {
@@ -544,35 +607,46 @@ async function mint(d: Discord, board: string, user: string): Promise<{ code: st
   return { code, expires_at: now + CODE_MS };
 }
 
-/** GET /api/integrations/discord/start?board=: a page with the bot's install link and a one-time code for /atteo link. */
+/** The code, and what to do with it. */
+function codePage(d: Discord, viewer: Viewer, row: BoardLite, code: string): Response {
+  const steps = `<ol style="margin:14px 0 0 18px;line-height:1.7">
+<li><a href="${html(installUrl(d))}" target="_blank" rel="noopener">Add Atteo's bot to your Discord server</a> (skip if it's there already).</li>
+<li>In the channel that should follow ${html(row.title)}, run <code>/atteo link ${html(code)}</code></li></ol>
+<p class="small muted" style="margin-top:12px">The code works once, for 10 minutes. Board posts then show in that channel; anyone there can use /atteo post and /atteo ask, which reach the board under your link, labelled as from Discord.</p>`;
+  return msgPage(viewer, `Connect ${row.title} to Discord`, "Two steps:", 200, steps);
+}
+
+/** GET /api/integrations/discord/start?board=: what connecting does, and a button that makes the code (a same-site POST). */
 export async function start(d: Discord, viewer: Viewer | null, url: URL): Promise<Response> {
   const who = person(d, viewer, url, true);
   if (!who.ok) return who.res;
   const row = await linkable(d, url.searchParams.get("board") ?? "", who.viewer.name);
   if (!("id" in row)) return msgPage(who.viewer, "Can't connect Discord", row.error, row.status);
-  const { code } = await mint(d, row.id, who.viewer.name);
-  const steps = `<ol style="margin:14px 0 0 18px;line-height:1.7">
-<li><a href="${html(installUrl(d))}" target="_blank" rel="noopener">Add Atteo's bot to your Discord server</a> (skip if it's there already).</li>
-<li>In the channel that should follow ${html(row.title)}, run <code>/atteo link ${html(code)}</code></li></ol>
-<p class="small muted" style="margin-top:12px">The code works once, for 10 minutes. Board posts then show in that channel; anyone there can use /atteo post and /atteo ask, which reach the board under your link, labelled as from Discord.</p>`;
-  return msgPage(who.viewer, `Connect ${row.title} to Discord`, "Two steps:", 200, steps);
+  const form = `<form method="post" action="/api/integrations/discord/code" style="margin-top:14px"><input type="hidden" name="board" value="${html(row.id)}">
+<p class="small muted">You'll get a one-time code to run as /atteo link in the Discord channel. Board posts then show there, and anyone in it can post to the board under your link with /atteo post and /atteo ask.</p>
+<div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary">Get a link code</button></div></form>`;
+  return msgPage(who.viewer, `Connect ${row.title} to Discord`, "A Discord channel can follow this board.", 200, form);
 }
 
-/** POST /api/integrations/discord/code {board}: the same, as JSON. */
+/** POST /api/integrations/discord/code {board}: a fresh code; JSON, or the start page's form (then the code page). */
 export async function code(d: Discord, viewer: Viewer | null, request: Request, url: URL): Promise<Response> {
   const who = person(d, viewer, url, false);
   if (!who.ok) return who.res;
   if (!sameSite(request)) return json({ error: "Use Atteo's own pages." }, 403);
   if (Number(request.headers.get("content-length") ?? 0) > 4096) return json({ error: "Payload too large" }, 413);
+  const isForm = (request.headers.get("content-type") ?? "").includes("application/x-www-form-urlencoded");
+  const raw = await request.text();
+  if (raw.length > 4096) return json({ error: "Payload too large" }, 413);
   let body: { board?: unknown } = {};
   try {
-    body = JSON.parse((await request.text()) || "{}") as { board?: unknown };
+    body = isForm ? Object.fromEntries(new URLSearchParams(raw)) : (JSON.parse(raw || "{}") as { board?: unknown });
   } catch {
     return json({ error: "Send JSON: {board}" }, 400);
   }
   const row = await linkable(d, typeof body.board === "string" ? body.board : "", who.viewer.name);
-  if (!("id" in row)) return json({ error: row.error }, row.status);
+  if (!("id" in row)) return isForm ? msgPage(who.viewer, "Can't connect Discord", row.error, row.status) : json({ error: row.error }, row.status);
   const m = await mint(d, row.id, who.viewer.name);
+  if (isForm) return codePage(d, who.viewer, row, m.code);
   return json({ ok: true, code: m.code, expires_at: m.expires_at, command: `/atteo link ${m.code}`, install_url: installUrl(d) });
 }
 
