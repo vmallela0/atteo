@@ -45,7 +45,7 @@ function withPush(r: InboxRow): InboxItem {
     const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number; entry?: number; join?: string; url?: string };
     // A report's row has a key of its own (src/moderation.ts); the entry it's about is data.entry, which links use as seq.
     const at = item.kind === "report" && Number.isSafeInteger(d.entry) ? { seq: d.entry! } : {};
-    const url = typeof d.url === "string" && /^\/[a-z0-9/_#?=&.-]*$/i.test(d.url) ? d.url : undefined;
+    const url = typeof d.url === "string" && /^\/(?!\/)[a-z0-9/_#?=&.-]*$/i.test(d.url) ? d.url : undefined;
     const out: InboxItem = { ...item, ...at, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}), ...(item.kind === "repo_join" && d.join ? { join_id: d.join } : {}), ...(url ? { url } : {}) };
     return d.push ? { ...out, approval_id: d.push.approval, push: d.push } : out;
   } catch {
