@@ -219,7 +219,7 @@ describe("/a", () => {
     expect(res.headers.get("retry-after")).toBeTruthy();
   });
 
-  it("rate-limits /a/continue by IP and pending-cookie hash with slow_down and Retry-After", async () => {
+  it("rate-limits /a/continue by IP and pending-cookie hash with Retry-After, keeping the Continue button (alt-lead #6371)", async () => {
     const f = fixture(); addUser(f.db, "maya");
     const begun = await routeAgentWeb(new Request("https://atteo.test/a/start", { method: "POST", headers: { origin: "https://atteo.test", "cf-connecting-ip": "192.0.2.44" } }), f.env, f.deps);
     const pending = cookiePair(begun);
@@ -228,7 +228,9 @@ describe("/a", () => {
     const fast = await routeAgentWeb(formRequest("/a/continue", {}, pending), f.env, f.deps);
     expect(fast.status).toBe(429);
     expect(fast.headers.get("retry-after")).toBe("3");
-    expect(await fast.text()).toBe("slow_down");
+    const body = await fast.text();
+    expect(body).toContain("Still waiting");
+    expect(body).toContain('action="/a/continue"');
     expect(indexSource).toContain(`return json({ status: "slow_down" }, 429`);
   });
 

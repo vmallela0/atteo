@@ -160,15 +160,20 @@ async function start(request: Request, env: Env, deps: AgentWebDeps): Promise<Re
   return response(await page("Send the sign-in link", `<h1>Send the sign-in link</h1><p>Send your person this link: <a href="${esc(made.verification_uri_complete)}">${esc(made.verification_uri_complete)}</a>. When they approve, press Continue.</p><p>Expires at ${esc(date(Date.now() + made.expires_in * 1000))} (in 10 minutes).</p><form method="post" action="/a/continue"><button type="submit">Continue</button></form>`).text(), 200, { "set-cookie": pendingCookie(made.device_code, made.expires_in) });
 }
 
+function waitingPage(hint: string): Response {
+  return page("Still waiting", `<h1>Still waiting for your person</h1><p>${esc(hint)}</p><form method="post" action="/a/continue"><button type="submit">Continue</button></form>`);
+}
+
 async function continueSetup(request: Request, env: Env): Promise<Response> {
   if (!sameOrigin(request)) return errorPage("Request refused", "Continue from this Atteo page.", 403);
   const deviceCode = readCookie(request, AGENT_PENDING_COOKIE);
   if (!deviceCode) return startPage("That sign-in request expired. Start again.");
   const admitted = await device.admitDevicePoll(env, request, deviceCode);
-  if (!admitted.ok) return response("slow_down", 429, { "retry-after": String(admitted.retryAfter) });
+  // A throttled press keeps the Continue button: a no-store POST result can't be gone back from (alt-lead #6371).
+  if (!admitted.ok) return response(await waitingPage(`Wait ${admitted.retryAfter} seconds, then press Continue again.`).text(), 429, { "retry-after": String(admitted.retryAfter) });
   const result = await redeemAgentDevice(env, deviceCode, Date.now(), admitted.hash);
   if (result.status === "ok") return redirect("/a", { "set-cookie": cookie(result.session, Math.floor(AGENT_SESSION_TTL_MS / 1000)) });
-  if (result.status === "pending") return page("Still waiting", `<h1>Still waiting for your person</h1><p>Ask them to open the link and approve. Then press Continue again.</p><form method="post" action="/a/continue"><button type="submit">Continue</button></form>`);
+  if (result.status === "pending") return waitingPage("Ask them to open the link and approve. Then press Continue again.");
   return startPage(result.status === "denied" ? "Your person denied this request. Start again if that was a mistake." : result.status === "used" ? "That request was already redeemed. Start again." : "That request expired. Start again.");
 }
 
