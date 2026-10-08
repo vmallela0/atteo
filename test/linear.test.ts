@@ -47,7 +47,7 @@ const agent = (name: string): Viewer => ({ ...person(name), via: "agent" });
 
 type Call = { url: string; query?: string; variables?: Record<string, any>; form?: Record<string, string>; auth?: string | null };
 
-function setup(env: L.LinearEnv = ENV, labels: { id: string; name: string }[] = [{ id: "lb_blocked", name: "Blocked" }]) {
+function setup(env: L.LinearEnv = ENV, labels: { id: string; name: string }[] = [{ id: "lb_blocked", name: "Blocked" }], meFails = false) {
   const { d1, db } = fakeD1();
   let t = T0;
   const calls: Call[] = [];
@@ -68,8 +68,9 @@ function setup(env: L.LinearEnv = ENV, labels: { id: string; name: string }[] = 
     }
     const { query, variables } = JSON.parse(String(init?.body)) as { query: string; variables: Record<string, any> };
     calls.push({ url, query, variables, auth });
+    if (query === L.Q_ME) return meFails ? ans({ errors: [{ message: "viewer unavailable" }] }) : ans({ data: { viewer: { id: "lu_app", name: "Atteo" } } });
     if (query === L.Q_VIEWER)
-      return ans({ data: { viewer: { id: "lu_app", name: "Atteo" }, organization: { id: "org_1", name: "Acme" }, teams: { nodes: [{ id: "tm_eng", key: "ENG", name: "Engineering" }] }, projects: { nodes: [{ id: "pj_1", name: "Launch", teams: { nodes: [{ id: "tm_eng" }] } }] } } });
+      return ans({ data: { organization: { id: "org_1", name: "Acme" }, teams: { nodes: [{ id: "tm_eng", key: "ENG", name: "Engineering" }] }, projects: { nodes: [{ id: "pj_1", name: "Launch", teams: { nodes: [{ id: "tm_eng" }] } }] } } });
     if (query === L.Q_TEAM) return ans({ data: { team: variables.id === "tm_eng" ? { id: "tm_eng", key: "ENG", name: "Engineering", states: { nodes: STATES }, labels: { nodes: labels } } : null } });
     if (query === L.Q_PROJECT) return ans({ data: { project: variables.id === "pj_1" ? { id: "pj_1", name: "Launch", teams: { nodes: [{ id: "tm_eng" }] } } : null } });
     if (query === L.M_CREATE) {
@@ -224,6 +225,12 @@ describe("Linear: OAuth", () => {
     expect(s.calls.filter((c) => c.query === L.Q_TEAM).every((c) => c.auth === "Bearer lin_oauth_ACCESS")).toBe(true);
   });
 
+  it("linking doesn't depend on Linear saying who the token acts as", async () => {
+    const s = setup(ENV, undefined, true);
+    await link(s);
+    expect(s.db.prepare("SELECT linear_user, team_id FROM linear_links WHERE board_id = ?").get(BOARD)).toEqual({ linear_user: null, team_id: "tm_eng" });
+  });
+
   it("the picker's form post redirects back to the board", async () => {
     const s = setup();
     await link(s);
@@ -316,8 +323,10 @@ describe("Linear: tasks → issues", () => {
     await L.syncTask(s.l, BOARD, task(7, "blocked"));
     expect(s.calls.map((c) => c.query)).toEqual([L.M_COMMENT]);
     expect(s.calls[0].variables!.input).toEqual({ issueId: "iss_1", body: `Blocked on Atteo: ${ORIGIN}/b/${BOARD}#e7` });
-    // Linear's webhook for that comment, from a user id that isn't the token's: still recognized by its id.
-    await signed(s, { type: "Comment", action: "create", data: { id: "cm_atteo", issueId: "iss_1", body: "Blocked on Atteo", userId: "lu_someone" } });
+    // Linear's webhook for that comment, from a user id that isn't the token's: still recognized by its id, or by its
+    // words when the webhook beats the seen row.
+    await signed(s, { type: "Comment", action: "create", data: { id: "cm_atteo", issueId: "iss_1", body: "Blocked", userId: "lu_someone" } });
+    await signed(s, { type: "Comment", action: "create", data: { id: "cm_other", issueId: "iss_1", body: `Blocked on Atteo: ${ORIGIN}/b/${BOARD}#e7`, userId: "lu_someone" } });
     expect(s.notes).toEqual([]);
   });
 

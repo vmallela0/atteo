@@ -174,7 +174,9 @@ export function commentNote(author: string, identifier: string | null, body: str
 
 // ---- GraphQL documents (tests check calls against these) ----
 
-export const Q_VIEWER = `query AtteoLink { viewer { id name } organization { id name urlKey } teams(first: 100) { nodes { id key name } } projects(first: 100) { nodes { id name teams { nodes { id } } } } }`;
+export const Q_VIEWER = `query AtteoLink { organization { id name urlKey } teams(first: 100) { nodes { id key name } } projects(first: 100) { nodes { id name teams { nodes { id } } } } }`;
+/** Who the token acts as (the app, with actor=app): only to skip its own comments, so it's asked on its own and may fail. */
+export const Q_ME = `query AtteoMe { viewer { id name } }`;
 export const Q_TEAM = `query AtteoTeam($id: String!) { team(id: $id) { id key name states { nodes { id name type position } } labels(first: 250) { nodes { id name } } } }`;
 export const Q_PROJECT = `query AtteoProject($id: String!) { project(id: $id) { id name teams { nodes { id } } } }`;
 export const M_CREATE = `mutation AtteoIssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier url } } }`;
@@ -387,9 +389,11 @@ export async function syncTask(l: Linear, board: string, t: TaskView): Promise<"
   return "updated";
 }
 
+const BLOCKED_PREFIX = "Blocked on Atteo: ";
+
 /** No "blocked" label in the team: say so once in a comment, remembered so the webhook doesn't bring it back. */
 async function blockedComment(l: Linear, token: string, issueId: string, board: string, seq: number) {
-  const r = await gql<{ commentCreate: { comment: { id: string } | null } }>(l, token, M_COMMENT, { input: { issueId, body: `Blocked on Atteo: ${l.origin}/b/${board}#e${seq}` } });
+  const r = await gql<{ commentCreate: { comment: { id: string } | null } }>(l, token, M_COMMENT, { input: { issueId, body: `${BLOCKED_PREFIX}${l.origin}/b/${board}#e${seq}` } });
   const id = r.commentCreate?.comment?.id;
   if (id) await firstSeen(l, `c:${id}`);
 }
@@ -454,6 +458,7 @@ export async function applyEvent(l: Linear, p: LinearEvent): Promise<string> {
     if (author && author === m.linear_user) return "ignored: Atteo's own comment";
     if (typeof d.id === "string" && (await l.db.prepare(`SELECT 1 AS x FROM linear_seen WHERE key = ?`).bind(`c:${d.id}`).first())) return "ignored: Atteo's own comment";
     const body = String(d.body ?? "").trim();
+    if (body.startsWith(BLOCKED_PREFIX)) return "ignored: Atteo's own comment"; // its webhook can beat the seen row
     if (!body) return "ignored: empty";
     if (!(await canAct(l, m.board_id, m.created_by))) return "ignored: the linker can't post there";
     const text = commentNote(d.user?.name ?? p.actor?.name ?? "Someone", m.identifier, body);
@@ -544,7 +549,7 @@ export async function start(l: Linear, viewer: Viewer | null, url: URL): Promise
 }
 
 interface ViewerAnswer {
-  viewer: { id: string; name: string };
+  viewer?: { id: string; name: string } | null;
   organization: { id: string; name: string; urlKey?: string };
   teams: { nodes: { id: string; key: string; name: string }[] };
   projects: { nodes: { id: string; name: string; teams?: { nodes: { id: string }[] } }[] };
@@ -565,6 +570,7 @@ export async function callback(l: Linear, viewer: Viewer | null, url: URL): Prom
     const t = await tokenRequest(l, { grant_type: "authorization_code", code: url.searchParams.get("code") ?? "", redirect_uri: l.origin + CALLBACK_PATH });
     s = await sealed(l, t);
     info = await gql<ViewerAnswer>(l, t.access_token, Q_VIEWER);
+    info.viewer = (await gql<{ viewer: ViewerAnswer["viewer"] }>(l, t.access_token, Q_ME).catch(() => null))?.viewer ?? null;
   } catch (e) {
     return msgPage(who.viewer, "Linear wasn't connected", e instanceof Error ? e.message : String(e), 502);
   }
