@@ -16,7 +16,7 @@
 // - Teams → board: POST /api/integrations/teams/messages, the bot's messaging endpoint. Every request is checked: at most
 //   128 KB (refused before reading), a Bot Framework JWT (RS256 against the OpenID metadata's keys, cached; issuer
 //   https://api.botframework.com, audience TEAMS_APP_ID, exp/nbf with 5 minutes' skew, a key endorsed for "msteams"
-//   when it lists endorsements), its serviceurl claim equal to the activity's serviceUrl, that serviceUrl on the
+//   (a key without endorsements is refused)), its serviceurl claim equal to the activity's serviceUrl, that serviceUrl on the
 //   allowlist (serviceUrlOk), the tenant when TEAMS_TENANT_ID is set, and each activity once. Answered 200 at once; the
 //   work runs in waitUntil and replies in the message's thread. "post <text>" is a note on the board; "ask <agent>
 //   <question>" a question to that member's agent, whose public answer (if it comes within ~20s) is the reply. Both are
@@ -209,10 +209,12 @@ async function fetchKeys(t: Teams): Promise<void> {
   caches.keysAt = t.now();
 }
 
-/** The signing key for `kid`: cached for a day; an unknown id refetches (key rotation), at most every 5 minutes. */
+/** The signing key for `kid`: cached for a day; an unknown id refetches (key rotation). Any fetch, including after one
+ *  failed and left no keys, happens at most every 5 minutes, so unsigned callers can't make each request fetch. */
 async function keyFor(t: Teams, kid: string): Promise<Key | null> {
   const fresh = caches.keys && t.now() - caches.keysAt < KEYS_TTL_MS;
-  if (!fresh || (!caches.keys!.has(kid) && t.now() - caches.fetchedAt >= KEYS_REFETCH_MS)) {
+  const due = caches.fetchedAt === 0 || t.now() - caches.fetchedAt >= KEYS_REFETCH_MS;
+  if (due && (!fresh || !caches.keys!.has(kid))) {
     await fetchKeys(t).catch((e) => console.error("teams keys fetch failed", String((e as Error)?.message ?? e).slice(0, 120)));
   }
   return caches.keys?.get(kid) ?? null;
@@ -233,8 +235,8 @@ export async function verifyToken(t: Teams, header: string | null): Promise<Veri
   if (head.alg !== "RS256" || typeof head.kid !== "string" || !head.kid) return no("bad token");
   const key = await keyFor(t, head.kid);
   if (!key) return no("unknown key");
-  // A key that lists endorsements must be endorsed for Teams.
-  if (key.endorsements && !key.endorsements.includes(CHANNEL_ID)) return no("key not endorsed for Teams");
+  // The key must be endorsed for Teams; one with no endorsements list is refused too.
+  if (!key.endorsements?.includes(CHANNEL_ID)) return no("key not endorsed for Teams");
   let good = false;
   try {
     good = await crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, key.key, sig, enc.encode(`${m[1]}.${m[2]}`));

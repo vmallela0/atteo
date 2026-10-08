@@ -44,7 +44,7 @@ const BOT = "28:APP1";
 const JWKS_URL = "https://login.botframework.com/v1/.well-known/keys";
 const ENV: T.TeamsEnv = { TEAMS_APP_ID: "APP1", TEAMS_APP_PASSWORD: "client-secret-xyz", PUBLIC_URL: ORIGIN };
 
-// Microsoft's signing keys, stand-ins: k1 endorsed for msteams, k2 only for another channel, k3 with no endorsements.
+// Microsoft's signing keys, stand-ins: k1 endorsed for msteams, k2 only for another channel, k3 with no endorsements (refused).
 const rsa = () => crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]) as Promise<CryptoKeyPair>;
 const [k1, k2, k3, rogue] = await Promise.all([rsa(), rsa(), rsa(), rsa()]);
 const jwk = async (k: CryptoKeyPair, kid: string, endorsements?: string[]) => {
@@ -69,7 +69,7 @@ const agent = (name: string): Viewer => ({ ...person(name), via: "agent" });
 type Call = { method: string; url: string; body: any; auth: string | null };
 type Posted = { board: string; user: string; type: string; text: string; mentions: Mention[]; data: unknown };
 
-function setup(env: T.TeamsEnv = ENV, opts: { answer?: { seq: number; text: string } | null; roles?: Record<string, string> } = {}) {
+function setup(env: T.TeamsEnv = ENV, opts: { answer?: { seq: number; text: string } | null; roles?: Record<string, string>; keysDown?: { on: boolean } } = {}) {
   const { d1, db } = fakeD1();
   let t = T0;
   const calls: Call[] = [];
@@ -84,6 +84,7 @@ function setup(env: T.TeamsEnv = ENV, opts: { answer?: { seq: number; text: stri
       // a form body stays a string
     }
     calls.push({ method: init?.method ?? "GET", url, body, auth: new Headers(init?.headers).get("authorization") });
+    if (url === T.OPENID_URL && opts.keysDown?.on) return new Response("down", { status: 503 });
     if (url === T.OPENID_URL) return new Response(JSON.stringify({ issuer: T.BF_ISSUER, jwks_uri: JWKS_URL, id_token_signing_alg_values_supported: ["RS256"] }));
     if (url === JWKS_URL) return new Response(JSON.stringify(JWKS));
     if (url.startsWith("https://login.microsoftonline.com/")) return new Response(JSON.stringify({ token_type: "Bearer", access_token: "bot-token-abc", expires_in: 3600 }));
@@ -227,11 +228,12 @@ describe("Teams: the messaging endpoint checks the Bot Framework token", () => {
     expect(s.posts).toEqual([]);
   });
 
-  it("a key whose endorsements leave out msteams is refused; a key without endorsements is fine", async () => {
+  it("a key whose endorsements leave out msteams, or that lists no endorsements, is refused", async () => {
     const s = setup();
     expect((await send(s, activity("hi", { mention: false }), { kid: "k2", key: k2.privateKey })).res.status).toBe(401);
     expect(await (await T.messages(s.d, await request(s, activity("hi", { mention: false }), { kid: "k2", key: k2.privateKey }), s.ctx)).json()).toEqual({ error: "key not endorsed for Teams" });
-    expect((await send(s, activity("hi", { mention: false }), { kid: "k3", key: k3.privateKey })).res.status).toBe(200);
+    expect(await (await T.messages(s.d, await request(s, activity("hi", { mention: false }), { kid: "k3", key: k3.privateKey }), s.ctx)).json()).toEqual({ error: "key not endorsed for Teams" });
+    expect((await send(s, activity("hi", { mention: false }), { kid: "k1", key: k1.privateKey })).res.status).toBe(200);
   });
 
   it("the token's serviceurl must be the activity's, and on the allowlist; the tenant must match when one is set", async () => {
@@ -298,6 +300,26 @@ describe("Teams: the messaging endpoint checks the Bot Framework token", () => {
     s.tick(T.KEYS_TTL_MS);
     await send(s, activity("hi", { mention: false }));
     expect(metaFetches()).toBe(3);
+  });
+
+  it("after a failed fetch leaves no keys, requests don't refetch for 5 minutes (unsigned callers can't make each one fetch)", async () => {
+    const keysDown = { on: true };
+    const s = setup(ENV, { keysDown });
+    const metaFetches = () => s.calls.filter((c) => c.url === T.OPENID_URL).length;
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (let i = 0; i < 5; i++) expect((await send(s, activity("hi", { mention: false }))).res.status).toBe(401);
+      expect(metaFetches()).toBe(1);
+      keysDown.on = false;
+      s.tick(T.KEYS_REFETCH_MS - 1);
+      expect((await send(s, activity("hi", { mention: false }))).res.status).toBe(401);
+      expect(metaFetches()).toBe(1);
+      s.tick(1);
+      expect((await send(s, activity("hi", { mention: false }))).res.status).toBe(200);
+      expect(metaFetches()).toBe(2);
+    } finally {
+      err.mockRestore();
+    }
   });
 });
 
