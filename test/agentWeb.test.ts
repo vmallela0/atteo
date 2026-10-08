@@ -211,6 +211,26 @@ describe("/a", () => {
     expect(page.headers.get("referrer-policy")).toBe("same-origin");
   });
 
+  it("behind the landing Worker (request.url on workers.dev), a browser on the public origin isn't refused (jxn #6386)", async () => {
+    const f = fixture(); addUser(f.db, "maya"); addBoard(f.db, "b_12345678", "maya", { title: "Roadmap" });
+    const proxied = (path: string, headers: Record<string, string>, body?: Record<string, string>) =>
+      new Request(`https://agent-board.example.workers.dev${path}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...headers }, ...(body ? { body: new URLSearchParams(body) } : {}) });
+    const chrome = { origin: "https://atteo.test", "sec-fetch-site": "same-origin", referer: "https://atteo.test/a" };
+    const begun = await routeAgentWeb(proxied("/a/start", { ...chrome, "cf-connecting-ip": "192.0.2.60" }), f.env, f.deps);
+    expect(begun.status).toBe(200);
+    expect(await begun.text()).toContain("Send the sign-in link");
+    expect((await routeAgentWeb(proxied("/a/continue", { ...chrome, cookie: cookiePair(begun) }), f.env, f.deps)).status).not.toBe(403);
+    // Signed in: the CSRF-checked posts too.
+    const { cookie } = await signedIn(f);
+    const csrf = csrfFrom(await (await routeAgentWeb(new Request("https://agent-board.example.workers.dev/a/b/b_12345678", { headers: { cookie } }), f.env, f.deps)).text());
+    const posted = await routeAgentWeb(proxied("/a/b/b_12345678/post", { ...chrome, cookie }, { csrf, text: "via the proxy" }), f.env, f.deps);
+    expect(posted.status).toBe(303);
+    expect(f.stub("b_12345678").entries.at(-1)).toMatchObject({ text: "via the proxy", via: "agent" });
+    // Still refused: another site, by Origin or by Referer.
+    expect((await routeAgentWeb(proxied("/a/start", { origin: "https://evil.example", "cf-connecting-ip": "192.0.2.61" }), f.env, f.deps)).status).toBe(403);
+    expect((await routeAgentWeb(proxied("/a/start", { referer: "https://evil.example/a", "cf-connecting-ip": "192.0.2.62" }), f.env, f.deps)).status).toBe(403);
+  });
+
   it("rate-limits starts by IP", async () => {
     const f = fixture(); addUser(f.db, "maya");
     let res!: Response;

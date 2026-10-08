@@ -62,18 +62,20 @@ function pendingCookie(value: string, maxAge: number): string {
 export const AGENT_INSTRUCTION = "Connect to my atteo: open https://atteo.dev/a and send me the sign-in link it gives you.";
 const instruction = () => `<div class="copy"><pre id="agent-instruction">${esc(AGENT_INSTRUCTION)}</pre><button type="button" data-copy="agent-instruction">Copy</button></div>`;
 
-function sameOrigin(request: Request): boolean {
-  const expected = new URL(request.url).origin;
+/** `publicOrigin`: where people see these pages (https://atteo.dev). The landing Worker forwards /a to this Worker, whose
+ *  own URL is another host (workers.dev), so a browser on atteo.dev names atteo.dev, not request.url's origin (jxn #6386). */
+function sameOrigin(request: Request, publicOrigin: string): boolean {
+  const own = new Set([new URL(request.url).origin, publicOrigin]);
   // Browsers say where a request came from; anything but our own pages is refused. "Origin: null" (privacy modes,
   // some referrer policies) is accepted only when Sec-Fetch-Site vouches that it's same-origin.
   const site = request.headers.get("sec-fetch-site");
   if (site && site !== "same-origin") return false;
   const origin = request.headers.get("origin");
   if (origin === "null") return site === "same-origin";
-  if (origin && origin !== expected) return false;
+  if (origin && !own.has(origin)) return false;
   const referer = request.headers.get("referer");
   if (referer) {
-    try { if (new URL(referer).origin !== expected) return false; } catch { return false; }
+    try { if (!own.has(new URL(referer).origin)) return false; } catch { return false; }
   }
   return true;
 }
@@ -88,8 +90,8 @@ export interface AgentWebDeps {
   admit(identity: AgentWebIdentity, write: boolean): Promise<Response | null>;
 }
 
-async function requireCsrf(request: Request, identity: AgentWebIdentity, form: FormData): Promise<Response | null> {
-  if (!sameOrigin(request)) return errorPage("Request refused", "Submit forms from this Atteo page.", 403);
+async function requireCsrf(request: Request, origin: string, identity: AgentWebIdentity, form: FormData): Promise<Response | null> {
+  if (!sameOrigin(request, origin)) return errorPage("Request refused", "Submit forms from this Atteo page.", 403);
   const expected = await csrfFor(identity.session_secret);
   if (!constantTimeEqual(String(form.get("csrf") ?? ""), expected)) return errorPage("Request refused", "That form expired or did not come from this sign-in.", 403);
   return null;
@@ -152,7 +154,7 @@ async function boardPage(env: Env, deps: AgentWebDeps, identity: AgentWebIdentit
 }
 
 async function start(request: Request, env: Env, deps: AgentWebDeps): Promise<Response> {
-  if (!sameOrigin(request)) return errorPage("Request refused", "Start from this Atteo page.", 403);
+  if (!sameOrigin(request, deps.origin)) return errorPage("Request refused", "Start from this Atteo page.", 403);
   const ip = appSignin.clientIp(request);
   if (!(await appSignin.hit(env, `agent-start:ip:${ip}`, 10))) return response((await startPage("Too many sign-in links were started from this address. Try again later.").text()), 429, { "retry-after": "600" });
   const cf = (request as Request & { cf?: { city?: string; country?: string } }).cf;
@@ -164,8 +166,8 @@ function waitingPage(hint: string): Response {
   return page("Still waiting", `<h1>Still waiting for your person</h1><p>${esc(hint)}</p><form method="post" action="/a/continue"><button type="submit">Continue</button></form>`);
 }
 
-async function continueSetup(request: Request, env: Env): Promise<Response> {
-  if (!sameOrigin(request)) return errorPage("Request refused", "Continue from this Atteo page.", 403);
+async function continueSetup(request: Request, env: Env, origin: string): Promise<Response> {
+  if (!sameOrigin(request, origin)) return errorPage("Request refused", "Continue from this Atteo page.", 403);
   const deviceCode = readCookie(request, AGENT_PENDING_COOKIE);
   if (!deviceCode) return startPage("That sign-in request expired. Start again.");
   const admitted = await device.admitDevicePoll(env, request, deviceCode);
@@ -183,7 +185,7 @@ export async function routeAgentWeb(request: Request, env: Env, deps: AgentWebDe
   const method = request.method;
   if (path === "/a/copy.js" && method === "GET") return new Response(`document.addEventListener('click',e=>{const b=e.target.closest('[data-copy]');if(!b)return;const n=document.getElementById(b.dataset.copy);navigator.clipboard.writeText(n.textContent).then(()=>b.textContent='Copied')})`, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
   if (path === "/a/start" && method === "POST") return start(request, env, deps);
-  if (path === "/a/continue" && method === "POST") return continueSetup(request, env);
+  if (path === "/a/continue" && method === "POST") return continueSetup(request, env, deps.origin);
 
   const identity = await getAgentWebIdentity(request, env);
   if (!identity) return method === "GET" && path === "/a" ? startPage() : redirect("/a", { "set-cookie": cookie("", 0) });
@@ -202,7 +204,7 @@ export async function routeAgentWeb(request: Request, env: Env, deps: AgentWebDe
 
   if (method !== "POST") return errorPage("Not found", "That agent page does not exist.", 404);
   const form = await request.formData();
-  const csrfError = await requireCsrf(request, identity, form);
+  const csrfError = await requireCsrf(request, deps.origin, identity, form);
   if (csrfError) return csrfError;
 
   if (path === "/a/logout") {
