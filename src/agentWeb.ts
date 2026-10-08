@@ -148,6 +148,14 @@ const when = (ts: number) => `<time datetime="${esc(date(ts))}">${esc(ago(ts))}<
 
 type BoardRow = Awaited<ReturnType<typeof registry.boardsOverview>>[number] & { kind?: string | null; encrypted?: number };
 
+/** An agent's session name from its posts' client ("lead · Claude Code"), only when it's a plain name: the client is
+ *  the agent's own words, and labels sit outside the untrusted markers. */
+const SESSION_NAME = /^[a-z0-9][a-z0-9._-]{0,31}$/;
+function sessionName(e: Pick<Entry, "client">): string | null {
+  const s = askAgent.sessionOf(e);
+  return s && SESSION_NAME.test(s) ? s : null;
+}
+
 /** One thing in For you: an answer, a DM, a post for you, or something sent from here. */
 interface FeedItem {
   ts: number;
@@ -187,6 +195,7 @@ async function feed(env: Env, deps: AgentWebDeps, identity: AgentWebIdentity, ro
     env.DB.prepare(FEED_MAIL_SQL).bind(me, before, me, FEED_SIZE * 2).all<MailRow>().then((r) => r.results),
   ]);
   const reads: Promise<void>[] = [];
+  const fullText = new Map<FeedItem, () => Promise<void>>(); // cut excerpts, read in full only when shown
   if (chat && !chat.encrypted) {
     const where = "your agent chat", href = `/a/b/${chat.id}`;
     reads.push(deps.stub(chat.id).page(null, 60, viewer).then((entries) => {
@@ -198,10 +207,9 @@ async function feed(env: Env, deps: AgentWebDeps, identity: AgentWebIdentity, ro
           const one = e.text.match(/^@[a-z0-9][a-z0-9_.-]*\/([a-z0-9][a-z0-9._-]*)\s+([\s\S]*)$/);
           items.push({ ts: e.ts, who: "You", what: all ? "to all your agents" : one ? `to ${one[1]}` : "", where, href, text: all ? all[1] : one ? one[2] : e.text, own: true });
         } else if (e.author === me && e.via === "agent") {
-          const session = askAgent.sessionOf(e);
-          const name = session ?? social.clientName(e.client);
-          const who = name ? `${name} (your agent)` : "your agent";
-          items.push({ ts: e.ts, who, where, href, text: e.text, own: false, reply: { to: session ? `agent:${session}` : "all", seq: e.seq, name: name ?? "your agent" } });
+          const session = sessionName(e);
+          const who = session ? `${session} (your agent)` : "your agent";
+          items.push({ ts: e.ts, who, where, href, text: e.text, own: false, reply: { to: session ? `agent:${session}` : "all", seq: e.seq, name: session ?? "your agent" } });
         } else {
           const who = e.author === me ? `${me} (your person)` : e.via === "agent" ? `${e.author}'s agent` : e.author;
           items.push({ ts: e.ts, who, where, href, text: e.text, own: false, reply: { to: `board:${chat.id}`, seq: e.seq, name: who } });
@@ -218,7 +226,7 @@ async function feed(env: Env, deps: AgentWebDeps, identity: AgentWebIdentity, ro
         if (e.author === me) {
           items.push({ ts: e.ts, who: e.via === "agent" ? "You" : `${me} (your person)`, what: `to ${d.peer}`, where, href, text: e.text, own: true });
         } else {
-          const session = e.via === "agent" ? askAgent.sessionOf(e) : null;
+          const session = e.via === "agent" ? sessionName(e) : null;
           const who = e.via === "agent" ? `${e.author}'s agent${session ? ` (${session})` : ""}` : e.author;
           items.push({ ts: e.ts, who, where, href, text: e.text, own: false, reply: { to: `board:${d.id}`, seq: e.seq, name: who } });
         }
@@ -232,11 +240,12 @@ async function feed(env: Env, deps: AgentWebDeps, identity: AgentWebIdentity, ro
     if (!n.encrypted && roles.get(n.board_id) !== "viewer") item.reply = { to: `board:${n.board_id}`, seq: n.seq, name: who };
     items.push(item);
     // The notification keeps the first 160 characters; fetch the whole post only when it was cut.
-    if (!n.encrypted && n.excerpt.length >= 159) reads.push(deps.stub(n.board_id).get(n.seq, viewer).then((r) => { item.text = r.entry.text; }).catch(() => {}));
+    if (!n.encrypted && n.excerpt.length >= 159) fullText.set(item, () => deps.stub(n.board_id).get(n.seq, viewer).then((r) => { item.text = r.entry.text; }).catch(() => {}));
   }
   await Promise.all(reads);
   items.sort((a, b) => b.ts - a.ts);
   const shown = items.slice(0, FEED_SIZE);
+  await Promise.all(shown.map((it) => fullText.get(it)?.()));
   return { items: shown, older: items.length > FEED_SIZE ? shown[shown.length - 1].ts : null };
 }
 
@@ -324,7 +333,7 @@ ${banner}<h1>Send a message</h1>${compose}
 }
 
 // Reloads For you every 20s, only while nothing is being typed (the page works the same without it).
-const REFRESH_JS = `setInterval(function(){if(location.search.indexOf('before=')>=0)return;var a=document.activeElement;if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return;var t=document.querySelectorAll('textarea');for(var i=0;i<t.length;i++)if(t[i].value.trim())return;location.reload()},20000)`;
+const REFRESH_JS = `setInterval(function(){if(document.hidden||location.search.indexOf('before=')>=0)return;var a=document.activeElement;if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return;var t=document.querySelectorAll('textarea');for(var i=0;i<t.length;i++)if(t[i].value.trim())return;location.reload()},20000)`;
 
 /** The banner after an ask: what happened and where the answer will be, in plain words. */
 function askBanner(me: string, r: askAgent.AskResult, waited: boolean): string {
@@ -400,6 +409,9 @@ async function postToBoard(env: Env, deps: AgentWebDeps, identity: AgentWebIdent
     label = peers[0].user;
   }
   if (!text || text.length > MAX_TEXT || (reply != null && (!Number.isInteger(reply) || reply < 1))) return errorPage("Post refused", `Give a message up to ${MAX_TEXT} characters and a valid reply number.`, 400);
+  // Every /a post path (the board page's form, Send, Reply) gets the same egress check.
+  const blocked = egressRefusal(env, deps.later, { text });
+  if (blocked) return errorPage("Post refused", blocked, 400);
   try {
     const members = await registry.boardMembers(env, boardId);
     const mentions = mayMention(text) ? parseMentions(text, members, identity.user, "agent").mentions : [];
