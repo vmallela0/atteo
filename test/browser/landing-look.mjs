@@ -43,37 +43,40 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/", 440], ["/landing", 1440]
       return { h1: box(document.querySelector("[data-hub] h1")).right <= innerWidth, over: over.length, stacked: a.bottom < b.top && b.bottom < c.top && c.height > 200,
         oneLine: Math.abs(cli.top - cmd.top) < 4 && cli.right <= innerWidth && hub.right <= innerWidth,
         rows: (() => { const ns = [...document.querySelectorAll("[data-net] [data-node]")].map(box), bg = document.querySelector("svg[data-bgweb]");
-          // vedu #6436: each of the 35 shows a different agent's mark
-          const marks = new Set([...document.querySelectorAll("[data-net] [data-node]")].map((n) => n.querySelector("img")?.getAttribute("src") || n.title));
-          return ns.length === 35 && marks.size === 35 && ns.slice(0, 7).every((n) => n.bottom < hub.top) && ns.slice(7, 14).every((n) => n.top > hub.bottom) && (!bg || getComputedStyle(bg).display === "none"); })(),
+          // vedu #6436, jxn #6443: the two full rows show 14 different marks, and the faint rows the other agents
+          const src = [...document.querySelectorAll("[data-net] [data-node]")].map((n) => n.querySelector("img")?.getAttribute("src") || n.title);
+          return ns.length === 35 && new Set(src.slice(0, 14)).size === 14 && new Set(src).size >= 20 && ns.slice(0, 7).every((n) => n.bottom < hub.top) && ns.slice(7, 14).every((n) => n.top > hub.bottom) && (!bg || getComputedStyle(bg).display === "none"); })(),
         // jxn #6183: fainter rows branch off them (one above, two below), and the network fades out inside the hero
         faded: (() => { const nodes = [...document.querySelectorAll("[data-net] [data-node]")], ns = nodes.map(box), net = document.querySelector("[data-net]"), hero = box(document.querySelector('section[data-screen-label="Hero"]')), next = document.querySelector('section[data-screen-label="Hero"]').nextElementSibling;
           return ns.slice(14, 21).every((n) => n.bottom < ns[0].top) && ns.slice(21).every((n) => n.top > ns[7].bottom) && nodes.slice(14).every((n) => +getComputedStyle(n).opacity < 1) && nodes.slice(0, 14).every((n) => +getComputedStyle(n).opacity === 1)
             && /gradient/.test(getComputedStyle(net).maskImage || getComputedStyle(net).webkitMaskImage) && !!net.querySelector("[data-packets] g[mask] line") && box(net).bottom <= hero.bottom + 1 && (!next || box(next).top >= hero.bottom - 1); })() };
     });
     // jxn #6165: on a phone it's the rows, not the desktop web: 7 agents above the text, 7 below, no web behind the page.
-    check(m.rows, `${tag}: the network is a row of 7 above the text and 7 below, 35 different marks, with no web behind the page`);
+    check(m.rows, `${tag}: the network is a row of 7 above the text and 7 below (14 different marks, every agent shown), with no web behind the page`);
     check(m.faded, `${tag}: fainter rows branch off the two (one above, two below), and the network fades out before the next section, and the side lines fade out beside the text (#6216)`);
     check(m.h1 && !m.over, `${tag}: the headline fits and no network icon covers the text (${m.over} over it)`);
     check(m.oneLine, `${tag}: the install command is one line, with copy and cli beside it`);
     check(m.stacked, `${tag}: the demo panels stack`);
   }
   if (!phone) {
-    // vedu #6436 (after jxn #6240): every tile shows a mark of its own. The tiles at full strength (not under the network's
-    // fade: its two top-corner radial gradients and the bottom 45%) never share one, and with 35 agents on 52 tiles at
-    // most a few faint ones repeat. Keyed on the image, not the name, so two names with one logo count as a repeat.
+    // vedu #6436, jxn #6443 (after jxn #6240): every agent shows, and the tiles at full strength (not under the network's
+    // fade: its two top-corner radial gradients and the bottom 45%) never share a mark; only the faint ones repeat, and never
+    // next to their twin. Keyed on the image, not the name, so two names with one logo count as a repeat.
     const ring = await p.evaluate(() => {
       const net = document.querySelector("[data-net]"), nb = net.getBoundingClientRect(), W = nb.width, H = nb.height;
       const rad = (x, y, cx, cy, rx, ry) => Math.max(0, Math.min(1, (Math.hypot((x - cx) / rx, (y - cy) / ry) - 0.55) / 0.45));
       const alpha = (x, y) => rad(x, y, 0, 0, 340, 200) * rad(x, y, W, 0, 300, 220) * (y / H <= 0.55 ? 1 : Math.max(0, 1 - (y / H - 0.55) / 0.45));
-      const nodes = [...net.querySelectorAll("[data-node]")].map((n) => { const r = n.getBoundingClientRect(); return { src: n.querySelector("img")?.getAttribute("src") || n.title, op: +getComputedStyle(n).opacity, a: alpha(r.left + r.width / 2 - nb.left, r.top + r.height / 2 - nb.top) }; });
+      const nodes = [...net.querySelectorAll("[data-node]")].map((n) => { const r = n.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2; return { src: n.querySelector("img")?.getAttribute("src") || n.title, op: +getComputedStyle(n).opacity, a: alpha(x - nb.left, y - nb.top), x, y }; });
       const strong = nodes.filter((n) => n.op === 1 && n.a > 0.9).map((n) => n.src);
-      return { tiles: nodes.length, marks: new Set(nodes.map((n) => n.src)).size, strong: strong.length, twice: strong.filter((s, i) => strong.indexOf(s) !== i) };
+      // next to = closer than 1.5× either tile's distance to its own nearest tile
+      const d = (n, m) => Math.hypot(m.x - n.x, m.y - n.y), near = nodes.map((n) => Math.min(...nodes.filter((m) => m !== n).map((m) => d(n, m))));
+      const close = nodes.flatMap((n, i) => nodes.slice(i + 1).filter((m, j) => m.src === n.src && d(n, m) < 1.5 * Math.min(near[i], near[i + 1 + j])).map(() => n.src));
+      return { tiles: nodes.length, marks: new Set(nodes.map((n) => n.src)).size, strong: strong.length, twice: strong.filter((s, i) => strong.indexOf(s) !== i), close };
     });
-    check(ring.marks >= 35 && ring.tiles - ring.marks <= 17 && ring.strong >= 12 && !ring.twice.length, `${tag}: ${ring.marks} different marks on ${ring.tiles} tiles, none twice at full strength (${ring.strong})${ring.twice.length ? `: ${ring.twice.join(", ")}` : ""}`);
-    // A tile whose agent has no connect steps of its own (zed) shows the "other mcp" ones instead of breaking the page.
-    await p.locator('[data-net] [data-node][title="zed"]').first().click();
-    check(await p.locator("[data-hub]").getByText("other mcp").first().isVisible().catch(() => false), `${tag}: picking an agent without its own steps (zed) shows "other mcp"`);
+    check(ring.marks >= 20 && ring.strong >= 12 && !ring.twice.length && !ring.close.length, `${tag}: ${ring.marks} different marks on ${ring.tiles} tiles, none twice at full strength (${ring.strong}) or side by side${ring.twice.length ? `: ${ring.twice.join(", ")}` : ""}${ring.close.length ? `; side by side: ${ring.close.join(", ")}` : ""}`);
+    // A tile whose agent has no connect steps of its own (copilot) shows the "other mcp" ones instead of breaking the page.
+    await p.locator('[data-net] [data-node][title="copilot"]').first().click();
+    check(await p.locator("[data-hub]").getByText("other mcp").first().isVisible().catch(() => false), `${tag}: picking an agent without its own steps (copilot) shows "other mcp"`);
   }
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   const cspHits = await p.evaluate(() => window.__cspHits || []);
