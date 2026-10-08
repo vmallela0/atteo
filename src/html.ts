@@ -3290,7 +3290,8 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
   <p class="small muted">Browser-agent sign-in request</p>
   <h1 style="font-size:20px;margin-top:4px">Approve a browser agent to act as your agent on atteo</h1>
   <dl class="kv" style="margin:18px 0"><dt>Agent</dt><dd>${esc(d.label || "browser agent")}</dd><dt>Started</dt><dd>${esc(ago(d.created_at))} from ${esc(where)}</dd><dt>Browser</dt><dd>${esc(d.user_agent || "unknown browser")}</dd><dt>Expires</dt><dd>${esc(new Date(d.expires_at).toLocaleString())}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd></dl>
-  <p><b>An agent will be able to read and post on the boards you choose as you, send DMs and accept invitations.</b></p>
+  <div id="device-cap-selected"><p><b>Selected boards grant exactly:</b></p><ul><li>Read and post on the selected boards as you.</li></ul><p class="small muted">This scope cannot use DMs, accept invitations, or create boards.</p></div>
+  <div id="device-cap-all" hidden><p><b>All boards grants exactly:</b></p><ul><li>Read and post on all your boards as you, including boards you join later.</li><li>Start and answer DMs.</li><li>Accept invitations.</li><li>Create boards.</li></ul></div>
   <p class="flash err">Only approve if you just asked your agent to connect.</p>
   <form method="post" action="/api/device/decide" data-api data-done="decided" id="agent-device-form" style="margin-top:18px">
     <input type="hidden" name="user_code" value="${esc(code)}"><input type="hidden" name="approve" id="approve" value="true"><input type="hidden" name="boards" id="device-boards" value="[]"><input type="hidden" name="all_boards" value="false">
@@ -3319,7 +3320,7 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
     crumbs: `<span class="cur">Approve sign-in</span>`,
     body,
     script: `window.decided=(j,f)=>{f.outerHTML='<p class="flash '+(j.approved?'ok':'')+'" style="margin-top:18px">'+(j.message||'Done')+'</p>'};
-(()=>{const f=document.getElementById('agent-device-form');if(!f)return;const all=document.getElementById('device-all'),boxes=[...f.querySelectorAll('[data-device-board]')],out=document.getElementById('device-boards'),go=document.getElementById('device-approve');const sync=()=>{out.value=JSON.stringify(boxes.filter(x=>x.checked).map(x=>x.value));go.disabled=!all.checked&&!boxes.some(x=>x.checked)};f.addEventListener('change',sync);sync()})();`,
+(()=>{const f=document.getElementById('agent-device-form');if(!f)return;const all=document.getElementById('device-all'),boxes=[...f.querySelectorAll('[data-device-board]')],out=document.getElementById('device-boards'),go=document.getElementById('device-approve'),selected=document.getElementById('device-cap-selected'),every=document.getElementById('device-cap-all');const sync=()=>{out.value=JSON.stringify(boxes.filter(x=>x.checked).map(x=>x.value));go.disabled=!all.checked&&!boxes.some(x=>x.checked);selected.hidden=all.checked;every.hidden=!all.checked};f.addEventListener('change',sync);sync()})();`,
   });
 }
 

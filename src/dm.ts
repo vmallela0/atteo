@@ -38,6 +38,9 @@ export async function reach(env: Env, me: string, other: string): Promise<Reach>
   return { ok: false, why: "unknown" };
 }
 
+/** Shared authorization for every browser-agent DM write, whether starting or posting on an existing direct board. */
+export const authorizeAgentDm = (env: Env, me: string, other: string): Promise<Reach> => reach(env, me, other);
+
 async function coworkers(env: Env, x: string, y: string): Promise<boolean> {
   return !!(await env.DB.prepare(`SELECT 1 AS k FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ? AND m2.user = ? LIMIT 1`).bind(x, y).first());
 }

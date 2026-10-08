@@ -206,8 +206,7 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   if (!session?.user && bearer && (path.startsWith("/api/") || path.startsWith("/board-picture/")) && (!accountOnly || appAllowed)) {
     // Writes look the token up fresh, so a revoked token can't change anything anywhere (the kill switch).
     const id = await auth.tokenIdentity(env, bearer, !!request && request.method !== "GET" && request.method !== "HEAD");
-    // Agent-login routes load other token kinds only so the route can return an explicit 403. The CLI's device token
-    // is the one narrow exception: its command is approved by the person during device sign-in.
+    // Agent-login routes load other token kinds only so the route can return an explicit 403.
     if (!id || (accountOnly && id.kind !== "app" && !agentLogins)) return null;
     const u = await registry.userByName(env, id.user);
     return u ? { name: u.name, email: u.email ?? "", display_name: u.display_name, admin: false, via: id.kind === "app" ? "person" : "agent" } : null;
@@ -921,10 +920,7 @@ const handler = {
       let m = path.match(/^\/api\/agent-logins(?:\/([^/]+))?$/);
       if (m) {
         if (!viewer) return needLogin();
-        const bearer = auth.bearer(request);
-        const token = bearer ? await auth.tokenIdentity(env, bearer, true) : null;
-        // A device-login CLI credential can run the explicitly person-invoked CLI command. Ordinary agent tokens cannot.
-        if (viewer.via === "agent" && token?.kind !== "cli") return json({ error: "Agent sign-ins are for people to manage. Agent tokens cannot list, change or revoke them." }, 403);
+        if (viewer.via === "agent") return json({ error: "Agent sign-ins are for people to manage in Settings. Agent tokens cannot list, change or revoke them." }, 403);
         try {
           if (method === "GET" && !m[1]) return json({ agent_logins: await agentLogins.listAgentLogins(env, viewer.name) }, 200, { "cache-control": "no-store" });
           if (method === "PATCH" && m[1]) {
@@ -1070,7 +1066,9 @@ const handler = {
       if (path === "/api/device/token" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { device_code?: string };
         if (!body.device_code) return json({ error: "device_code required" }, 400);
-        const r = await device.pollDeviceLogin(env, body.device_code, request);
+        const admitted = await device.admitDevicePoll(env, request, body.device_code);
+        if (!admitted.ok) return json({ status: "slow_down" }, 429, { "retry-after": String(admitted.retryAfter) });
+        const r = await device.pollDeviceLogin(env, body.device_code, request, admitted.hash);
         return json(r, r.status === "ok" ? 200 : r.status === "pending" ? 428 : 400);
       }
       // CLI requests keep the typed-code phishing guard. A browser-only agent request is different: the agent started it

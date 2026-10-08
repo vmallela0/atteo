@@ -3,11 +3,15 @@
 
 import { record } from "./accountlog";
 import { createToken, randomSecret, sha256hex } from "./auth";
+import { clientIp } from "./appSignin";
+import { publicAllowed, rateCheck } from "./limits";
 import type { Env } from "./types";
 
 export const DEVICE_TTL_MS = 10 * 60 * 1000;
 export const POLL_INTERVAL_S = 3;
 export const CLI_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
+const POLLS_PER_MINUTE_PER_IP = Math.floor(60 / POLL_INTERVAL_S);
+const lastPollByDevice = new Map<string, number>();
 
 const CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ"; // no vowels (no accidental words), no 0/O, 1/I confusion
 
@@ -105,21 +109,47 @@ export async function pollDeviceLogin(
   env: Env,
   deviceCode: string,
   request: Request | null = null,
+  deviceHash?: string,
 ): Promise<{ status: "pending" | "denied" | "expired" | "used" } | { status: "ok"; token: string; user: string; expires_at: number }> {
-  const hash = await sha256hex(deviceCode);
-  const d = await env.DB.prepare(`SELECT user_code, client, expires_at, status, approved_by FROM device_logins WHERE device_hash = ?`)
-    .bind(hash)
+  const hash = deviceHash ?? await sha256hex(deviceCode);
+  const now = Date.now();
+  const d = await env.DB.prepare(`SELECT user_code, client, expires_at, status, approved_by FROM device_logins WHERE device_hash = ? AND kind = 'cli' AND expires_at > ?`)
+    .bind(hash, now)
     .first<{ user_code: string; client: string; expires_at: number; status: string; approved_by: string | null }>();
   if (!d) return { status: "expired" };
   if (d.status === "denied") return { status: "denied" };
   if (d.status === "issued") return { status: "used" };
-  if (d.status === "pending") return d.expires_at <= Date.now() ? { status: "expired" } : { status: "pending" };
+  if (d.status === "pending") return { status: "pending" };
   // approved: claim it atomically so two polls can't both get a token
-  const claimed = await env.DB.prepare(`UPDATE device_logins SET status = 'issued' WHERE device_hash = ? AND status = 'approved'`).bind(hash).run();
+  const claimNow = Date.now();
+  const claimed = await env.DB.prepare(`UPDATE device_logins SET status = 'issued' WHERE device_hash = ? AND kind = 'cli' AND status = 'approved' AND expires_at > ?`).bind(hash, claimNow).run();
   if (!claimed.meta.changes) return { status: "used" };
-  const expires = Date.now() + CLI_TOKEN_TTL_MS;
+  const expires = claimNow + CLI_TOKEN_TTL_MS;
   const t = await createToken(env, d.approved_by!, d.client, { expiresAt: expires, kind: "cli" });
   await env.DB.prepare(`UPDATE device_logins SET token_id = ? WHERE device_hash = ?`).bind(t.id, hash).run();
   await record(env, d.approved_by!, "cli.login", request ?? null, { label: d.client, kind: "cli" });
   return { status: "ok", token: t.token, user: d.approved_by!, expires_at: expires };
+}
+
+/** Public device redemption admission: cap an address, then enforce the interval for the exact secret's hash. */
+export async function admitDevicePoll(
+  env: Env,
+  request: Request,
+  deviceCode: string,
+  now = Date.now(),
+): Promise<{ ok: true; hash: string } | { ok: false; retryAfter: number }> {
+  if (!(await publicAllowed(env, "device-poll", request))) return { ok: false, retryAfter: 60 };
+  const ipRate = rateCheck(`device-poll-ip:${clientIp(request)}`, POLLS_PER_MINUTE_PER_IP, now);
+  if (!ipRate.ok) return { ok: false, retryAfter: ipRate.retryAfter };
+  const hash = await sha256hex(deviceCode);
+  const last = lastPollByDevice.get(hash);
+  if (last != null && now - last < POLL_INTERVAL_S * 1000) {
+    return { ok: false, retryAfter: Math.max(1, Math.ceil((last + POLL_INTERVAL_S * 1000 - now) / 1000)) };
+  }
+  if (lastPollByDevice.size > 10_000) {
+    for (const [key, at] of lastPollByDevice) if (now - at > DEVICE_TTL_MS) lastPollByDevice.delete(key);
+    if (lastPollByDevice.size > 10_000) lastPollByDevice.clear();
+  }
+  lastPollByDevice.set(hash, now);
+  return { ok: true, hash };
 }

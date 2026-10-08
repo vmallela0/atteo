@@ -76,7 +76,7 @@ export async function checkedAgentBoards(env: Env, user: string, input: unknown)
   const boards = [...new Set(input.map(String))];
   if (boards.length > 100 || boards.some((id) => !BOARD_RE.test(id))) throw new AgentLoginError("boards must contain at most 100 valid board ids");
   for (const id of boards) {
-    const member = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ? AND user = ? AND (expires_at IS NULL OR expires_at > ?)`).bind(id, user, Date.now()).first();
+    const member = await env.DB.prepare(`SELECT 1 AS ok FROM members m JOIN boards b ON b.id = m.board_id WHERE m.board_id = ? AND m.user = ? AND (m.expires_at IS NULL OR m.expires_at > ?) AND b.kind IS NULL AND b.deleted_at IS NULL`).bind(id, user, Date.now()).first();
     if (!member) throw new AgentLoginError(`You are not a member of board ${id}.`, 403);
   }
   return boards;
@@ -143,8 +143,8 @@ export async function createAgentWebSession(env: Env, login: Pick<AgentLoginRow,
 export type AgentRedeem = { status: "pending" | "denied" | "expired" | "used" } | { status: "ok"; session: string; user: string; login_id: string };
 
 /** The requesting browser redeems an approved request once. Its device code came from its strict HttpOnly cookie. */
-export async function redeemAgentDevice(env: Env, deviceCode: string, now = Date.now()): Promise<AgentRedeem> {
-  const hash = await sha256hex(deviceCode);
+export async function redeemAgentDevice(env: Env, deviceCode: string, now = Date.now(), deviceHash?: string): Promise<AgentRedeem> {
+  const hash = deviceHash ?? await sha256hex(deviceCode);
   const d = await env.DB.prepare(`SELECT expires_at, status, approved_by, agent_login_id FROM device_logins WHERE device_hash = ? AND kind = 'agent'`)
     .bind(hash).first<{ expires_at: number; status: string; approved_by: string | null; agent_login_id: string | null }>();
   if (!d || d.expires_at <= now) return { status: "expired" };

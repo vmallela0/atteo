@@ -128,6 +128,21 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
     expect(db.prepare("SELECT tombstone, deleted_at IS NOT NULL AS done FROM deleted_handles").all()).toEqual([{ tombstone: null, done: 1 }]);
   });
 
+  it("deletes device-login provenance and linked browser-agent requests instead of anonymizing it", async () => {
+    const { env, db } = fakeEnv();
+    user(db, "maya");
+    user(db, "theo");
+    db.prepare(`INSERT INTO agent_logins (id, user, label, created_at) VALUES ('agl_maya', 'maya', 'Browser', 1), ('agl_theo', 'theo', 'Browser', 1)`).run();
+    const insert = db.prepare(`INSERT INTO device_logins (device_hash, user_code, client, created_at, expires_at, status, approved_by, ip, kind, user_agent, city, country, agent_login_id) VALUES (?, ?, 'client', 1, 9999999999999, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    insert.run("maya-cli", "BCDF-GHJK", "issued", "maya", "192.0.2.1", "cli", "CLI/1", "Paris", "FR", null);
+    insert.run("maya-agent", "LMNP-QRST", "approved", "maya", "192.0.2.2", "agent", "Browser/1", "Rome", "IT", "agl_maya");
+    insert.run("theo-agent", "VWXZ-BCDF", "approved", "theo", "192.0.2.3", "agent", "Browser/2", "Oslo", "NO", "agl_theo");
+    await deleteAccount(env, "maya", fakeBoards().stub);
+    expect(db.prepare(`SELECT device_hash, approved_by, ip, user_agent, city, country FROM device_logins ORDER BY device_hash`).all()).toEqual([
+      { device_hash: "theo-agent", approved_by: "theo", ip: "192.0.2.3", user_agent: "Browser/2", city: "Oslo", country: "NO" },
+    ]);
+  });
+
   it("a run that stops part way is finished by a retry, under the same tombstone", async () => {
     const { env, db } = fakeEnv();
     user(db, "maya");

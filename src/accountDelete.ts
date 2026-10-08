@@ -204,10 +204,10 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`UPDATE hosts SET stopped_by = ? WHERE stopped_by = ?`, t, n),
     S(`UPDATE key_grants SET granted_by = ? WHERE granted_by = ?`, t, n),
     S(`UPDATE board_epochs SET created_by = ? WHERE created_by = ?`, t, n),
-    S(`UPDATE device_logins SET approved_by = NULL WHERE approved_by = ?`, n),
   ];
   // What is theirs alone: gone.
   const drop = [
+    S(`DELETE FROM device_logins WHERE approved_by = ? OR agent_login_id IN (SELECT id FROM agent_logins WHERE user = ?)`, n, n),
     S(`DELETE FROM agent_email_alerts WHERE user = ?`, n),
     S(`DELETE FROM agent_web_sessions WHERE login_id IN (SELECT id FROM agent_logins WHERE user = ?)`, n),
     S(`DELETE FROM agent_logins WHERE user = ?`, n),

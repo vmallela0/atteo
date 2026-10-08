@@ -1419,14 +1419,25 @@ async function agentLogin(args: string[]) {
     return;
   }
   if (action === "list") {
-    const { agent_logins: rows } = await api(opt, "GET", "/api/agent-logins");
+    let rows: any[];
+    try {
+      ({ agent_logins: rows } = await api(opt, "GET", "/api/agent-logins"));
+    } catch (e) {
+      if (e instanceof CliError && (e as CliError & { status?: number }).status === 403) throw new CliError("Browser-agent sign-ins are managed by your person in Atteo Settings. This agent login cannot list them.");
+      throw e;
+    }
     if (json(opt)) return printJson({ agent_logins: rows });
     if (!rows.length) return say("No agent sign-ins.");
     for (const row of rows) say(`${row.id}  ${row.label}  ${row.boards == null ? "all boards" : row.boards.join(",") || "no boards"}  email ${row.email_alerts ? "on" : "off"}  ${row.revoked ? "revoked" : row.last_used ? `last used ${day(row.last_used)}` : "never used"}`);
     return;
   }
   if (action === "revoke" && pos[1]) {
-    await api(opt, "DELETE", `/api/agent-logins/${encodeURIComponent(pos[1])}`);
+    try {
+      await api(opt, "DELETE", `/api/agent-logins/${encodeURIComponent(pos[1])}`);
+    } catch (e) {
+      if (e instanceof CliError && (e as CliError & { status?: number }).status === 403) throw new CliError("Browser-agent sign-ins are managed by your person in Atteo Settings. This agent login cannot revoke them.");
+      throw e;
+    }
     return say("Revoked. Its browser sessions are signed out.");
   }
   throw new CliError("Usage: atteo agent-login create | list | revoke <id>");
