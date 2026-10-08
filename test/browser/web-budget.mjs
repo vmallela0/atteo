@@ -9,6 +9,8 @@
 //   requests   how many requests the page makes
 // Bytes are decoded sizes (what the browser has to parse), not compressed transfer sizes.
 // UPDATE=1 writes today's numbers as the new baseline (commit it with the change that made the page heavier).
+// "limits" in web-budget.json pins a hard cap for one page's asset instead of the 10% rule (board js: measured + 1 KB,
+// so growth shows up at once). UPDATE=1 keeps them; raise one by hand, on purpose, in the change that needs it.
 // BASE, ADMIN_KEY, PW_CHROME.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { chromium } from "playwright-core";
@@ -82,23 +84,25 @@ for (const [i, name] of Object.keys(pages).entries()) {
 }
 await b.close();
 
+const old = existsSync(FILE) ? JSON.parse(readFileSync(FILE, "utf8")) : {}, limits = old.limits ?? {};
 if (process.env.UPDATE === "1") {
-  writeFileSync(FILE, JSON.stringify({ note: "test/browser/web-budget.mjs: bytes (decoded) and request counts per page. UPDATE=1 node web-budget.mjs rewrites it.", pages: now }, null, 1) + "\n");
+  writeFileSync(FILE, JSON.stringify({ note: "test/browser/web-budget.mjs: bytes (decoded) and request counts per page. UPDATE=1 node web-budget.mjs rewrites it.", ...(old.limits ? { limits } : {}), pages: now }, null, 1) + "\n");
   console.log(`wrote the baseline: ${FILE.pathname}`);
   process.exit(fails ? 1 : 0);
 }
 check(existsSync(FILE), `a baseline exists (${FILE.pathname}); make one with UPDATE=1`);
 if (existsSync(FILE)) {
-  const base = JSON.parse(readFileSync(FILE, "utf8")).pages;
+  const base = old.pages;
   for (const [name, m] of Object.entries(now)) for (const x of kinds) {
     const was = base?.[name]?.[x];
     if (was == null) { check(false, `${name}: no baseline for ${x}; run with UPDATE=1`); continue; }
     if (x === "fonts" && notes.includes(name)) { console.log(`· ${name}: fonts weren't reachable, so they're not compared`); continue; }
-    const req = x === "requests", cap = Math.max(Math.round(was * (1 + GROW)), was + (req ? SLACK.requests : SLACK.bytes)), v = m[x];
+    const req = x === "requests", pin = limits[name]?.[x], v = m[x];
+    const cap = pin ?? Math.max(Math.round(was * (1 + GROW)), was + (req ? SLACK.requests : SLACK.bytes));
     const show = (n) => (req ? String(n) : kb(n));
     const pct = was ? Math.round(((v - was) / was) * 100) : 100;
-    check(v <= cap, v <= cap ? `${name} ${x}: ${show(v)} (baseline ${show(was)}, ${pct >= 0 ? "+" : ""}${pct}%)` : `${name}: ${x} grew ${pct}%: ${show(was)} → ${show(v)}, over the budget of ${show(cap)}. If it's meant to, UPDATE=1 rewrites web-budget.json; commit it with the change.`);
+    check(v <= cap, v <= cap ? `${name} ${x}: ${show(v)} (baseline ${show(was)}, ${pct >= 0 ? "+" : ""}${pct}%)` : `${name}: ${x} grew ${pct}%: ${show(was)} → ${show(v)}, over the budget of ${show(cap)}. ${pin != null ? `That's a pinned limit: if it's meant to, raise limits.${name}.${x} in web-budget.json by hand, with the change.` : "If it's meant to, UPDATE=1 rewrites web-budget.json; commit it with the change."}`);
   }
 }
-console.log(fails ? `${fails} FAILED` : "web budget: all passed (within 10% of the baseline)");
+console.log(fails ? `${fails} FAILED` : "web budget: all passed (within 10% of the baseline, or under a pinned limit)");
 process.exit(fails ? 1 : 0);
