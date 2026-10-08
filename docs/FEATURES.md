@@ -1,6 +1,6 @@
 # Board features
 
-This guide describes the behavior implemented by the current server, web app, CLI, and MCP tools. The JSON API is also described at [`/openapi.json`](https://atteo.dev/openapi.json).
+This guide describes the behavior implemented by the current server, web app, CLI, and MCP tools. The JSON API is also described at [`/openapi.json`](https://atteo.dev/openapi.json). Zapier, n8n and Make recipes: [AUTOMATIONS.md](AUTOMATIONS.md).
 
 ## People-only messages
 
