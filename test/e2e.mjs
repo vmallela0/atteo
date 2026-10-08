@@ -1631,6 +1631,69 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   assert(!(await open(null)).ok, "signed-out must not connect");
 });
 
+await step("messaging fast path (vedu #6564): a post says its thread root, /updates and /entries carry roots and reactions, guards unchanged", async () => {
+  const fb = (await ops("boards", { user: A, title: `fast ${run}` })).body.board.id;
+  await ops("members", { board: fb, user: B });
+  const json = { "content-type": "application/json" };
+  const say = async (who, body, bearer = false) => {
+    const r = await fetch(`${BASE}/api/boards/${fb}/entries`, { method: "POST", headers: { ...json, ...(bearer ? auth(who) : { cookie: cookie[who] }) }, body: JSON.stringify(body) });
+    return { status: r.status, j: await r.json() };
+  };
+  // Web posts: the rendered update's root is the post itself at the top level, the thread's root in a (nested) reply.
+  const top = await say(A, { text: `fast top ${run}` });
+  assert(top.status === 201 && top.j.update.root === top.j.entry.seq, `top: ${JSON.stringify(top.j.update?.root)}`);
+  const R = top.j.entry.seq;
+  const r1 = await say(B, { text: `fast reply ${run}`, reply_to: R });
+  assert(r1.status === 201 && r1.j.update.root === R && r1.j.entry.reply_to === R, `reply root ${r1.j.update?.root} ≠ ${R}`);
+  const r2 = await say(A, { text: `fast nested ${run}`, reply_to: r1.j.entry.seq });
+  assert(r2.status === 201 && r2.j.update.root === R, `nested reply root ${r2.j.update?.root} ≠ ${R}`);
+  // A reply to an entry that isn't there is still refused before anything is posted.
+  const bad = await say(A, { text: "to nowhere", reply_to: 99999 });
+  assert(bad.status === 400 && /does not exist/.test(bad.j.error), `missing parent: ${bad.status} ${JSON.stringify(bad.j)}`);
+  // An agent (token, REST) replying: caught up first (the stale-read rule), then its update's root is the thread's too.
+  for (let after = 0; ; ) {
+    const d = await (await fetch(`${BASE}/api/boards/${fb}/entries?after=${after}&ack=1`, { headers: auth(A) })).json();
+    if (!d.entries.length) break;
+    after = d.last;
+  }
+  const r3 = await say(A, { text: `fast agent reply ${run}`, reply_to: r2.j.entry.seq }, true);
+  assert(r3.status === 201 && r3.j.update.root === R && r3.j.entry.via === "agent", `agent reply: ${r3.status} root ${r3.j.update?.root}`);
+  // /updates: each entry's root, as the separate rootsFor call gave it.
+  const u = await (await web(`/api/boards/${fb}/updates?after=${R - 1}`, B)).json();
+  const roots = Object.fromEntries(u.entries.map((e) => [e.seq, e.root]));
+  assert(roots[R] === R && roots[r1.j.entry.seq] === R && roots[r2.j.entry.seq] === R && roots[r3.j.entry.seq] === R, `updates roots: ${JSON.stringify(roots)}`);
+  // /entries?after: the reactions on the entries it returns (and only those: limit=1 leaves the later ones out).
+  const rx = await web(`/api/boards/${fb}/entries/${R}/react`, B, { method: "POST", headers: json, body: JSON.stringify({ emoji: "👍" }) });
+  assert(rx.ok, `react: ${rx.status}`);
+  await web(`/api/boards/${fb}/entries/${r2.j.entry.seq}/react`, B, { method: "POST", headers: json, body: JSON.stringify({ emoji: "🎉" }) });
+  const e1 = await (await web(`/api/boards/${fb}/entries?after=${R - 1}`, A)).json();
+  assert((e1.reactions[R] ?? []).some((x) => x.emoji === "👍") && (e1.reactions[r2.j.entry.seq] ?? []).some((x) => x.emoji === "🎉"), `entries reactions: ${JSON.stringify(e1.reactions)}`);
+  const e2 = await (await web(`/api/boards/${fb}/entries?after=${R - 1}&limit=1`, A)).json();
+  assert(e2.entries.length === 1 && e2.reactions[R] && !e2.reactions[r2.j.entry.seq], `limit=1 reactions: ${JSON.stringify(e2.reactions)}`);
+  const e3 = await (await web(`/api/boards/${fb}/entries?after=${r3.j.entry.seq}`, A)).json();
+  assert(e3.entries.length === 0 && JSON.stringify(e3.reactions) === "{}", `nothing new: ${JSON.stringify(e3)}`);
+  // The one access read still answers each guard: a viewer can't post (web or MCP), an outsider sees nothing, and a
+  // deleted board is gone, for its members too.
+  await ops("members", { board: fb, user: OUT });
+  const role = await web(`/api/boards/${fb}/members/${OUT}`, A, { method: "POST", headers: json, body: JSON.stringify({ role: "viewer" }) });
+  assert(role.ok, `make viewer: ${role.status} ${await role.text()}`);
+  const v = await say(OUT, { text: "a viewer posting" });
+  assert(v.status === 403 && /role is viewer/.test(v.j.error), `viewer web post: ${v.status} ${JSON.stringify(v.j)}`);
+  await err(OUT, fb, "post", { type: "note", text: "a viewer posting over MCP" }, "role is viewer");
+  assert((await web(`/api/boards/${fb}/updates?after=0`, OUT)).ok, "a viewer still reads");
+  const stranger = `e2e-fast-${run}`;
+  await makeUser(stranger);
+  assert((await web(`/api/boards/${fb}/updates?after=0`, stranger)).status === 404, "a non-member gets 404");
+  assert((await say(stranger, { text: "not a member" })).status === 404, "a non-member can't post");
+  const del = await web(`/api/boards/${fb}`, A, { method: "DELETE" });
+  assert(del.ok, `delete: ${del.status} ${await del.text()}`);
+  for (const p of [`/api/boards/${fb}/updates?after=0`, `/api/boards/${fb}/entries?after=0`]) {
+    const r = await web(p, B);
+    assert(r.status === 404 && (await r.json()).error === "This chat was deleted", `${p} after delete: ${r.status}`);
+  }
+  assert((await say(B, { text: "after delete" })).status === 404, "no posts to a deleted board");
+});
+
 await step("no voice rooms: the relay route is gone and boards show no voice controls", async () => {
   assert((await web(`/api/boards/${board}/voice/ice`, A)).status === 404, "no voice ICE route");
   const html = await (await web(`/b/${board}`, A)).text();

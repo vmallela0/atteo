@@ -85,6 +85,7 @@
  "schedules": 4,
  "quote": 5,
  "sendclear": 9,
+ "socket-revive": 13,
  "charts": 4,
  "thr-at": 5,
  "codecopy": 4,

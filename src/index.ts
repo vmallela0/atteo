@@ -200,9 +200,25 @@ interface Ctx {
   origin: string;
   session: auth.Session | null;
   viewer: Viewer | null;
+  /** This request's boardAccess reads, by board and viewer (accessOf): one D1 read per board per request. */
+  access: Map<string, Promise<registry.BoardAccess>>;
 }
 
-async function loadViewer(env: Env, session: auth.Session | null, request?: Request, path = ""): Promise<Viewer | null> {
+/** The board's access row for this request's viewer, read once per request (registry.boardAccess) and shared by the
+ *  soft-delete guard, the viewer-role guard and canSee. Never kept past the request: a membership change or a deleted
+ *  board applies to the very next one. */
+function accessOf(c: Pick<Ctx, "env" | "viewer" | "access">, boardId: string): Promise<registry.BoardAccess> {
+  const key = `${boardId}\n${c.viewer?.name ?? ""}`;
+  let p = c.access.get(key);
+  if (!p) {
+    p = registry.boardAccess(c.env, boardId, c.viewer?.name ?? null);
+    c.access.set(key, p);
+    p.catch(() => c.access.delete(key)); // a failed read is retried by the next caller, not remembered
+  }
+  return p;
+}
+
+async function loadViewer(env: Env, session: auth.Session | null, request?: Request, path = "", ctx?: ExecutionContext): Promise<Viewer | null> {
   // The JSON API also takes a personal token (Authorization: Bearer ab_…), as agents use for MCP. Never for pages.
   const bearer = request?.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
   // Account-level actions (tokens, billing, ops) stay browser-only, so a leaked token can't mint more or change plans.
@@ -214,10 +230,11 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   // Board pictures too: they're members-only images, and the app loads them with its token.
   if (!session?.user && bearer && (path.startsWith("/api/") || path.startsWith("/board-picture/")) && (!accountOnly || appAllowed)) {
     // Writes look the token up fresh, so a revoked token can't change anything anywhere (the kill switch).
-    const id = await auth.tokenIdentity(env, bearer, !!request && request.method !== "GET" && request.method !== "HEAD");
+    const id = await auth.tokenIdentity(env, bearer, !!request && request.method !== "GET" && request.method !== "HEAD", ctx);
     // Agent-login routes load other token kinds only so the route can return an explicit 403.
     if (!id || (accountOnly && id.kind !== "app" && !agentLogins)) return null;
-    const u = await registry.userByName(env, id.user);
+    // Read with the token when it was looked up just now (every write); a cached token reads its user here, as before.
+    const u = id.userRow !== undefined ? id.userRow : await registry.userByName(env, id.user);
     return u ? { name: u.name, email: u.email ?? "", display_name: u.display_name, admin: false, via: id.kind === "app" ? "person" : "agent" } : null;
   }
   if (!session?.user) return null;
@@ -268,7 +285,7 @@ async function sideBoardsNamed(env: Env, user: string): Promise<SideBoard[]> {
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
 async function canSee(c: Ctx, boardId: string): Promise<boolean> {
   if (!BOARD_RE.test(boardId)) return false;
-  const a = await registry.boardAccess(c.env, boardId, c.viewer?.name ?? null);
+  const a = await accessOf(c, boardId);
   if (!a.exists) return false;
   return isOps(c) || a.member;
 }
@@ -874,7 +891,7 @@ const handler = {
       }
 
       const session = await auth.getSession(request, env);
-      const viewer = await loadViewer(env, session, request, path);
+      const viewer = await loadViewer(env, session, request, path, ctx);
       // Free-plan guardrails (src/limits.ts): per-token rate limit, the person's daily budget, load shedding. No D1 here.
       if (viewer) {
         const tok = session?.user ? null : auth.bearer(request);
@@ -945,6 +962,14 @@ const handler = {
         const s = await asess();
         return { session: s?.id ?? null, session_name: s?.name ?? null };
       };
+      // A board in the path: its access row is read now, alongside the agent-session lookup below (accessOf).
+      const accessReads = new Map<string, Promise<registry.BoardAccess>>();
+      const pathBoard = path.match(/^\/(?:api\/boards|b)\/(b_[a-z0-9]{8,32})(?:\/|$)/)?.[1] ?? null;
+      if (pathBoard) accessOf({ env, viewer, access: accessReads }, pathBoard).catch(() => {});
+      // A post needs the board's members (its @mentions, the rendered entry): read alongside, not after, the access row.
+      // Used only once the route has checked access, so a refused post returns nothing of it.
+      const postMembers = pathBoard && viewer && method === "POST" && path === `/api/boards/${pathBoard}/entries` ? registry.boardMembers(env, pathBoard) : null;
+      postMembers?.catch(() => {});
       // A read-only agent session (scope "read") can read and wait, mark things seen, and manage its own session,
       // but nothing it sends may change a board or anyone's account.
       if (viewer?.via === "agent" && method !== "GET" && method !== "HEAD" && atteoHeader(request, "session")) {
@@ -957,7 +982,7 @@ const handler = {
       const ahead = /prefetch/i.test(request.headers.get("sec-purpose") ?? "");
       if (viewer && viewer.via !== "agent" && !ahead) ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
       if (viewer && viewer.via !== "agent" && !ahead && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
-      const c: Ctx = { request, env, ctx, url, origin, session, viewer };
+      const c: Ctx = { request, env, ctx, url, origin, session, viewer, access: accessReads };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
 
@@ -986,8 +1011,7 @@ const handler = {
 
       // ---- soft-deleted boards: gone for everyone (data stays in storage) until the creator restores one within 30 days ----
       {
-        const dm = path.match(/^\/(?:api\/boards|b)\/(b_[a-z0-9]{8,32})(?:\/|$)/);
-        if (dm && !(method === "POST" && path === `/api/boards/${dm[1]}/restore`) && (await registry.deletedAt(env, dm[1]))) {
+        if (pathBoard && !(method === "POST" && path === `/api/boards/${pathBoard}/restore`) && (await accessOf(c, pathBoard)).deleted_at) {
           return path.startsWith("/api/") ? json({ error: "This chat was deleted" }, 404) : notFound(viewer);
         }
       }
@@ -1238,9 +1262,19 @@ const handler = {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
+        // Everything the page needs, read side by side (vedu #6564): what depends on the members list starts as soon as it
+        // arrives, instead of after every other read, one after another.
+        const membersRead = registry.boardMembers(env, m[2]);
+        const early = <T,>(p: Promise<T>) => (p.catch(() => {}), p); // awaited below; a failure surfaces there, not as an unhandled rejection
+        const sessionsRead = early(sessions.onBoard(env, m[2]));
+        const machinesRead = early(membersRead.then((ms) => machines.forUsers(env, ms.map((x) => x.user))).catch(() => []));
+        const spendRead = early(membersRead.then((ms) => (ms.find((x) => x.user === viewer.name)?.role === "viewer" ? null : boardStub(env, m![2]).spend())));
+        const slackRead = early(slackOn(env, request)
+          ? env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().then((r) => (r.results ?? []).map((x) => x.channel_name)).catch(() => [] as string[])
+          : Promise.resolve([] as string[]));
         const [snap, members, invites, side, live, status, row, muted, approvalRulesForBoard] = await Promise.all([
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
-          registry.boardMembers(env, m[2]),
+          membersRead,
           registry.pendingInvites(env, m[2]),
           sideBoardsNamed(env, viewer.name),
           registry.agentsOnBoard(env, m[2]),
@@ -1251,7 +1285,7 @@ const handler = {
         ]);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
-        const sessionsHere = (await sessions.onBoard(env, m[2])).filter((x) => memberSet.has(x.user)).map(({ model, ...x }) => ({ ...x, ...sessions.modelFor({ model }, viewer.via !== "agent") }));
+        const sessionsHere = (await sessionsRead).filter((x) => memberSet.has(x.user)).map(({ model, ...x }) => ({ ...x, ...sessions.modelFor({ model }, viewer.via !== "agent") }));
         const agentsHere = [
           ...sessionsHere,
           ...Object.entries(live)
@@ -1273,11 +1307,10 @@ const handler = {
         if (here) here.opened = Date.now();
         // Slack channels that read this board, for its "Who can read this board" list (only while the bridge is on).
         // Agents running on members' machines (jxn #5722): theirs as a count, yours by machine.
-        const machinesHere = machines.visibleTo(await machines.forUsers(env, members.map((x) => x.user)).catch(() => []), viewer.name);
-        const slackChannels = slackOn(env, request)
-          ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
-          : [];
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, approvalRules: approvalRulesForBoard, sessions: mine, machines: machinesHere, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels, ...(members.find((m) => m.user === viewer.name)?.role === "viewer" ? {} : { spend: await boardStub(env, m[2]).spend() }) });
+        const machinesHere = machines.visibleTo(await machinesRead, viewer.name);
+        const slackChannels = await slackRead;
+        const spend = await spendRead;
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, approvalRules: approvalRulesForBoard, sessions: mine, machines: machinesHere, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels, ...(spend == null ? {} : { spend }) });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -2469,7 +2502,7 @@ const handler = {
       // ---- access: viewers can read but not change anything on a board ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(.+)$/);
       if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen" && m[2] !== "unread" && m[2] !== "opened") { // read receipts aren't changes
-        if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
+        if ((await accessOf(c, m[1])).role === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
       }
 
       // ---- the board's picture (like a group chat's photo): any member who can post sets or removes it, and everyone
@@ -2628,7 +2661,8 @@ const handler = {
         const tok = auth.bearer(request);
         const who = viewer?.name ?? (tok ? (await auth.resolveToken(env, tok, ctx)).user : null);
         if (!who) return json({ error: "sign in required" }, 401);
-        const role = await registry.memberRole(env, m[1], who);
+        // The access row the soft-delete guard already read answers this for the signed-in viewer (no second D1 read).
+        const role = viewer?.name === who && BOARD_RE.test(m[1]) ? (await accessOf(c, m[1])).role : await registry.memberRole(env, m[1], who);
         if (!role) return json({ error: "board not found" }, 404);
         // Signed in as the person (cookie, the app's token) or an agent's token: people-only signals reach only the first.
         const as = viewer && viewer.via !== "agent" ? "person" : "agent";
@@ -3931,10 +3965,11 @@ const handler = {
           const refused = await longPoll(after);
           if (refused) return refused;
           // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
-          const [snap, members0, live] = await Promise.all([stub.snapshot(after, {}, seer()), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
+          // Roots come with the snapshot (one call to the board, not two in a row: every open tab makes this request per message).
+          const [snap, members0, live] = await Promise.all([stub.snapshot(after, { roots: true }, seer()), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
           const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
           const fresh = snap.entries;
-          const roots = await stub.rootsFor(fresh.map((e) => e.seq));
+          const roots: Record<number, number> = snap.roots ?? {};
           const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);
           const names = Object.fromEntries(members0.filter((x) => x.agent_name).map((x) => [x.user, x.agent_name!]));
           const memberSet = new Set(members0.map((x) => x.user)), people = displayMap(members0);
@@ -3972,10 +4007,11 @@ const handler = {
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
           const refused = await longPoll(after);
           if (refused) return refused;
-          const [snap, names] = await Promise.all([stub.snapshot(after, {}, seer()), social.boardAgentNames(env, id)]);
-          const list = withNames(snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200)), names);
-          // Reactions on these entries (agents' 🤔 / ✅ read receipts among them), keyed by seq.
-          const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq), seer()) : {};
+          const limit = Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200);
+          // Reactions on these entries (agents' 🤔 / ✅ read receipts among them), keyed by seq: with the snapshot, in one call.
+          const [snap, names] = await Promise.all([stub.snapshot(after, { reactionsOfFirst: limit }, seer()), social.boardAgentNames(env, id)]);
+          const list = withNames(snap.entries.slice(0, limit), names);
+          const reactions = list.length ? (snap.entry_reactions ?? {}) : {};
           // last: past any people-only entries this caller doesn't get (all of them, for an agent's token).
           const last = list.length < snap.entries.length ? list[list.length - 1].seq : snap.last;
           // ?ack=1: an agent that reads this way has read them: its read position moves to last, so its next post isn't
@@ -4064,7 +4100,10 @@ const handler = {
           // stored and shown as that session mention, and only that session's read, wait and mailbox get it.
           const toSession = typeof body.to_session === "string" ? body.to_session.trim().toLowerCase().replace(/^@/, "") : "";
           if (!peopleOnly && toSession && SESSION_NAME_RE.test(toSession) && text.trim() && !text.toLowerCase().includes(`@${viewer.name}/${toSession}`)) text = `@${viewer.name}/${toSession} ${text}`;
-          const boardMembers = await registry.boardMembers(env, id);
+          // Replying: the entry it answers is read alongside the members (both are needed below; neither waits on the other).
+          const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
+          const parentRead = replyTo ? stub.get(replyTo, seer()).catch(() => null) : null;
+          const boardMembers = await (postMembers ?? registry.boardMembers(env, id));
           const { mentions, ambiguous }: { mentions: Mention[]; ambiguous: string[] } = mayMention(text) ? parseMentions(text, boardMembers, viewer.name, pv()) : { mentions: [], ambiguous: [] };
           // People-only: who it's for, each a member of this board (the author is added by the board).
           let toPeople: string[] | undefined;
@@ -4079,8 +4118,6 @@ const handler = {
             }
             for (const x of mentions) if (!x.agent && memberSet.has(x.user)) toPeople.push(x.user); // "@jxn" in the text
           }
-          // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
-          const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
           // What it answers or completes, as over MCP (REST used to drop it, so a REST "resolves" did nothing). The board
           // caps it (MAX_RESOLVES) for both.
           const ints = (v: unknown) => (Array.isArray(v) ? v : v == null ? [] : [v]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
@@ -4088,8 +4125,9 @@ const handler = {
           const supersedes = ints(body.supersedes)[0] ?? null;
           const dependsOn = ints(body.depends_on);
           const title = typeof body.title === "string" && body.title.trim() ? body.title : null;
+          // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
           if (replyTo) {
-            const parent = await stub.get(replyTo, seer()).catch(() => null);
+            const parent = await parentRead;
             if (!parent) return json({ error: `Entry #${replyTo} does not exist on this board.` }, 400);
             const p = parent.entry;
             if (p.author !== viewer.name) {
@@ -4113,6 +4151,7 @@ const handler = {
             // on it, nothing is posted and it gets those entries (now marked read). People on the web post as before.
             let missed: number[] | undefined;
             let entry: Entry;
+            let rootSeq: number; // the board says the new entry's thread root with the post (no rootsFor call after it)
             if (viewer.via === "agent") {
               const res = await withRetry(async () => await stub.postFresh(viewer.name, input, so.session, yes(body.strict)));
               if ("refused" in res) {
@@ -4120,11 +4159,12 @@ const handler = {
                 return json({ error: `Not posted: ${n} new ${n === 1 ? "entry" : "entries"} arrived since you last read${res.relevant.length ? `, and ${res.relevant.length === 1 ? "this one bears" : `these ${res.relevant.length} bear`} on your post (in relevant)` : ""}. All now marked read${res.remaining ? ` (${res.remaining} more unread)` : ""}. Take ${n === 1 ? "it" : "them"} into account, then post again if your message still fits.`, refused: true, relevant: withNames(res.relevant, await social.boardAgentNames(env, id)), others: res.others, remaining: res.remaining }, 409);
               }
               entry = res.entry;
+              rootSeq = res.root;
               missed = res.missed.map((e) => e.seq);
-            } else entry = await withRetry(async () => await stub.post(viewer.name, input));
+            } else ({ entry, root: rootSeq } = await withRetry(async () => await stub.postRooted(viewer.name, input)));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
-            const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
+            const root = replyTo ? rootSeq : entry.seq;
             // The poster sees "@Jarvis" as that agent's chip straight away, as everyone else does (jxn #1659).
             // A people-only message (asked for, or a reply in one) says once, here, who can see it.
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.

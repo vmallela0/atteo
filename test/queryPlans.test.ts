@@ -3,7 +3,7 @@
 // exact string the code sends (exported constants), so a query or an index can't drift without this failing.
 
 import { describe, expect, it } from "vitest";
-import { AGENTS_ON_BOARD_SQL, BOARDS_FOR_USER_SQL, TAPE_PRUNE_SQL, TAPE_READ_SQL, TAPE_TOP_SQL } from "../src/registry";
+import { AGENTS_ON_BOARD_SQL, BOARD_ACCESS_SQL, BOARDS_FOR_USER_SQL, TAPE_PRUNE_SQL, TAPE_READ_SQL, TAPE_TOP_SQL } from "../src/registry";
 import { LIVE_SESSIONS_SQL, SESSIONS_ON_BOARD_SQL, USER_SESSIONS_SQL } from "../src/sessions";
 import { PRUNE_READ_SQL, listInboxSql, unreadCountSql } from "../src/inbox";
 import { PRUNE_USAGE_DAILY_SQL } from "../src/usage";
@@ -60,6 +60,7 @@ const HOT: Record<string, string> = {
   "machines report": MACHINE_UPSERT_SQL,
   "machines prune (a person's labels)": MACHINE_PRUNE_SQL,
   "device login expired cleanup": PRUNE_DEVICE_LOGINS_SQL,
+  "board access (every board request: deleted, member, role)": BOARD_ACCESS_SQL,
 };
 
 describe("hot queries use an index", () => {

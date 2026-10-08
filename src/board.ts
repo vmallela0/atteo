@@ -1256,13 +1256,16 @@ export class Board extends DurableObject<Env> {
     input: NewEntry,
     session?: string | null,
     strict = false, // post {strict: true}: anything unread stops it, as before relevance (#2177)
-  ): Promise<{ entry: Entry; missed: Entry[] } | { refused: true; relevant: Entry[]; others: number[]; remaining: number }> {
+  ): Promise<{ entry: Entry; missed: Entry[]; root: number } | { refused: true; relevant: Entry[]; others: number[]; remaining: number }> {
     const again = this.sentBefore(user, input.idem);
-    if (again) return { entry: again, missed: [] }; // a retry of a post that already landed
+    if (again) return { entry: again, missed: [], root: await this.rootOf(again.seq) }; // a retry of a post that already landed
     this.info();
     const cursor = this.seenCursor(user, session); // a held wait's entries count as read here, acked or not
     const missed = this.entriesAfter(cursor, user, MISSED_SCAN, session, asAgent(user));
-    if (!missed.length) return { entry: await this.post(user, session ? { ...input, session } : input), missed: [] };
+    if (!missed.length) {
+      const entry = await this.post(user, session ? { ...input, session } : input);
+      return { entry, missed: [], root: await this.rootOf(entry.seq) };
+    }
     // More than we check at once: refuse, as before, so nothing unchecked is skipped by the post.
     const remaining = missed.length < MISSED_SCAN ? 0 : this.countAfter(cursor, user, session) - missed.length;
     const relevant = strict ? new Set(missed.map((e) => e.seq)) : await this.relevantMisses(user, input, missed, session);
@@ -1274,7 +1277,14 @@ export class Board extends DurableObject<Env> {
       return { refused: true, relevant: this.decisions.attach(missed.filter((e) => relevant.has(e.seq))), others: missed.filter((e) => !relevant.has(e.seq)).map((e) => e.seq), remaining };
     }
     // The post moves this reader past everything it missed.
-    return { entry: await this.post(user, session ? { ...input, session } : input), missed: this.decisions.attach(missed) };
+    const entry = await this.post(user, session ? { ...input, session } : input);
+    return { entry, missed: this.decisions.attach(missed), root: await this.rootOf(entry.seq) };
+  }
+
+  /** post, with the new entry's thread root: the Worker renders the entry in its reply without a second call (rootsFor). */
+  async postRooted(user: string, input: NewEntry): Promise<{ entry: Entry; root: number }> {
+    const entry = await this.post(user, input);
+    return { entry, root: await this.rootOf(entry.seq) };
   }
 
   /**
@@ -3462,6 +3472,10 @@ export class Board extends DurableObject<Env> {
   }
 
   /** For each seq, the top of its reply chain (so the web UI can nest a reply under its thread). */
+  private async rootOf(seq: number): Promise<number> {
+    return (await this.rootsFor([seq]))[seq] ?? seq;
+  }
+
   async rootsFor(seqs: number[]): Promise<Record<number, number>> {
     const out: Record<number, number> = {};
     for (const seq of seqs.slice(0, 1000)) {
@@ -5722,7 +5736,7 @@ export class Board extends DurableObject<Env> {
 
   /** For pages: afterSeq 0 means "open the board", which shows the newest entries (big boards load earlier ones on demand). */
   // `viewer`: who the page is for (a person sees their own people-only messages); absent: an agent's or the ops view.
-  async snapshot(afterSeq = 0, opts: { latest?: number } = {}, viewer?: Viewer | null) {
+  async snapshot(afterSeq = 0, opts: { latest?: number; roots?: boolean; reactionsOfFirst?: number } = {}, viewer?: Viewer | null) {
     const info = this.info();
     await this.decisions.refresh();
     const PAGE = 1000;
@@ -5745,6 +5759,10 @@ export class Board extends DurableObject<Env> {
       handling,
       decisions: this.decisions.all(), // every human decision's state (small), like claims
       pinned: this.pinnedNow(),
+      // Each returned entry's thread root, when asked (/updates): the same answer rootsFor gives, without a second call.
+      ...(opts.roots ? { roots: await this.rootsFor(entries.map((e) => e.seq)) } : {}),
+      // The reactions on the first N entries it returns, as reactionsFor gives them (GET /entries?after=: one call, not two).
+      ...(opts.reactionsOfFirst != null ? { entry_reactions: entries.length && opts.reactionsOfFirst > 0 ? this.reactionsFor(entries.slice(0, opts.reactionsOfFirst).map((e) => e.seq), viewer) : {} } : {}),
     };
   }
 

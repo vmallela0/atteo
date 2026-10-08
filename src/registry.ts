@@ -252,12 +252,24 @@ export async function deleteBoard(env: Env, boardId: string) {
   ]);
 }
 
-/** Does the board exist, and is `user` on it? One query. */
-export async function boardAccess(env: Env, boardId: string, user: string | null): Promise<{ exists: boolean; member: boolean; role: Role | null }> {
-  const r = await env.DB.prepare(`SELECT (SELECT role FROM members WHERE board_id = b.id AND user = ?1 AND (expires_at IS NULL OR expires_at > ?3)) AS role FROM boards b WHERE b.id = ?2 AND b.deleted_at IS NULL`)
+/** What every board request asks, in one query (vedu #6564: it used to be three, one after another): is the board
+ *  there (exists: not deleted), was it soft-deleted (deleted_at), and is `user` on it with which role (null when not a
+ *  member, their access expired, or the board is deleted, as memberRole says). */
+export interface BoardAccess {
+  exists: boolean;
+  member: boolean;
+  role: Role | null;
+  deleted_at: number | null;
+}
+/** Shared with test/queryPlans.test.ts (every board request runs it): it must use an index. */
+export const BOARD_ACCESS_SQL = `SELECT b.deleted_at, (SELECT role FROM members WHERE board_id = b.id AND user = ?1 AND (expires_at IS NULL OR expires_at > ?3)) AS role FROM boards b WHERE b.id = ?2`;
+export async function boardAccess(env: Env, boardId: string, user: string | null): Promise<BoardAccess> {
+  const r = await env.DB.prepare(BOARD_ACCESS_SQL)
     .bind(user ?? "", boardId, Date.now())
-    .first<{ role: Role | null }>();
-  return { exists: !!r, member: !!r?.role, role: r?.role ?? null };
+    .first<{ role: Role | null; deleted_at: number | null }>();
+  const live = !!r && r.deleted_at == null;
+  const role = live ? (r.role ?? null) : null;
+  return { exists: live, member: !!role, role, deleted_at: r?.deleted_at ?? null };
 }
 
 /** The boards a cross-board grep looks in: the user's current memberships, most recently active first. */

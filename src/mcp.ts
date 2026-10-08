@@ -603,10 +603,9 @@ export const TOOLS = TOOL_DEFS.map((t) => ({ ...t, annotations: TOOL_ANNOTATIONS
 // ---------- helpers ----------
 
 /** Viewers can read a board but not change it. */
+const VIEWER_ONLY = "Your user can view this board but not change it (their role is viewer). Ask a board owner for contributor access.";
 async function requireWriter(env: Env, boardId: string, user: string) {
-  if ((await registry.memberRole(env, boardId, user)) === "viewer") {
-    throw new ToolError("Your user can view this board but not change it (their role is viewer). Ask a board owner for contributor access.");
-  }
+  if ((await registry.memberRole(env, boardId, user)) === "viewer") throw new ToolError(VIEWER_ONLY);
 }
 
 function str(v: unknown): string | undefined {
@@ -640,6 +639,8 @@ export interface CallContext {
   env: Env;
   ctx: ExecutionContext;
   user: string;
+  /** The pinned board's role as currentBoard just read it (post takes it at once, so it's never reused later). */
+  boardRole?: { board: string; role: registry.Role | null };
   sessionId: string; // Mcp-Session-Id, or a per-token key when the client sends none
   sharedSession: boolean; // no Mcp-Session-Id: every session on this connection shares one board
   pinnedBoard: string | null; // ?board= in the MCP URL pins this connection to one board
@@ -753,8 +754,12 @@ async function optionsText(c: CallContext): Promise<string> {
 /** The board this session works on: the URL pin, else the board joined in this session. Membership is re-checked every call. */
 async function currentBoard(c: CallContext, args: Json): Promise<string> {
   const asked = str(args.board);
-  if (c.pinnedBoard && (await registry.isMember(c.env, c.pinnedBoard, c.user))) {
-    c.ctx.waitUntil(registry.setMcpSessionBoard(c.env, c.sessionId, c.user, c.pinnedBoard).catch(() => {}));
+  // The pinned board's role answers "a member?" here and, for post, "a writer?" next (c.boardRole), in one read.
+  const pinnedRole = c.pinnedBoard ? await registry.memberRole(c.env, c.pinnedBoard, c.user) : null;
+  const pinnedMember = pinnedRole != null;
+  c.boardRole = c.pinnedBoard && pinnedMember ? { board: c.pinnedBoard, role: pinnedRole } : undefined;
+  if (pinnedMember) {
+    c.ctx.waitUntil(registry.setMcpSessionBoard(c.env, c.sessionId, c.user, c.pinnedBoard!).catch(() => {}));
   }
   const id = c.pinnedBoard ?? (await registry.mcpSessionBoard(c.env, c.sessionId, c.user));
   if (!id) {
@@ -763,7 +768,8 @@ async function currentBoard(c: CallContext, args: Json): Promise<string> {
   if (asked && asked !== id) {
     throw new ToolError(`This session is on board ${id}. Call join_board to switch to "${asked}".`);
   }
-  if (!BOARD_RE.test(id) || !(await registry.isMember(c.env, id, c.user))) {
+  // The pinned board's membership was just read (the same query): not asked twice.
+  if (!BOARD_RE.test(id) || !(id === c.pinnedBoard ? pinnedMember : await registry.isMember(c.env, id, c.user))) {
     if (BOARD_RE.test(id) && (await registry.deletedAt(c.env, id))) {
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(c.env, c.sessionId, c.user, null);
       throw new ToolError("This chat was deleted");
@@ -976,8 +982,18 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     }
 
     case "post": {
+      // What the post needs from D1 is read side by side (vedu #6564), each awaited where it was before, so the same
+      // error comes first: the board, the writer check, then the client name, then the members (only with an @).
+      const clientRead = agentOpts(c);
+      clientRead.catch(() => {});
       const id = await currentBoard(c, args);
-      if (true) await requireWriter(env, id, user);
+      const known = c.boardRole?.board === id ? c.boardRole.role : undefined; // read by currentBoard just now
+      c.boardRole = undefined;
+      const text = typeof args.text === "string" ? args.text : "";
+      const membersRead = mayMention(text) ? registry.boardMembers(env, id) : null;
+      membersRead?.catch(() => {});
+      if (known === undefined) await requireWriter(env, id, user);
+      else if (known === "viewer") throw new ToolError(VIEWER_ONLY);
       const type = str(args.type)?.toLowerCase() as NewEntry["type"] | undefined;
       if (!type || !(ENTRY_TYPES as readonly string[]).includes(type)) throw new ToolError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
@@ -986,9 +1002,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const notOwn = args.own === false || args.own === "false"; // public on purpose: never kept in Just mine
       const stub = stubFor(env, id);
       // An agent session shows as its name (and tool): "scout · Codex"; otherwise the MCP client's name.
-      const agentClient = (await agentOpts(c)).client;
-      const text = typeof args.text === "string" ? args.text : "";
-      const { mentions, unknown, ambiguous } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), user, "agent") : { mentions: [], unknown: [], ambiguous: [] as string[] };
+      const agentClient = (await clientRead).client;
+      const { mentions, unknown, ambiguous } = membersRead ? parseMentions(text, await membersRead, user, "agent") : { mentions: [], unknown: [], ambiguous: [] as string[] };
       // One message id for this call: if a deploy restarts the board mid-post, the retry can't post it twice.
       const badIdem = badMessageId(typeof args.idempotency_key === "string" ? args.idempotency_key : null);
       if (badIdem) throw new ToolError(badIdem.replace("Idempotency-Key", "idempotency_key"));

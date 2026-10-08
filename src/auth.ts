@@ -202,21 +202,32 @@ export async function createToken(
 // tens of milliseconds. Anything that changes something looks the token up fresh (`fresh`), so a revoked token (the
 // kill switch) can't write anywhere from that moment; reads stop within TOKEN_CACHE_MS on other isolates.
 const TOKEN_CACHE_MS = 10_000;
-/** The token lookup (hot: most API calls), shared with test/queryPlans.test.ts: it must use an index. */
-export const TOKEN_SQL = `SELECT id, user, expires_at, kind FROM tokens WHERE hash = ? AND revoked_at IS NULL`;
+/** The token lookup (hot: most API calls), shared with test/queryPlans.test.ts: it must use an index. Its user's row comes
+ *  in the same read (vedu #6564: the request used to ask D1 for it next, one more round trip on every agent post); only
+ *  the token's own fields are cached, so the user's name and email are as fresh as before. */
+export const TOKEN_SQL = `SELECT t.id, t.user, t.expires_at, t.kind, u.name AS u_name, u.email AS u_email, u.display_name AS u_display_name FROM tokens t LEFT JOIN users u ON u.name = t.user WHERE t.hash = ? AND t.revoked_at IS NULL`;
+/** A token's user, when the lookup read it from D1 just now (null: no such user). */
+export interface TokenUser {
+  name: string;
+  email: string | null;
+  display_name: string | null;
+}
 const tokenCache = new Map<string, { id: string; user: string; expires_at: number | null; kind: string | null; at: number; touched: number }>();
 
 async function lookupToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false) {
   const hash = await sha256hex(token);
   const now = Date.now();
   let row = tokenCache.get(hash);
+  let userRow: TokenUser | null | undefined; // undefined: served from the cache, the user wasn't read
   if (!row || fresh || now - row.at > TOKEN_CACHE_MS) {
-    const r = await env.DB.prepare(TOKEN_SQL).bind(hash).first<{ id: string; user: string; expires_at: number | null; kind: string | null }>();
+    const r = await env.DB.prepare(TOKEN_SQL).bind(hash).first<{ id: string; user: string; expires_at: number | null; kind: string | null; u_name: string | null; u_email: string | null; u_display_name: string | null }>();
     if (!r) {
       tokenCache.delete(hash);
       return null;
     }
-    row = { ...r, at: now, touched: row?.touched ?? 0 };
+    const { u_name, u_email, u_display_name, ...tok } = r;
+    userRow = u_name ? { name: u_name, email: u_email, display_name: u_display_name } : null;
+    row = { ...tok, at: now, touched: row?.touched ?? 0 };
     if (tokenCache.size > 5000) tokenCache.clear();
     tokenCache.set(hash, row);
   }
@@ -227,7 +238,7 @@ async function lookupToken(env: Env, token: string, ctx?: ExecutionContext, fres
     if (ctx) ctx.waitUntil(touch.catch(() => {}));
     else await touch;
   }
-  return row;
+  return { ...row, userRow };
 }
 
 export function forgetToken(id: string) {
@@ -248,11 +259,13 @@ export async function resolveToken(env: Env, token: string, ctx?: ExecutionConte
 }
 
 /** A bearer token's user and kind ("app": the Atteo app, acting as the person), or null. */
-export async function tokenIdentity(env: Env, token: string, fresh = false): Promise<{ user: string; kind: string | null } | null> {
+/** `userRow`: the token's user as read with it (null: none), or undefined when the token came from the cache. `ctx`: the
+ *  once-a-minute "last used" write goes in the background instead of holding up the request. */
+export async function tokenIdentity(env: Env, token: string, fresh = false, ctx?: ExecutionContext): Promise<{ user: string; kind: string | null; userRow?: TokenUser | null } | null> {
   if (!token.startsWith("ab_")) return null;
-  const row = await lookupToken(env, token, undefined, fresh);
+  const row = await lookupToken(env, token, ctx, fresh);
   if (!row || (row.expires_at != null && row.expires_at < Date.now())) return null;
-  return { user: row.user, kind: row.kind ?? null };
+  return { user: row.user, kind: row.kind ?? null, ...(row.userRow !== undefined ? { userRow: row.userRow } : {}) };
 }
 
 /** Resolves a bearer token to its user, or null if unknown, revoked or expired. */
