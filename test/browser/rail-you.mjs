@@ -32,7 +32,9 @@ await Promise.all(["light", "dark"].map(async (scheme) => {
   await p.goto(`${BASE}/b/${board}`);
   await p.locator("#rail i").first().waitFor({ state: "attached" });
   await p.waitForFunction((n) => document.querySelectorAll("#thread>.entry").length >= n && document.querySelectorAll("#rail i.on").length > 0, forYou.length + notYou.length);
-  await p.evaluate(() => document.querySelectorAll("#rail i").forEach((i) => (i.style.transition = "none"))); // the ticks' end colours, not mid-fade
+  // The ticks' end colours, not mid-fade: a stylesheet rule, not inline styles, so it also covers ticks the rail
+  // rebuilds (railBuild replaces them) after this point, which under load otherwise read as a half-faded grey.
+  await p.evaluate(() => new Promise((r) => { const s = [...document.styleSheets].find((x) => { try { return x.cssRules; } catch { return false; } }); s.insertRule("#rail i{transition:none!important}", s.cssRules.length); requestAnimationFrame(() => requestAnimationFrame(r)); })); // CSSOM: the CSP blocks a <style> tag
   const marked = await p.evaluate(() => [...document.querySelectorAll("#thread>.entry.for-you")].map((e) => +e.dataset.seq).sort((a, b) => a - b));
   check(JSON.stringify(marked) === JSON.stringify([...forYou].sort((a, b) => a - b)), `${scheme}: only the messages that say @${J} are for you (${marked.join(",")}), not @…'s agent, @…/claude, @agents or a question to the agent`);
   // Each tick's colour as drawn on the page's background, and its contrast with it.
