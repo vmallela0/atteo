@@ -59,10 +59,11 @@ class FakeBoard {
   async init(id: string, title: string, creator: string) { return { id, title, created_by: creator, created_at: Date.now() }; }
   async page(before: number | null, limit: number) { return this.entries.filter((e) => before == null || e.seq < before).slice(-limit); }
   async post(author: string, input: Record<string, any>) {
-    const entry = { seq: this.entries.length + 1, ts: Date.now(), author, type: input.type ?? "note", text: input.text, title: null, to: input.to ?? null, mentions: input.mentions ?? [], reply_to: input.reply_to ?? null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, via: input.via, client: input.client } as Entry;
+    const entry = { seq: this.entries.length + 1, ts: Date.now(), author, type: input.type ?? "note", text: input.text, title: null, to: input.to ?? null, mentions: input.mentions ?? [], reply_to: input.reply_to ?? null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, via: input.via, client: input.client, ...(input.data ? { data: input.data } : {}) } as Entry;
     this.entries.push(entry);
     return entry;
   }
+  async get(seq: number) { const entry = this.entries.find((e) => e.seq === seq); if (!entry) throw new Error("no such entry"); return { entry }; }
 }
 
 const addUser = (db: any, name: string, email = `${name}@example.com`) => db.prepare(`INSERT INTO users (name, email, email_verified, first_seen, last_seen, plan) VALUES (?, ?, 1, 1, 1, 'free')`).run(name, email);
@@ -460,10 +461,10 @@ describe("/a ask and friends (jxn #6397)", () => {
       const res = await routeAgentWeb(formRequest("/a/message", { csrf, person, text: "hi me" }, cookie), f.env, f.deps);
       expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toContain("Sent to old. They'll answer in your agent chat."); // idle, not gone: it's in its mailbox
+      expect(html).toContain("Sent to maya&#39;s agent. It'll answer in your agent chat."); // none running: your agent's mailbox
     }
     const chat = f.db.prepare(`SELECT id FROM boards WHERE direct_key = 'self:maya'`).get().id as string;
-    expect(f.stub(chat).entries[0]).toMatchObject({ type: "question", text: "@maya/old hi me", via: "agent", mentions: [{ user: "maya", agent: true, session: "old" }] });
+    expect(f.stub(chat).entries[0]).toMatchObject({ type: "question", text: "@agents hi me", via: "agent", mentions: [{ user: "maya", agent: true }], data: { ask_all: [] } });
   });
 
   it("messages all of the person's agents at once and shows each one's answer (jxn #6431)", async () => {
@@ -476,24 +477,24 @@ describe("/a ask and friends (jxn #6397)", () => {
     const sent = await routeAgentWeb(formRequest("/a/ask", { csrf, all: "1", text: "standup?" }, cookie), f.env, f.deps);
     expect(sent.status).toBe(200);
     const chat = f.db.prepare(`SELECT id FROM boards WHERE direct_key = 'self:maya'`).get().id as string;
-    // One copy each (mail is one per post), each in that agent's own mailbox.
-    const [q1, q2] = f.stub(chat).entries;
-    const copies = Object.fromEntries([q1, q2].map((q) => [q.mentions?.[0]?.session, q]));
-    expect(copies.muse).toMatchObject({ type: "question", text: "@maya/muse standup?", mentions: [{ user: "maya", agent: true, session: "muse" }] });
-    expect(copies.grok).toMatchObject({ type: "question", text: "@maya/grok standup?", mentions: [{ user: "maya", agent: true, session: "grok" }] });
+    // One message, "@agents …" (jxn #6453): the board puts it in each running agent's own mailbox.
+    expect(f.stub(chat).entries.length).toBe(1);
+    const q = f.stub(chat).entries[0];
+    expect(q).toMatchObject({ type: "question", text: "@agents standup?", mentions: [{ user: "maya", agent: true }] });
+    expect([...((q as { data?: { ask_all: string[] } }).data?.ask_all ?? [])].sort()).toEqual(["grok", "muse"]);
     const sentHtml = await sent.text();
     expect(sentHtml).toMatch(/Sent to (muse, grok|grok, muse)\. They'll answer in your agent chat\./);
-    expect(sentHtml).toContain(`name="seq" value="${q1.seq}"`);
-    f.stub(chat).entries.push(answer(3, copies.muse.seq, "muse: <b>shipping</b>"));
-    let checked = await (await routeAgentWeb(formRequest("/a/ask/check", { csrf, to: "my agents", board: chat, seq: String(q1.seq) }, cookie), f.env, f.deps)).text();
+    expect(sentHtml).toContain(`name="seq" value="${q.seq}"`);
+    f.stub(chat).entries.push({ ...answer(2, q.seq, "muse: <b>shipping</b>"), client: "muse · Muse" } as Entry);
+    let checked = await (await routeAgentWeb(formRequest("/a/ask/check", { csrf, to: "my agents", board: chat, seq: String(q.seq) }, cookie), f.env, f.deps)).text();
     expect(checked).toContain("1 of 2 answered so far.");
-    expect(checked).toContain("<h2>muse (#3 at ");
+    expect(checked).toContain("<h2>muse (#2 at ");
     expect(checked).toContain("&lt;b&gt;shipping&lt;/b&gt;");
     expect(checked).toContain(`action="/a/ask/check"`);
-    f.stub(chat).entries.push(answer(4, copies.grok.seq, "grok: reviewing"));
-    checked = await (await routeAgentWeb(formRequest("/a/ask/check", { csrf, to: "my agents", board: chat, seq: String(q1.seq) }, cookie), f.env, f.deps)).text();
+    f.stub(chat).entries.push({ ...answer(3, q.seq, "grok: reviewing"), client: "grok · Grok" } as Entry);
+    checked = await (await routeAgentWeb(formRequest("/a/ask/check", { csrf, to: "my agents", board: chat, seq: String(q.seq) }, cookie), f.env, f.deps)).text();
     expect(checked).toContain("All 2 answered.");
-    expect(checked).toContain("<h2>grok (#4 at ");
+    expect(checked).toContain("<h2>grok (#3 at ");
     expect(checked).not.toContain(`action="/a/ask/check"`);
   });
 

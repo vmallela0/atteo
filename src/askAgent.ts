@@ -1,8 +1,8 @@
 // "Ask": one question to one agent, in the words people use ("my grok", "jxn's muse", "jxn/muse"), answered in the
 // same call (jxn #6339). Your own agents get it on your agent chat, someone else's on your direct board with them
 // (first contact rules apply, as for any DM). It waits for that agent's reply; an agent that isn't running gets it in
-// its mailbox, and the caller is told so instead of waiting. "All my agents" (jxn #6431) is a message to every agent of
-// yours that's running, like texting yourself: each gets its copy in its own mailbox, and every answer comes back.
+// its mailbox, and the caller is told so instead of waiting. "All my agents" (jxn #6431) is one "@agents" message to every
+// agent of yours that's running, like texting yourself: each gets it in its own mailbox, and every answer comes back.
 
 import type { Board } from "./board";
 import * as dm from "./dm";
@@ -144,68 +144,48 @@ export async function ask(env: Env, stub: Stub, p: AskInput): Promise<AskResult>
   return awaitAnswer(env, stub, { me: p.me, user, own: t.own, label, board, seq, waitMs: p.waitMs, signal: p.signal });
 }
 
-/** All my agents: on your agent chat, one copy for each of yours that's around (not the session asking), so each gets it
- *  in its own mailbox (mail is one per post, so one post can't reach several sessions); with none around, your agent at
- *  large gets it (a dispatcher, or whichever runs next). */
+/** All my agents: one "@agents" message on your agent chat, which reaches each of yours that's running (not the session
+ *  asking) in its own mailbox (board.ts notify); with none running, your agent at large gets it (a dispatcher, or whichever
+ *  runs next). The ones it went to are kept in its data (ask_all), so a later check knows whose answers to expect. */
 async function askAll(env: Env, stub: Stub, p: AskInput, text: string, mine: Listed[]): Promise<AskResult> {
-  const targets = mine.filter((x) => sessions.listed(x) && x.id !== p.session).slice(0, 12);
+  const targets = mine.filter((x) => sessions.listed(x) && x.state === "live" && x.id !== p.session).slice(0, 20);
   const d = await social.openAgentChat(env, p.me, (bid, title, creator, o) => stub(bid).init(bid, title, creator, o));
-  const idem = p.idem ?? crypto.randomUUID();
-  const post = async (lead: string, mention: Mention, key: string) => {
-    const e = await stub(d.id).post(p.me, { type: "question", text: `${lead} ${text}`, to: null, mentions: [mention], via: p.via, client: p.client ?? null, session: p.session ?? null, ...(p.sessionName ? { session_name: p.sessionName } : {}), idem: key });
-    await registry.bumpBoard(env, d.id, e.seq).catch(() => {});
-    return e.seq;
-  };
-  if (!targets.length) {
-    const seq = await post(`@${p.me}'s agent`, { user: p.me, agent: true }, idem);
+  const agents = targets.map((x) => x.name);
+  const e = await stub(d.id).post(p.me, { type: "question", text: `@agents ${text}`, to: null, mentions: [{ user: p.me, agent: true }], data: { ask_all: agents }, via: p.via, client: p.client ?? null, session: p.session ?? null, ...(p.sessionName ? { session_name: p.sessionName } : {}), idem: p.idem ?? crypto.randomUUID() });
+  await registry.bumpBoard(env, d.id, e.seq).catch(() => {});
+  if (!agents.length) {
     const label = `${p.me}'s agent`;
-    if (!(await mailbox.leaseState(env, p.me, Date.now())).held) return { status: "queued", to: label, board: d.id, seq, agents: [], message: `None of your agents is running, so it's in your mailbox: whatever runs your agent next picks it up. The answer comes back to #${seq} on board ${d.id}.` };
-    return awaitAnswer(env, stub, { me: p.me, user: p.me, own: true, label, board: d.id, seq, waitMs: p.waitMs, signal: p.signal });
+    if (!(await mailbox.leaseState(env, p.me, Date.now())).held) return { status: "queued", to: label, board: d.id, seq: e.seq, agents: [], message: `None of your agents is running, so it's in your mailbox: whatever runs your agent next picks it up. The answer comes back to #${e.seq} on board ${d.id}.` };
+    return awaitAnswer(env, stub, { me: p.me, user: p.me, own: true, label, board: d.id, seq: e.seq, waitMs: p.waitMs, signal: p.signal });
   }
-  const asks: { agent: string; seq: number }[] = [];
-  for (const x of targets) asks.push({ agent: x.name, seq: await post(`@${p.me}/${x.name}`, { user: p.me, agent: true, session: x.name }, `${idem}:${x.name}`) });
-  return awaitAll(env, stub, { me: p.me, board: d.id, asks, waitMs: p.waitMs, signal: p.signal });
+  return awaitAll(env, stub, { me: p.me, board: d.id, seq: e.seq, agents, waitMs: p.waitMs, signal: p.signal });
 }
 
-/** The copies of an all-my-agents question that starts at `seq`: the same words to each agent, posted one after another. */
-export function copiesOf(entries: Entry[], me: string, seq: number): { agent: string; seq: number }[] {
-  const lead = (e: Entry) => e.text.match(/^@[a-z0-9_.-]+\/([a-z0-9][a-z0-9_.-]*) ([\s\S]*)$/i);
-  const first = entries.find((e) => e.seq === seq);
-  const m = first && first.author === me && first.type === "question" ? lead(first) : null;
-  if (!m) return [];
-  const out: { agent: string; seq: number }[] = [];
-  for (const e of entries.filter((x) => x.seq >= seq && x.seq < seq + 40 && x.author === me && x.type === "question")) {
-    const k = lead(e);
-    if (k && k[2] === m[2] && e.mentions?.some((x) => x.user === me && x.session === k[1]) && !out.some((o) => o.agent === k[1])) out.push({ agent: k[1], seq: e.seq });
-  }
-  return out;
-}
+/** Which of your agents wrote an entry: the session name its client starts with ("lead · Claude Code"). */
+const sessionOf = (e: Entry): string | null => (e.client?.includes(" · ") ? e.client.split(" · ")[0] : null);
 
 /** Every answer to an all-my-agents question, until each agent it went to has answered or waitMs runs out. */
-export async function awaitAll(env: Env, stub: Stub, q: { me: string; board: string; asks: { agent: string; seq: number }[]; waitMs: number; signal?: AbortSignal }): Promise<AskResult> {
+export async function awaitAll(env: Env, stub: Stub, q: { me: string; board: string; seq: number; agents: string[]; waitMs: number; signal?: AbortSignal }): Promise<AskResult> {
   const s = stub(q.board);
   const viewer = { user: q.me, person: false };
-  const agents = q.asks.map((a) => a.agent);
-  const first = Math.min(...q.asks.map((a) => a.seq));
-  const label = `${q.me}'s agents (${agents.join(", ")})`;
+  const label = `${q.me}'s agents (${q.agents.join(", ")})`;
   const deadline = Date.now() + Math.max(0, q.waitMs);
   let answers: (Answer & { agent: string })[] = [];
   for (;;) {
-    const recent = (await s.page(null, 100, viewer)).filter((e) => e.seq > first);
-    answers = q.asks
-      .map((a) => ({ a, hit: answerIn(recent.filter((e) => e.seq > a.seq), { seq: a.seq, user: q.me, own: true }) }))
-      .filter((x) => !!x.hit)
-      .map(({ a, hit }) => ({ seq: hit!.seq, ts: hit!.ts, author: hit!.author, text: hit!.text, agent: a.agent }))
-      .sort((x, y) => x.seq - y.seq);
+    const recent = (await s.page(null, 100, viewer)).filter((e) => e.seq > q.seq);
+    answers = recent
+      .filter((e) => e.author === q.me && e.via === "agent" && (e.reply_to === q.seq || (e.resolves ?? []).includes(q.seq)))
+      .map((e) => ({ seq: e.seq, ts: e.ts, author: e.author, text: e.text, agent: sessionOf(e) ?? "agent" }));
     const left = deadline - Date.now();
-    if (answers.length >= q.asks.length || left < 250 || q.signal?.aborted) break;
-    const after = recent.length ? recent[recent.length - 1].seq : first;
+    if (q.agents.every((a) => answers.some((x) => x.agent === a)) || left < 250 || q.signal?.aborted) break;
+    const after = recent.length ? recent[recent.length - 1].seq : q.seq;
     await waitForBoard(s, { kind: "any", after }, left, q.signal);
   }
-  const base = { to: label, board: q.board, seq: first, agents, answers };
-  if (answers.length >= q.asks.length) return { ...base, status: "answered", message: `All ${q.asks.length} answered.` };
-  if (answers.length) return { ...base, status: "waiting", message: `${answers.length} of ${q.asks.length} answered so far. The rest have it (#${first} on board ${q.board}); ask again with seq ${first} to keep waiting.` };
-  return { ...base, status: "waiting", message: `Sent to ${agents.join(", ")} (#${first} on board ${q.board}). Their answers reply to it; ask again with seq ${first} to wait for them.` };
+  const base = { to: label, board: q.board, seq: q.seq, agents: q.agents, answers };
+  const done = q.agents.filter((a) => answers.some((x) => x.agent === a)).length;
+  if (done >= q.agents.length) return { ...base, status: "answered", message: `All ${q.agents.length} answered.` };
+  if (answers.length) return { ...base, status: "waiting", message: `${done} of ${q.agents.length} answered so far. The rest have it (#${q.seq} on board ${q.board}); ask again with seq ${q.seq} to keep waiting.` };
+  return { ...base, status: "waiting", message: `Sent to ${q.agents.join(", ")} (#${q.seq} on board ${q.board}). Their answers reply to it; ask again with seq ${q.seq} to wait for them.` };
 }
 
 /** The agent's answer to question `seq`: its reply (or what resolves it); on a direct board, also its next post there. */
@@ -236,9 +216,10 @@ export async function keepWaiting(env: Env, stub: Stub, p: { me: string; to: str
   if (!t) throw new AskError('Say whose agent: "my grok", "jxn/muse" or "jxn\'s muse".');
   if (!(await registry.isMember(env, p.board, p.me))) throw new AskError(`You're not on board ${p.board}.`, 403);
   if (t.own && t.all) {
-    // The agents it went to: the copies of that question, one per agent.
-    const asks = copiesOf(await stub(p.board).page(null, 100, { user: p.me, person: false }).catch(() => [] as Entry[]), p.me, p.seq);
-    if (asks.length) return awaitAll(env, stub, { me: p.me, board: p.board, asks, waitMs: p.waitMs, signal: p.signal });
+    // The agents it went to, kept with the question.
+    const q = await stub(p.board).get(p.seq, { user: p.me, person: false }).then((r) => r.entry).catch(() => null);
+    const agents = q && q.author === p.me && Array.isArray((q.data as { ask_all?: unknown } | null | undefined)?.ask_all) ? ((q.data as { ask_all: unknown[] }).ask_all.filter((x) => typeof x === "string") as string[]) : [];
+    if (agents.length) return awaitAll(env, stub, { me: p.me, board: p.board, seq: p.seq, agents, waitMs: p.waitMs, signal: p.signal });
   }
   const user = t.own ? p.me : await firstUser(env, t.users);
   if (!user) throw new AskError(`No one is called ${t.users[t.users.length - 1]}.`, 404);

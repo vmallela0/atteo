@@ -1397,7 +1397,7 @@ const handler = {
         const b = (await request.json().catch(() => ({}))) as { ids?: unknown };
         // Acknowledging is delivering: while another session drains this mailbox, only this session's own mail.
         const lease = await mailbox.leaseFor(env, viewer.name, await mailboxHolder(), null, requestNow(env, request), false);
-        const delivered = await mailbox.ack(env, viewer.name, Array.isArray(b.ids) ? b.ids.map(Number) : [], lease ? await asid() : undefined);
+        const delivered = await mailbox.ack(env, viewer.name, Array.isArray(b.ids) ? b.ids.map(Number) : [], lease ? await asid() : undefined, await asid());
         return json({ ok: true, delivered, ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}) });
       }
       if (path === "/api/inbox/count" && method === "GET") {
@@ -4046,7 +4046,10 @@ const handler = {
             const input: NewEntry = {
               type, text, title, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), ...(supersedes ? { supersedes } : {}), ...(dependsOn.length ? { depends_on: dependsOn } : {}),
               ...(typeof body.artifact_name === "string" ? { artifact_name: body.artifact_name } : {}), ...(typeof body.artifact_content === "string" ? { artifact_content: body.artifact_content } : {}), ...(body.card != null ? { card: body.card } : {}),
-              via: pv(), ...so, idem, data: body.data, usage: body.usage, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}),
+              via: pv(), ...so, idem, data: body.data, usage: body.usage,
+              // Which of your agents wrote it ("lead · Claude Code"), as over MCP: boards label it, and an ask for all your agents knows whose answer it is.
+              ...(viewer.via === "agent" && so.session_name ? { client: `${so.session_name} · ${(await asess())?.client ?? "agent"}` } : {}),
+              ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}),
             };
             // An agent's post goes through the stale-read rule, as over MCP (SPEC.md §9): if something it hasn't read bears
             // on it, nothing is posted and it gets those entries (now marked read). People on the web post as before.

@@ -40,6 +40,7 @@ import { mutersOf } from "./moderation";
 import { onApprovalDecided as slackOnApproval, onEntry as slackOnEntry } from "./slack";
 import type { Listener } from "./listen";
 import { memberRole } from "./registry";
+import { LIVE_MS } from "./sessions";
 import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
 import { priceUsage, PRICE_DATE, type PricedUsage, type Usage } from "./spend";
 
@@ -1708,7 +1709,7 @@ export class Board extends DurableObject<Env> {
       this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "people", to_people: people }, entry.seq);
       return entry;
     }
-    this.ctx.waitUntil(this.notify(info, entry, forSession, !!sibling).catch(() => {}));
+    this.ctx.waitUntil(this.notify(info, entry, forSession, !!sibling, input.session ?? null).catch(() => {}));
     // The Slack bridge (src/slack.ts): boards with a linked channel only; never a seed, never an encrypted board.
     // slackFrom: the channel a Slack reply came from, so it isn't echoed back there.
     if (this.meta("slack") === "1" && !info.encrypted && !internal.seeding) this.ctx.waitUntil(this.toSlack(info, entry, internal.slackFrom ?? null).catch((e) => console.error("slack bridge failed", e)));
@@ -3424,6 +3425,15 @@ export class Board extends DurableObject<Env> {
     return r ? { user: one[0].user, session: r.id } : null;
   }
 
+  /** Your agent sessions working now (not forks, not `except`, the one posting): who "@agents" on your agent chat reaches. */
+  private async liveSessionIds(user: string, except: string | null): Promise<string[]> {
+    const r = await this.env.DB.prepare("SELECT id FROM agent_sessions WHERE user = ? AND ended_at IS NULL AND COALESCE(kind, 'main') = 'main' AND last_seen > ? ORDER BY last_seen DESC LIMIT 20")
+      .bind(user, Date.now() - LIVE_MS)
+      .all<{ id: string }>()
+      .catch(() => null);
+    return (r?.results ?? []).map((x) => x.id).filter((id) => id !== except);
+  }
+
   /** A Just mine post's one notification: the person's → their agents' mailbox; their agent's → the person's inbox. */
   private async ownMail(info: BoardInfo, e: Entry, forSession: ForSession, sealed: boolean, sibling = false) {
     const fromPerson = e.via === "person" || sibling; // mail for their agents (a sibling's: already read for the person)
@@ -3450,7 +3460,7 @@ export class Board extends DurableObject<Env> {
     return mentionsOwnAgent({ author: e.author, mentions: parseMentions(blanked, [{ user: e.author, agent_name: r?.agent_name ?? null }], e.author, "person").mentions });
   }
 
-  private async notify(info: BoardInfo, e: Entry, forSession: ForSession = null, sibling = false) {
+  private async notify(info: BoardInfo, e: Entry, forSession: ForSession = null, sibling = false, fromSession: string | null = null) {
     const members = new Set(this.members().map((m) => m.name));
     const kinds = new Map<string, "mention" | "agent" | "reply" | "decision" | "from_your_person">();
     const forAgents = new Set<string>(); // whose agents this is addressed to (their webhooks get it)
@@ -3484,13 +3494,18 @@ export class Board extends DurableObject<Env> {
     // And what their agent writes back reaches the person (their inbox, like a reply), never the agent's own mailbox.
     let ownMail = false, ownReply = false;
     let fromPerson: { direct: boolean } | null = null; // from_your_person's data
+    let everyOne: string[] = []; // "@agents" on your agent chat: each of your running sessions (their ids)
     if (sibling && e.retracts == null) {
       // Your agent to another of your sessions: that session's mail, already read in the person's own inbox.
       ownMail = true;
       kinds.set(e.author, "agent");
       forAgents.add(e.author);
     } else if ((await this.kindOf(info.id)) === "agent") {
-      if (e.via === "person") {
+      // "@agents" on your agent chat (jxn #6431, #6453), from you or one of your agents: one message to every agent of
+      // yours that's running, in each one's own mailbox (one row that names them all: mail is one row per post).
+      const toAgents = e.retracts == null && hasGroupMention(e.text, ALL_AGENTS);
+      if (toAgents) everyOne = await this.liveSessionIds(e.author, fromSession);
+      if (e.via === "person" || toAgents) {
         ownMail = true;
         kinds.set(e.author, "agent");
         forAgents.add(e.author);
@@ -3538,7 +3553,7 @@ export class Board extends DurableObject<Env> {
     const group = !info.encrypted && [ALL_MEMBERS, ALL_HUMANS].some((g) => hasGroupMention(e.text, g));
     const named = (u: string) => new RegExp(`(^|[^A-Za-z0-9_.@/-])@${u.replace(/[.]/g, "\\.")}(?![A-Za-z0-9_'’/-])`, "i").test(e.text);
     const dataFor = (u: string, k: string) =>
-      k === "from_your_person" && fromPerson ? JSON.stringify(fromPerson) : k === "mention" && group && !named(u) ? JSON.stringify({ broadcast: true }) : null;
+      everyOne.length && u === e.author ? JSON.stringify({ each: everyOne }) : k === "from_your_person" && fromPerson ? JSON.stringify(fromPerson) : k === "mention" && group && !named(u) ? JSON.stringify({ broadcast: true }) : null;
     await this.env.DB.batch(
       [...kinds].map(([u, k]) =>
         this.env.DB.prepare(

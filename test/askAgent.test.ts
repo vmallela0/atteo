@@ -1,6 +1,6 @@
 // "Ask" (jxn #6339): who a question is for, in the words people use, and which post answers it.
 import { describe, expect, it } from "vitest";
-import { answerIn, copiesOf, parseTarget, pickAgent } from "../src/askAgent";
+import { answerIn, parseTarget, pickAgent } from "../src/askAgent";
 import type { Entry } from "../src/types";
 
 describe("parseTarget", () => {
@@ -62,19 +62,5 @@ describe("answerIn", () => {
   it("on a direct board their agent's next post is the answer; on your own agent chat only a reply is (other agents of yours talk there too)", () => {
     expect(answerIn([e(11, "jxn", "agent", null)], { seq: 10, user: "jxn", own: false })?.seq).toBe(11);
     expect(answerIn([e(11, "jxn", "agent", null)], { seq: 10, user: "jxn", own: true })).toBeNull();
-  });
-});
-
-describe("copiesOf (all my agents, jxn #6431)", () => {
-  const q = (seq: number, text: string, session: string | null, author = "jxn", type = "question") =>
-    ({ seq, ts: seq, author, via: "agent", type, text, mentions: session ? [{ user: "jxn", agent: true, session }] : [], reply_to: null, resolves: [] }) as unknown as Entry;
-  it("finds each agent's copy of the same words, from the first one on", () => {
-    const entries = [q(4, "@jxn/lead standup?", "lead"), q(5, "@jxn/grok standup?", "grok"), q(6, "@jxn/muse something else", "muse"), q(7, "@jxn/muse standup?", "muse", "vedu"), q(8, "@jxn/muse standup?", "muse")];
-    expect(copiesOf(entries, "jxn", 4)).toEqual([{ agent: "lead", seq: 4 }, { agent: "grok", seq: 5 }, { agent: "muse", seq: 8 }]);
-  });
-  it("nothing when that entry isn't one of your questions to an agent", () => {
-    expect(copiesOf([q(4, "@jxn/lead hi", "lead", "vedu")], "jxn", 4)).toEqual([]);
-    expect(copiesOf([q(4, "hi", null)], "jxn", 4)).toEqual([]);
-    expect(copiesOf([q(4, "@jxn/lead hi", null)], "jxn", 4)).toEqual([]); // named in text only, not routed
   });
 });

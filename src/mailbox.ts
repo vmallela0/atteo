@@ -53,8 +53,11 @@ const undeliveredSql = (direct: boolean) => `SELECT n.id, n.board_id, b.title AS
        FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN agent_sessions s ON s.id = n.to_session
        WHERE n.user = ? AND n.agent_seen_at IS NULL AND n.kind IN (${MAIL_KINDS.map(() => "?").join(",")})${direct ? " AND b.kind = 'direct'" : ""}
          AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
-         AND (n.to_session IS NULL OR n.to_session = ?)
+         AND (n.to_session = ? OR (n.to_session IS NULL AND (n.data IS NULL OR n.data NOT LIKE '{"each":%' OR instr(n.data, '"' || ? || '"') > 0)))
        ORDER BY n.created_at, n.id LIMIT ?`;
+/** Mail for each of your running agents ("@agents" on your agent chat, board.ts notify): one row naming their sessions,
+ *  shown to each until that one takes it (never to a session-less caller such as a dispatcher). */
+const EACH = `data LIKE '{"each":%'`;
 export const UNDELIVERED_SQL = undeliveredSql(false);
 export const UNDELIVERED_DIRECT_SQL = undeliveredSql(true);
 
@@ -72,7 +75,7 @@ function dataOf(data: string | null): { audience?: string; direct?: boolean } {
 async function undelivered(env: Env, user: string, limit: number, session: string | null, direct = false): Promise<Row[]> {
   return (
     await env.DB.prepare(direct ? UNDELIVERED_DIRECT_SQL : UNDELIVERED_SQL)
-      .bind(user, ...MAIL_KINDS, user, session ?? "", limit)
+      .bind(user, ...MAIL_KINDS, user, session ?? "", session ?? "", limit)
       .all<Row>()
   ).results;
 }
@@ -251,20 +254,30 @@ export async function collect(
     }),
   );
   // held: another session drains this mailbox, so only mail for this one session (nobody else's to take) is delivered.
-  const take = opts.held ? rows.filter((r) => session && r.to_session === session).map((r) => r.id) : mail.map((m) => m.id);
-  if (!opts.peek && take.length) await ack(env, user, take);
+  const take = opts.held ? rows.filter((r) => session && (r.to_session === session || r.data?.startsWith('{"each":'))).map((r) => r.id) : mail.map((m) => m.id);
+  if (!opts.peek && take.length) await ack(env, user, take, undefined, session);
   return { mail, more };
 }
 
 /** Marks mail delivered to your agent (after a peek). Only your own. `onlySession`: while another session holds the
- *  drain lease, only mail for this session (null: none). */
-export async function ack(env: Env, user: string, ids: number[], onlySession?: string | null): Promise<number> {
+ *  drain lease, only mail for this session (null: none). `session`: the session taking it, which takes its part of mail
+ *  for each of your agents (EACH); that row is delivered once the last of them has. */
+export async function ack(env: Env, user: string, ids: number[], onlySession?: string | null, session?: string | null): Promise<number> {
   const clean = [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))].slice(0, 90);
-  if (!clean.length || onlySession === null) return 0;
-  const r = await env.DB.prepare(`UPDATE notifications SET agent_seen_at = ? WHERE user = ? AND agent_seen_at IS NULL${onlySession ? " AND to_session = ?" : ""} AND id IN (${clean.map(() => "?").join(",")})`)
-    .bind(Date.now(), user, ...(onlySession ? [onlySession] : []), ...clean)
+  if (!clean.length) return 0;
+  const inIds = `id IN (${clean.map(() => "?").join(",")})`;
+  const now = Date.now();
+  let changes = 0;
+  if (session) {
+    const took = await env.DB.prepare(`UPDATE notifications SET data = json_set(data, '$.each', json((SELECT json_group_array(value) FROM json_each(notifications.data, '$.each') WHERE value != ?))) WHERE user = ? AND agent_seen_at IS NULL AND ${EACH} AND ${inIds} AND instr(data, '"' || ? || '"') > 0`).bind(session, user, ...clean, session).run();
+    changes += took.meta.changes ?? 0;
+    if (took.meta.changes) await env.DB.prepare(`UPDATE notifications SET agent_seen_at = ? WHERE user = ? AND agent_seen_at IS NULL AND ${EACH} AND ${inIds} AND json_array_length(data, '$.each') = 0`).bind(now, user, ...clean).run();
+  }
+  if (onlySession === null) return changes;
+  const r = await env.DB.prepare(`UPDATE notifications SET agent_seen_at = ? WHERE user = ? AND agent_seen_at IS NULL AND (data IS NULL OR NOT ${EACH})${onlySession ? " AND to_session = ?" : ""} AND ${inIds}`)
+    .bind(now, user, ...(onlySession ? [onlySession] : []), ...clean)
     .run();
-  return r.meta.changes ?? 0;
+  return changes + (r.meta.changes ?? 0);
 }
 
 // ---- one drainer per person: the lease ----

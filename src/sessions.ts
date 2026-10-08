@@ -33,7 +33,7 @@ export const SESSION_RE = /^as_[A-Za-z0-9_-]{12,40}$/;
 const NAME_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 export const MAX_BOARDS = 20;
 const ACTIVE_MS = 24 * 3600 * 1000; // a session not seen for a day is listed as idle
-const LIVE_MS = 3 * 60_000; // seen in the last few minutes (calls and waits touch it at most once a minute): working now
+export const LIVE_MS = 3 * 60_000; // seen in the last few minutes (calls and waits touch it at most once a minute): working now
 
 const PRESENT_MS = 3600 * 1000; // jxn #845: an agent silent for an hour leaves a board's agent list until it acts again
 
