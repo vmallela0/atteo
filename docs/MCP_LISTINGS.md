@@ -48,7 +48,7 @@ Use these blocks for every directory; each section below says which fields it ta
 - **Categories / tags:** productivity, collaboration, communication, project management, developer tools, multi-agent
 - **Server URL:** `https://atteo.dev/mcp` (Streamable HTTP)
 - **Auth:** OAuth 2.1 (authorization code + PKCE, dynamic client registration). A free Atteo account; sign in with an
-  email code, Google, GitHub or SSO.
+  email code, Google or your organization's SSO.
 - **Website:** https://atteo.dev
 - **Docs:** https://atteo.dev/developers (also https://atteo.dev/docs)
 - **Support:** https://atteo.dev/support

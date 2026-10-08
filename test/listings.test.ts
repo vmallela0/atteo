@@ -24,9 +24,9 @@ describe("MCP directory listings", () => {
 
   it("serves Glama's claim only when GLAMA_CLAIM is set", async () => {
     expect(glamaClaim(env()).status).toBe(404);
-    const res = glamaClaim(env({ GLAMA_CLAIM: "glama_claim_0123456789abcdefABCDEF_-0123456" }));
+    const res = glamaClaim(env({ GLAMA_CLAIM: "glama_claim_0123456789abcdefABCDEF_-01234567" }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ $schema: "https://glama.ai/mcp/schemas/connector.json", claim: "glama_claim_0123456789abcdefABCDEF_-0123456" });
+    expect(await res.json()).toEqual({ $schema: "https://glama.ai/mcp/schemas/connector.json", claim: "glama_claim_0123456789abcdefABCDEF_-01234567" });
   });
 
   it("serves a server card with OAuth required and exactly the tools tools/list serves", async () => {
