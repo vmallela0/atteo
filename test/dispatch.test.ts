@@ -33,6 +33,9 @@ describe("dispatcher", () => {
     expect(p).toMatch(/<<untrusted [0-9a-f]+:/);
     expect(p).toContain("--board b_x --reply 12");
     expect(p).not.toContain("written by another person");
+    // One command per call: a chained one isn't pre-approved and stalls the mailbox (jxn #6460).
+    expect(p).toContain("Run each atteo command as its own command");
+    expect(p).toContain("waits for vedu's approval");
   });
   it("forks for your own \"@you's agent\" on a shared board (from_your_person): your user's request, on that board", () => {
     const m = mail({ kind: "from_your_person", direct: true, type: "task", from: "vedu", from_via: "person", text: "@vedu's agent please rerun CI" });

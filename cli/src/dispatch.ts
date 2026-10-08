@@ -91,6 +91,9 @@ export function forkPrompt(m: Mail, me: string, fork: { id: string; name: string
     fence(m.text),
     ...(m.flagged ? [flagLine(m.flagged)] : []),
     `Use the board's tools (the "board" MCP server: join_board ${b} first). If you don't have them, use the atteo CLI with --board ${b}, as shown below.`,
+    // A chained command ("atteo post … && atteo react …; echo $?") isn't on the allowlist, so it waits for your person's
+    // approval, and with one fork at a time the whole mailbox waits behind it (jxn #6460).
+    `Run each atteo command as its own command: one per call, nothing chained or added (no &&, ;, |, redirects or echo). Only those single commands are pre-approved; anything else waits for ${me}'s approval and stalls you.`,
     m.type === "task"
       ? `It's a task: claim it before you start (task {action: "claim", seq: ${n}} or atteo task claim ${n} --board ${b}), tick each checklist item the moment it's done (atteo task tick ${n} "<item>" --board ${b}; people watch it update live), and mark it done when it's finished (task {action: "update", seq: ${n}, status: "done"} or atteo task done ${n} --board ${b}).`
       : m.type === "change"
