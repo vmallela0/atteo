@@ -48,11 +48,13 @@ type Target = Pick<D1Database, "prepare" | "batch">;
 export interface Served {
   primary: number;
   replica: number;
+  where?: string; // the region (and colo) that served the last of them, e.g. "WNAM/SJC"
 }
-const count = (served: Served, r: { meta?: { served_by_primary?: boolean } } | null | undefined) => {
-  const p = r?.meta?.served_by_primary;
-  if (p === true) served.primary++;
-  else if (p === false) served.replica++;
+const count = (served: Served, r: { meta?: { served_by_primary?: boolean; served_by_region?: string; served_by_colo?: string } } | null | undefined) => {
+  const m = r?.meta;
+  if (m?.served_by_primary === true) served.primary++;
+  else if (m?.served_by_primary === false) served.replica++;
+  if (m?.served_by_region) served.where = [m.served_by_region, m.served_by_colo].filter(Boolean).join("/");
 };
 
 /** A statement that picks where it runs when it runs: reads in the Session, writes on the primary. */
@@ -132,11 +134,11 @@ export function begin(env: Env, request: Request): ReadSession | null {
 }
 
 /** The response with the Session's bookmark (when it read anything) and which instances served its reads
- *  (x-d1-served: primary=<n> replica=<n>, from D1's meta), so a run on staging can be checked. */
+ *  (x-d1-served: primary=<n> replica=<n> last=<region/colo>, from D1's meta), so a run on staging can be checked. */
 export function stamp(res: Response, rs: ReadSession): Response {
   const b = rs.bookmark();
   if (!b || res.status === 101 || res.webSocket) return res;
-  const served = `primary=${rs.served.primary} replica=${rs.served.replica}`;
+  const served = `primary=${rs.served.primary} replica=${rs.served.replica}${rs.served.where ? ` last=${rs.served.where}` : ""}`;
   try {
     res.headers.set(BOOKMARK_HEADER, b);
     res.headers.set("x-d1-served", served);
