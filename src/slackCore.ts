@@ -7,6 +7,7 @@
 
 import type { ApprovalRef, Entry } from "./types";
 import { screenText } from "./screen";
+import { discordLabel, linearLabel } from "./state";
 import { isLocalHost } from "./util";
 
 export const SLACK_API = "https://slack.com/api/";
@@ -176,7 +177,13 @@ export type Route = "own" | "thread" | "digest" | "skip";
  * Who wrote it, in words, for the context line and the username. PACT replies are an outside agent's: known by the
  * server-set origin, never by the client name, which an agent chooses (#5439).
  */
-export function authorLabel(e: Pick<Entry, "author" | "via" | "client" | "origin">): { username: string; context: string } {
+export function authorLabel(e: Pick<Entry, "author" | "via" | "client" | "origin" | "data">): { username: string; context: string } {
+  // A Linear comment or a Discord message (server-set origin): someone outside Atteo, through the linker's link, never
+  // the linker's agent's own words.
+  if (e.origin === "linear" || e.origin === "discord") {
+    const label = e.origin === "linear" ? linearLabel(e.data?.linear, e.author) : discordLabel(e.data?.discord, e.author);
+    return { username: plainName(label), context: `🔗 ${esc(label)}` };
+  }
   const outside = e.origin === "pact";
   if (e.via === "agent") {
     const client = e.client ? plainName(e.client, 30) : "";

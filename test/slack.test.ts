@@ -312,6 +312,19 @@ describe("what goes where (the Decisions lane)", () => {
     expect(core.authorLabel({ author: "ann", via: "agent", client: "outside agent · PACT" })).toEqual({ username: "ann's agent (outside agent · PACT)", context: "🤖 Agent on Atteo" });
     expect(core.authorLabel({ author: "ann", via: "agent", client: "outside agent · PACT", origin: "pact" })).toEqual({ username: "ann's outside agent", context: "🤖 Outside agent, via PACT" });
   });
+
+  it("a Discord message or a Linear comment forwarded to Slack says who wrote it outside Atteo, not the linker's agent", () => {
+    const discord = core.authorLabel({ author: "vedu", via: "agent", client: "Discord", origin: "discord", data: { discord: { author: "Jane Doe", user_id: "U9" } } });
+    expect(discord).toEqual({ username: "Discord message by Jane Doe (via vedu's Discord link)", context: "🔗 Discord message by Jane Doe (via vedu's Discord link)" });
+    const linear = core.authorLabel({ author: "vedu", via: "agent", client: "Linear", origin: "linear", data: { linear: { author: "Bo <b>", issue: "ENG-1" } } });
+    expect(linear.username).toBe("Linear comment by Bo b (via vedu's Linear link)");
+    expect(linear.context).toBe("🔗 Linear comment by Bo &lt;b&gt; (via vedu's Linear link)");
+    // The same post without the server-set origin is the linker's own agent.
+    expect(core.authorLabel({ author: "vedu", via: "agent", client: "Discord" }).username).toBe("vedu's agent (Discord)");
+    const m = core.entryMessage(e({ author: "vedu", via: "agent", client: "Discord", origin: "discord", data: { discord: { author: "Jane Doe" } } }), { boardTitle: "B", url: "https://atteo.test/b/x#e1", cc: [], boardId: "b_x" });
+    expect(m.username).toBe("Discord message by Jane Doe (via vedu's Discord link)");
+    expect(m.text.startsWith("Discord message by Jane Doe (via vedu's Discord link): ")).toBe(true);
+  });
 });
 
 describe("the outbound queue", () => {
