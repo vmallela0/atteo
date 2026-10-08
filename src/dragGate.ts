@@ -6,6 +6,9 @@
 //   dragGate(run, ms)  run: the reload; ms: a hold that's never released lets go by itself after this (default 30 s)
 //   .hold()            from dragstart: returns its release (once only; later calls do nothing)
 //   .ask()             true: reload now; false: one is queued for when the holds are gone · .defer(): queue one
+// Wiring in html.ts (comments there ship in the board script, so they're short): loadTasks asks first, and drops an
+// answer that arrives mid-drag or after a newer reload (kGen); dragstart takes a hold, dragend releases a cancelled
+// drag's, and a drop keeps its drag's hold until the move is saved, so no reload draws the card in its old column.
 export const DRAG_GATE_JS = `
 function dragGate(run,ms){let n=0,queued=false;
   return{hold(){n++;let done=false;const rel=()=>{if(done)return;done=true;clearTimeout(t);n--;if(!n&&queued){queued=false;run()}},t=setTimeout(rel,ms||30000);return rel},

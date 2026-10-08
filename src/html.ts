@@ -2952,8 +2952,7 @@ if(location.hash==='#integrations')setTimeout(()=>document.querySelector('[data-
 // Frozen (vedu #4791): parked for the far future, last and folded until opened; dropping a card on it freezes it.
 const KCOLS=[['todo',tr('To do')],['doing',tr('In progress')],['blocked',tr('Blocked')],['done',tr('Done')],['frozen',tr('Frozen')]];let kFrozenOpen=false;
 const PRI={high:0,medium:1,low:2};
-// A reload mid-drag would replace the dragged card: reloads wait for the drag to end, then run once (src/dragGate.ts).
-// kGen: only the newest reload draws, so an older answer arriving late can't put a moved card back.
+// Reloads wait out drags (src/dragGate.ts); only the newest draws.
 let kGen=0,kRelease=null;const kGate=dragGate(()=>loadTasks());
 async function loadTasks(){if(!kGate.ask())return;const g=++kGen;const r=await fetch('/api/boards/'+BOARD+'/tasks');const j=await r.json().catch(()=>({}));if(g!==kGen)return;if(kGate.busy){kGate.defer();return}if(!r.ok){document.getElementById('kanban').innerHTML='<p class="muted small">'+esc(j.error||tr('Could not load tasks'))+'</p>';return}
   const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]={...TASKS[t.seq],...t});const open=ts.filter(t=>t.status!=='done'&&t.status!=='frozen').length;document.getElementById('task-count').textContent=open||'';
@@ -2982,9 +2981,9 @@ kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)ret
 kb.addEventListener('click',e=>{const col=e.target.closest('.kfrozen');if(!col||(kFrozenOpen&&!e.target.closest('.kfz')))return;kFrozenOpen=!kFrozenOpen;
   col.classList.toggle('open',kFrozenOpen);kb.classList.toggle('fz-open',kFrozenOpen);col.querySelector('.kfz').setAttribute('aria-expanded',String(kFrozenOpen));col.querySelector('.kcards').hidden=!kFrozenOpen;
   if(kFrozenOpen)col.scrollIntoView({block:'nearest',inline:'nearest'})}); // on a phone, the now-wider column fully in view
-kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'));kRelease?.();kRelease=null}); // cancelled (a drop took its hold: released once the move is saved)
+kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'));kRelease?.();kRelease=null});
 kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
-// A drop keeps its drag's hold until the move is saved, so no reload draws the card in its old column after the drop.
+// The drop keeps the hold until the move is saved.
 kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;
   const rel=kRelease;kRelease=null;taskAct(s,{action:'update',status:col.dataset.status}).catch(()=>{}).finally(()=>{if(kGate.busy)kGate.defer();rel?.()})});
 kb.addEventListener('click',e=>{const d=e.target.closest('[data-kdone]');if(d){e.preventDefault();e.stopPropagation();taskAct(+d.dataset.kdone,{action:'update',status:'done'});return}
