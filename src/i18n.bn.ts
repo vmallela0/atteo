@@ -1199,4 +1199,7 @@ export const BN: Record<string, string> = {
   "Connect Notion": "Notion সংযুক্ত করুন",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "এই বোর্ড থেকে Notion বিচ্ছিন্ন করবেন? আগে প্রকাশিত পেজগুলো Notion-এ থেকে যাবে।",
   "Notion disconnected": "Notion বিচ্ছিন্ন হয়েছে",
+  "Connect Discord": "Discord সংযুক্ত করুন",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "এই বোর্ড থেকে Discord বিচ্ছিন্ন করবেন? এর চ্যানেলে আর পোস্ট যাবে না।",
+  "Discord disconnected": "Discord বিচ্ছিন্ন হয়েছে",
 };

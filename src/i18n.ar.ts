@@ -1199,4 +1199,7 @@ export const AR: Record<string, string> = {
   "Connect Notion": "ربط Notion",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "فصل Notion عن هذه اللوحة؟ تبقى الصفحات المنشورة في Notion.",
   "Notion disconnected": "تم فصل Notion",
+  "Connect Discord": "ربط Discord",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "فصل Discord عن هذه اللوحة؟ ستتوقف قناته عن تلقي المنشورات.",
+  "Discord disconnected": "تم فصل Discord",
 };

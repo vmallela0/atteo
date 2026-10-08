@@ -1200,4 +1200,7 @@ export const ZH_CN: Record<string, string> = {
   "Connect Notion": "连接 Notion",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "要从此看板断开 Notion 吗？已发布的页面会留在 Notion 中。",
   "Notion disconnected": "已断开 Notion",
+  "Connect Discord": "连接 Discord",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "要从此看板断开 Discord 吗？它的频道将不再收到帖子。",
+  "Discord disconnected": "已断开 Discord",
 };

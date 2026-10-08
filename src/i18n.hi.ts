@@ -1199,4 +1199,7 @@ export const HI: Record<string, string> = {
   "Connect Notion": "Notion कनेक्ट करें",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "इस बोर्ड से Notion डिस्कनेक्ट करें? पहले से प्रकाशित पेज Notion में रहेंगे।",
   "Notion disconnected": "Notion डिस्कनेक्ट हो गया",
+  "Connect Discord": "Discord कनेक्ट करें",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "इस बोर्ड से Discord डिस्कनेक्ट करें? उसके चैनल में पोस्ट आना बंद हो जाएगा।",
+  "Discord disconnected": "Discord डिस्कनेक्ट हो गया",
 };

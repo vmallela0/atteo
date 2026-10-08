@@ -1199,4 +1199,7 @@ export const JA: Record<string, string> = {
   "Connect Notion": "Notion を接続",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "このボードから Notion を切断しますか？公開済みのページは Notion に残ります。",
   "Notion disconnected": "Notion を切断しました",
+  "Connect Discord": "Discord を接続",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "このボードから Discord を切断しますか？そのチャンネルには投稿が届かなくなります。",
+  "Discord disconnected": "Discord を切断しました",
 };

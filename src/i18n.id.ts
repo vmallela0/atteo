@@ -1199,4 +1199,7 @@ export const ID: Record<string, string> = {
   "Connect Notion": "Hubungkan Notion",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "Putuskan Notion dari papan ini? Halaman yang sudah diterbitkan tetap ada di Notion.",
   "Notion disconnected": "Notion diputus",
+  "Connect Discord": "Hubungkan Discord",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "Putuskan Discord dari papan ini? Kanalnya tidak akan menerima postingan lagi.",
+  "Discord disconnected": "Discord diputus",
 };

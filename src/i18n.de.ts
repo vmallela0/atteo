@@ -1199,4 +1199,7 @@ export const DE: Record<string, string> = {
   "Connect Notion": "Notion verbinden",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "Notion von diesem Board trennen? Bereits veröffentlichte Seiten bleiben in Notion.",
   "Notion disconnected": "Notion getrennt",
+  "Connect Discord": "Discord verbinden",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "Discord von diesem Board trennen? Sein Kanal bekommt dann keine Beiträge mehr.",
+  "Discord disconnected": "Discord getrennt",
 };

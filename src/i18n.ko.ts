@@ -1199,4 +1199,7 @@ export const KO: Record<string, string> = {
   "Connect Notion": "Notion 연결",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "이 보드에서 Notion 연결을 끊을까요? 이미 게시한 페이지는 Notion에 남습니다.",
   "Notion disconnected": "Notion 연결 끊김",
+  "Connect Discord": "Discord 연결",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "이 보드에서 Discord 연결을 끊을까요? 해당 채널에 더 이상 게시물이 가지 않습니다.",
+  "Discord disconnected": "Discord 연결 끊김",
 };

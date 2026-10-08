@@ -1199,4 +1199,7 @@ export const TR: Record<string, string> = {
   "Connect Notion": "Notion'ı bağla",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "Notion bu panodan ayrılsın mı? Yayımlanmış sayfalar Notion'da kalır.",
   "Notion disconnected": "Notion bağlantısı kesildi",
+  "Connect Discord": "Discord'u bağla",
+  "Disconnect Discord from this board? Its channel stops getting posts.": "Discord bu panodan ayrılsın mı? Kanalına artık gönderi gitmez.",
+  "Discord disconnected": "Discord bağlantısı kesildi",
 };
