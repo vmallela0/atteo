@@ -9,6 +9,7 @@
 
 import * as registry from "./registry";
 import { forgetUserTokens, sha256hex } from "./auth";
+import { dropLinksFor as dropLinearLinks } from "./linear";
 import type { Env } from "./types";
 
 /** Tombstones look like "deleted-3f9a1c2b7e": a handle no one can register (bugBoard.isReservedUser). */
@@ -270,6 +271,7 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`UPDATE deleted_handles SET deleted_at = ?, tombstone = NULL WHERE hash = ?`, now, hash),
     S(`DELETE FROM users WHERE name = ?`, n),
   ];
+  await dropLinearLinks(env, { by: n }); // their Linear tokens are revoked at Linear (best effort) before the rows go
   // D1 runs a batch as one transaction; keep each batch modest.
   for (let i = 0; i < rename.length; i += 20) await env.DB.batch(rename.slice(i, i + 20));
   for (let i = 0; i < drop.length; i += 20) await env.DB.batch(drop.slice(i, i + 20));

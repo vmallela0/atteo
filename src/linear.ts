@@ -1,11 +1,11 @@
 // The Linear integration (vedu #6508, plan #6509 item 1). A board's tasks become issues in one Linear team; status
 // changes and comments on those issues come back to the board.
 //
-// - Link: GET /api/integrations/linear/start?board=<id> (a signed-in person, a contributor or owner of the board, never
-//   an agent token) → Linear's OAuth (state: HMAC-signed, 10 minutes, bound to that person and board) →
+// - Link: GET /api/integrations/linear/start?board=<id> (a signed-in person who owns the board, never an agent token) → Linear's OAuth (state: HMAC-signed, 10 minutes, bound to that person and board) →
 //   /api/integrations/linear/callback stores the tokens sealed (AES-GCM with LINEAR_TOKEN_KEY, as Slack's bot tokens)
 //   and shows a tiny page to pick the team (and an optional project), which POSTs /api/integrations/linear. Never an
-//   encrypted board (the server can't read its tasks), a DM or "Your agent".
+//   encrypted board (the server can't read its tasks), a DM or "Your agent". The link lasts while its maker owns the
+//   board: removing or demoting them, deleting the board or their account drops it and revokes the token (dropLinks).
 // - Board → Linear: every task change on a linked board (the board object's task broadcasts) syncs that task, one at a
 //   time per board, in waitUntil: issueCreate the first time, then issueUpdate only for what changed (a hash of title
 //   and description, the state type last sent or seen). Status → state by Linear's fixed state types: todo → unstarted
@@ -192,7 +192,7 @@ export interface LinearBoardOps {
   /** As the linker's agent (client "Linear"). Throws when the board refuses (someone else holds the task). */
   setStatus(board: string, user: string, seq: number, status: TaskStatus): Promise<void>;
   /** A note in the task's thread as the linker's agent, client "Linear", origin "linear". */
-  comment(board: string, user: string, seq: number, text: string, mentions: Mention[]): Promise<number>;
+  comment(board: string, user: string, seq: number, text: string, mentions: Mention[], data: { linear: { author: string; issue: string | null } }): Promise<number>;
   setLinear(board: string, on: boolean): Promise<void>;
   members(board: string): Promise<(MemberRef & object)[]>;
 }
@@ -218,8 +218,8 @@ export function linearFor(env: Env, origin?: string): Linear {
     board: {
       status: async (board, seq) => (await stubOf(env, board).taskGet(seq).catch(() => null))?.status ?? null,
       setStatus: async (board, user, seq, status) => void (await stubOf(env, board).taskUpdate(user, seq, { status }, { via: "agent", client: "Linear" })),
-      async comment(board, user, seq, text, mentions) {
-        const e = await stubOf(env, board).post(user, { type: "note", text, reply_to: seq, via: "agent", client: "Linear", mentions }, { origin: "linear" });
+      async comment(board, user, seq, text, mentions, data) {
+        const e = await stubOf(env, board).post(user, { type: "note", text, reply_to: seq, via: "agent", client: "Linear", mentions, data }, { origin: "linear" });
         await registry.bumpBoard(env, board, e.seq).catch(() => {});
         return e.seq;
       },
@@ -347,6 +347,7 @@ async function revoke(l: Linear, link: LinkRow): Promise<void> {
 export async function syncTask(l: Linear, board: string, t: TaskView): Promise<"created" | "updated" | "unchanged" | "off"> {
   const link = await linkOf(l, board);
   if (!link?.team_id) return "off";
+  if (!(await linkerOk(l, board, link.created_by))) return "off"; // removed or demoted: the board's tasks stop going to their Linear
   const row = await l.db.prepare(`SELECT * FROM linear_issues WHERE board_id = ? AND seq = ?`).bind(board, t.seq).first<IssueRow>();
   const desc = describe(l.origin, board, t);
   const hash = await sha256(`${t.title}\n\u0000${desc}`);
@@ -370,7 +371,8 @@ export async function syncTask(l: Linear, board: string, t: TaskView): Promise<"
   }
   const input: Record<string, unknown> = {};
   if (row.synced !== hash) Object.assign(input, { title: t.title, description: desc });
-  if (target && target.type !== row.state_type) input.stateId = target.id;
+  // In step when the issue's state already reads as this status (a to-do task in Triage or Backlog stays there).
+  if (target && !(row.state_type && statusFor(row.state_type, t.status) === t.status)) input.stateId = target.id;
   const flip = blocked !== !!row.blocked;
   if (!Object.keys(input).length && !flip) return "unchanged";
   const token = await accessToken(l, link);
@@ -419,11 +421,40 @@ const mappedIssue = (l: Linear, issueId: string) =>
     .bind(issueId)
     .first<Mapped>();
 
-/** The linker can still act there: a contributor or owner of the board (not a viewer, not gone). */
-async function canAct(l: Linear, board: string, user: string): Promise<boolean> {
-  const r = await l.db.prepare(`SELECT role, expires_at FROM members WHERE board_id = ? AND user = ?`).bind(board, user).first<{ role: string; expires_at: number | null }>();
-  return !!r && r.role !== "viewer" && (r.expires_at == null || r.expires_at > l.now());
+/** The link's maker still stands behind it: an owner of the board, which isn't deleted, archived or encrypted. */
+async function linkerOk(l: Linear, board: string, user: string): Promise<boolean> {
+  const r = await l.db
+    .prepare(`SELECT m.role, m.expires_at, b.deleted_at, b.archived_at, b.encrypted FROM members m JOIN boards b ON b.id = m.board_id WHERE m.board_id = ? AND m.user = ?`)
+    .bind(board, user)
+    .first<{ role: string; expires_at: number | null; deleted_at: number | null; archived_at: number | null; encrypted: number | null }>();
+  return !!r && r.role === "owner" && (r.expires_at == null || r.expires_at > l.now()) && !r.deleted_at && !r.archived_at && !r.encrypted;
 }
+
+/**
+ * Drop links (one board's, or every one a person made, or a person's on one board): the map and the link go, the board
+ * stops syncing, and the token is revoked at Linear. Best effort: it never throws into what called it (removing a
+ * member, deleting a board or an account).
+ */
+export async function dropLinks(l: Linear, where: { board?: string; by?: string }): Promise<number> {
+  try {
+    if (!where.board && !where.by) return 0;
+    const conds = [where.board ? "board_id = ?" : null, where.by ? "created_by = ?" : null].filter(Boolean).join(" AND ");
+    const args = [where.board, where.by].filter((x): x is string => !!x);
+    const links = (await l.db.prepare(`SELECT * FROM linear_links WHERE ${conds}`).bind(...args).all<LinkRow>()).results ?? [];
+    for (const link of links) {
+      await l.db.batch([l.db.prepare(`DELETE FROM linear_issues WHERE board_id = ?`).bind(link.board_id), l.db.prepare(`DELETE FROM linear_links WHERE board_id = ?`).bind(link.board_id)]);
+      await l.board.setLinear(link.board_id, false).catch(() => {});
+      if (linearOn(l.env)) await revoke(l, link);
+    }
+    return links.length;
+  } catch (e) {
+    console.error("linear unlink failed", e);
+    return 0;
+  }
+}
+
+/** For registry and account deletion: drop the links matching `where` (see dropLinks). */
+export const dropLinksFor = (env: Env, where: { board?: string; by?: string }): Promise<number> => dropLinks(linearFor(env), where);
 
 /** What one verified webhook does. Returns what happened, for logs and tests. */
 export async function applyEvent(l: Linear, p: LinearEvent): Promise<string> {
@@ -432,7 +463,7 @@ export async function applyEvent(l: Linear, p: LinearEvent): Promise<string> {
     if (!p.updatedFrom || !("stateId" in p.updatedFrom)) return "ignored: not a state change";
     const m = typeof d.id === "string" ? await mappedIssue(l, d.id) : null;
     if (!m) return "ignored: not a board task";
-    if (p.organizationId && p.organizationId !== m.org_id) return "ignored: another organization";
+    if (p.organizationId !== m.org_id) return "ignored: another organization";
     const type = (typeof d.state?.type === "string" ? d.state.type : null) ?? statesOf(m as unknown as LinkRow).find((s) => s.id === d.stateId)?.type ?? null;
     if (!type) return "ignored: unknown state";
     if (type === m.state_type) return "ignored: already in step";
@@ -441,7 +472,7 @@ export async function applyEvent(l: Linear, p: LinearEvent): Promise<string> {
     const cur = await l.board.status(m.board_id, m.seq);
     const next = statusFor(type, cur);
     if (!cur || !next || next === cur) return "ignored: same status";
-    if (!(await canAct(l, m.board_id, m.created_by))) return "ignored: the linker can't change tasks there";
+    if (!(await linkerOk(l, m.board_id, m.created_by))) return "ignored: the link's maker no longer owns the board";
     try {
       await l.board.setStatus(m.board_id, m.created_by, m.seq, next);
     } catch (e) {
@@ -453,18 +484,19 @@ export async function applyEvent(l: Linear, p: LinearEvent): Promise<string> {
     const issueId = typeof d.issueId === "string" ? d.issueId : typeof d.issue?.id === "string" ? d.issue.id : null;
     const m = issueId ? await mappedIssue(l, issueId) : null;
     if (!m) return "ignored: not a board task";
-    if (p.organizationId && p.organizationId !== m.org_id) return "ignored: another organization";
+    if (p.organizationId !== m.org_id) return "ignored: another organization";
     const author = (typeof d.userId === "string" ? d.userId : null) ?? d.user?.id ?? p.actor?.id ?? null;
     if (author && author === m.linear_user) return "ignored: Atteo's own comment";
     if (typeof d.id === "string" && (await l.db.prepare(`SELECT 1 AS x FROM linear_seen WHERE key = ?`).bind(`c:${d.id}`).first())) return "ignored: Atteo's own comment";
     const body = String(d.body ?? "").trim();
     if (body.startsWith(BLOCKED_PREFIX)) return "ignored: Atteo's own comment"; // its webhook can beat the seen row
     if (!body) return "ignored: empty";
-    if (!(await canAct(l, m.board_id, m.created_by))) return "ignored: the linker can't post there";
-    const text = commentNote(d.user?.name ?? p.actor?.name ?? "Someone", m.identifier, body);
+    if (!(await linkerOk(l, m.board_id, m.created_by))) return "ignored: the link's maker no longer owns the board";
+    const name = nameLabel(d.user?.name ?? p.actor?.name ?? "Someone");
+    const text = commentNote(name, m.identifier, body);
     // Resolved with no author: the linker's own agent counts too ("@vedu's agent" from Linear reaches vedu's agent).
     const mentions = mayMention(text) ? parseMentions(text, await l.board.members(m.board_id)).mentions : [];
-    const seq = await l.board.comment(m.board_id, m.created_by, m.seq, text, mentions);
+    const seq = await l.board.comment(m.board_id, m.created_by, m.seq, text, mentions, { linear: { author: name, issue: m.identifier } });
     return `note: #${seq}`;
   }
   return "ignored";
@@ -475,12 +507,14 @@ type Later = { waitUntil(p: Promise<unknown>): void };
 /** POST /api/integrations/linear/webhook: checked, deduped, answered at once, handled in waitUntil. */
 export async function webhook(l: Linear, request: Request, later: Later): Promise<Response> {
   if (!linearOn(l.env) || !l.env.LINEAR_WEBHOOK_SECRET) return json({ error: NOT_SET_UP }, 503);
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_WEBHOOK_BYTES) return json({ error: "Payload too large" }, 413);
   const raw = await request.text();
   if (raw.length > MAX_WEBHOOK_BYTES) return json({ error: "Payload too large" }, 413);
   const v = await verifyWebhook(l.env.LINEAR_WEBHOOK_SECRET, request.headers.get("linear-signature"), raw, l.now());
   if (!v.ok) return json({ error: v.why }, v.status);
-  const delivery = request.headers.get("linear-delivery") ?? `${v.payload.webhookId ?? ""}:${v.payload.webhookTimestamp}`;
-  if (!(await firstSeen(l, `d:${delivery}`))) return json({ ok: true, applied: "duplicate" });
+  if (typeof v.payload.organizationId !== "string" || !v.payload.organizationId) return json({ error: "organizationId missing" }, 400);
+  // Deduped on what was signed (the body), not on a header anyone in the path could change.
+  if (!(await firstSeen(l, `d:${await sha256(raw)}`))) return json({ ok: true, applied: "duplicate" });
   later.waitUntil(
     (async () => {
       await l.db.prepare(`DELETE FROM linear_seen WHERE at < ?`).bind(l.now() - SEEN_MS).run().catch(() => {});
@@ -518,7 +552,7 @@ export async function linkable(l: Linear, board: string, user: string): Promise<
   const row = /^b_[a-z0-9]{8,32}$/.test(board) ? await l.db.prepare(`SELECT id, title, encrypted, kind, archived_at, deleted_at FROM boards WHERE id = ?`).bind(board).first<BoardLite>() : null;
   const role = row && !row.deleted_at ? await roleOf(l, board, user) : null;
   if (!row || row.deleted_at || !role) return { status: 404, error: "No such board." };
-  if (role === "viewer") return { status: 403, error: "Viewers can't connect a board to Linear." };
+  if (role !== "owner") return { status: 403, error: "Only the board's owner can connect it to Linear." };
   if (row.encrypted) return { status: 409, error: "This board is end-to-end encrypted: the server can't read its tasks, so they can't be synced to Linear." };
   if (row.kind === "agent") return { status: 409, error: "\"Your agent\" stays between you and your agents: it can't be connected to Linear." };
   if (row.kind === "direct") return { status: 409, error: "A conversation between two people can't be connected to Linear." };
@@ -661,7 +695,6 @@ export async function choose(l: Linear, viewer: Viewer | null, request: Request,
   if (!("id" in row)) return fail(row.error, row.status);
   const link = await linkOf(l, row.id);
   if (!link) return fail("Connect Linear first: GET /api/integrations/linear/start?board=<id>.", 409);
-  if (link.created_by !== who.viewer.name && (await roleOf(l, row.id, who.viewer.name)) !== "owner") return fail(`Only ${link.created_by} (who connected it) or a board owner can change it.`, 403);
   if (!teamId || teamId.length > 100) return fail("team_id is required.", 400);
   type Team = { id: string; key: string; name: string; states: { nodes: LinearState[] }; labels: { nodes: { id: string; name: string }[] } };
   type Project = { id: string; name: string; teams: { nodes: { id: string }[] } };
@@ -692,17 +725,17 @@ export async function choose(l: Linear, viewer: Viewer | null, request: Request,
 }
 
 /** DELETE /api/integrations/linear?board=: unlink (who linked it, or a board owner); the token is revoked at Linear. */
-export async function unlink(l: Linear, viewer: Viewer | null, url: URL): Promise<Response> {
+export async function unlink(l: Linear, viewer: Viewer | null, request: Request, url: URL): Promise<Response> {
   const who = person(l, viewer, url, false);
   if (!who.ok) return who.res;
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") return json({ error: "Use Atteo's own pages." }, 403);
   const board = url.searchParams.get("board") ?? "";
   const role = /^b_[a-z0-9]{8,32}$/.test(board) ? await roleOf(l, board, who.viewer.name) : null;
   if (!role) return json({ error: "No such board." }, 404);
   const link = await linkOf(l, board);
   if (!link) return json({ ok: true, linked: false });
   if (link.created_by !== who.viewer.name && role !== "owner") return json({ error: `Only ${link.created_by} (who connected it) or a board owner can disconnect Linear.` }, 403);
-  await revoke(l, link);
-  await l.db.batch([l.db.prepare(`DELETE FROM linear_issues WHERE board_id = ?`).bind(board), l.db.prepare(`DELETE FROM linear_links WHERE board_id = ?`).bind(board)]);
-  await l.board.setLinear(board, false).catch(() => {});
+  await dropLinks(l, { board });
   return json({ ok: true, linked: false });
 }

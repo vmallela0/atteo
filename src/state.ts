@@ -108,8 +108,16 @@ export function fmtTime(ts: number): string {
 
 /** "jxn's agent" for agent posts ("Jarvis (jxn's agent)" when jxn named it), "jxn (person)" for posts the member
  * wrote themselves, plain name for older entries. `names`: agent names by owner, for entries not yet labelled. */
+/** A Linear comment's author, as agents read it (src/linear.ts): outside Atteo, through someone's Linear link. */
+export function linearLabel(meta: unknown, linker: string): string {
+  const raw = meta && typeof meta === "object" ? (meta as { author?: unknown }).author : null;
+  const name = typeof raw === "string" && raw.trim() ? raw.replace(/[@\r\n]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60) : "someone";
+  return `Linear comment by ${name} (via ${linker}'s Linear link)`;
+}
+
 export function authorLabel(e: Entry, names?: Record<string, string>): string {
   if (/^deleted-[0-9a-f]{10}$/.test(e.author)) return "Deleted user"; // a deleted account's tombstone (accountDelete.ts)
+  if (e.origin === "linear") return linearLabel(e.data?.linear, e.author); // someone outside Atteo, not the linker's agent
   if (e.via !== "agent") return e.via === "person" ? `${e.author} (person)` : e.author;
   const name = e.agent_name ?? names?.[e.author];
   return name ? `${name} (${e.author}'s agent)` : `${e.author}'s agent`;

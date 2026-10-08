@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 import type { TaskStatus, TaskView } from "../src/board";
 import * as L from "../src/linear";
 import type { Mention } from "../src/mentions";
+import * as registry from "../src/registry";
+import { authorLabel } from "../src/state";
 import { USER_ROW_DELETES } from "../src/testAccounts";
+import type { Entry, Env } from "../src/types";
 import type { Viewer } from "../src/ui";
 
 // A D1 stand-in over node:sqlite running every migration (as slack.test.ts), with run() reporting changes.
@@ -85,13 +88,13 @@ function setup(env: L.LinearEnv = ENV, labels: { id: string; name: string }[] = 
 
   db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity) VALUES (?, 'Checkout', 'vedu', 1, 0, 1)").run(BOARD);
   db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity, encrypted) VALUES (?, 'Sealed', 'vedu', 1, 0, 1, 1)").run(SECRET_BOARD);
-  for (const [u, role] of [["vedu", "owner"], ["ann", "contributor"], ["val", "viewer"]] as const) {
+  for (const [u, role] of [["vedu", "owner"], ["olga", "owner"], ["ann", "contributor"], ["val", "viewer"]] as const) {
     db.prepare("INSERT INTO members (board_id, user, joined_at, last_seen, role) VALUES (?, ?, 1, 1, ?)").run(BOARD, u, role);
   }
   db.prepare("INSERT INTO members (board_id, user, joined_at, last_seen, role) VALUES (?, 'vedu', 1, 1, 'owner')").run(SECRET_BOARD);
 
   const tasks = new Map<number, TaskStatus>([[7, "todo"]]);
-  const notes: { board: string; user: string; seq: number; text: string; mentions: Mention[] }[] = [];
+  const notes: { board: string; user: string; seq: number; text: string; mentions: Mention[]; data: unknown }[] = [];
   const statusSets: { user: string; seq: number; status: TaskStatus }[] = [];
   const linearOn = new Map<string, boolean>();
   const board: L.LinearBoardOps = {
@@ -100,12 +103,12 @@ function setup(env: L.LinearEnv = ENV, labels: { id: string; name: string }[] = 
       statusSets.push({ user, seq, status });
       tasks.set(seq, status);
     },
-    comment: async (b, user, seq, text, mentions) => {
-      notes.push({ board: b, user, seq, text, mentions });
+    comment: async (b, user, seq, text, mentions, data) => {
+      notes.push({ board: b, user, seq, text, mentions, data });
       return 100 + notes.length;
     },
     setLinear: async (b, on) => void linearOn.set(b, on),
-    members: async () => [{ user: "vedu", agent_name: null }, { user: "ann", agent_name: "Scout" }, { user: "val", agent_name: null }],
+    members: async () => [{ user: "vedu", agent_name: null }, { user: "olga", agent_name: null }, { user: "ann", agent_name: "Scout" }, { user: "val", agent_name: null }],
   };
   const l: L.Linear = { db: d1, env, origin: ORIGIN, now: () => t, http, board };
   const later: Promise<unknown>[] = [];
@@ -140,7 +143,7 @@ describe("Linear: not set up", () => {
   it("every route answers 503 \"Linear isn't set up yet\" without the OAuth app and token key; the webhook also without its secret", async () => {
     const s = setup({ PUBLIC_URL: ORIGIN });
     const u = new URL(`${ORIGIN}/api/integrations/linear?board=${BOARD}`);
-    for (const res of [await L.start(s.l, person("vedu"), u), await L.status(s.l, person("vedu"), u), await L.unlink(s.l, person("vedu"), u)]) expect(res.status).toBe(503);
+    for (const res of [await L.start(s.l, person("vedu"), u), await L.status(s.l, person("vedu"), u), await L.unlink(s.l, person("vedu"), new Request(u, { method: "DELETE" }), u)]) expect(res.status).toBe(503);
     const res = await L.webhook(s.l, new Request(u, { method: "POST", body: "{}" }), s.ctx);
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: L.NOT_SET_UP });
@@ -150,24 +153,25 @@ describe("Linear: not set up", () => {
 });
 
 describe("Linear: OAuth", () => {
-  it("start sends a contributor to Linear with the scopes and a signed state bound to them and the board", async () => {
+  it("start sends an owner to Linear with the scopes and a signed state bound to them and the board", async () => {
     const s = setup();
-    const res = await L.start(s.l, person("ann"), new URL(`${ORIGIN}/api/integrations/linear/start?board=${BOARD}`));
+    const res = await L.start(s.l, person("olga"), new URL(`${ORIGIN}/api/integrations/linear/start?board=${BOARD}`));
     expect(res.status).toBe(302);
     const to = new URL(res.headers.get("location")!);
     expect(to.origin + to.pathname).toBe(L.LINEAR_AUTHORIZE);
     expect(to.searchParams.get("scope")).toBe("read,write,issues:create,comments:create");
     expect(to.searchParams.get("client_id")).toBe("lin_client");
     expect(to.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/api/integrations/linear/callback`);
-    expect(await L.readState("lin_secret", to.searchParams.get("state")!, T0)).toEqual({ user: "ann", board: BOARD });
+    expect(await L.readState("lin_secret", to.searchParams.get("state")!, T0)).toEqual({ user: "olga", board: BOARD });
   });
 
-  it("refuses agent tokens, non-members, viewers, encrypted boards; sends the signed-out to sign in", async () => {
+  it("refuses agent tokens, non-members, viewers, contributors, encrypted boards; sends the signed-out to sign in", async () => {
     const s = setup();
     const u = (b: string) => new URL(`${ORIGIN}/api/integrations/linear/start?board=${b}`);
     expect((await L.start(s.l, agent("vedu"), u(BOARD))).status).toBe(403);
     expect((await L.start(s.l, person("mallory"), u(BOARD))).status).toBe(404);
     expect((await L.start(s.l, person("val"), u(BOARD))).status).toBe(403);
+    expect((await L.start(s.l, person("ann"), u(BOARD))).status).toBe(403); // a contributor can't link (Slack's rule too)
     expect((await L.start(s.l, person("vedu"), u(SECRET_BOARD))).status).toBe(409);
     const out = await L.start(s.l, null, u(BOARD));
     expect(out.status).toBe(302);
@@ -249,8 +253,9 @@ describe("Linear: OAuth", () => {
     expect(JSON.stringify(body)).not.toMatch(/token|lin_oauth|v1:/);
     expect((await L.status(s.l, person("mallory"), new URL(`${ORIGIN}/api/integrations/linear?board=${BOARD}`))).status).toBe(404);
 
-    const del = (who: Viewer) => L.unlink(s.l, who, new URL(`${ORIGIN}/api/integrations/linear?board=${BOARD}`));
+    const del = (who: Viewer, site = "same-origin") => L.unlink(s.l, who, new Request(`${ORIGIN}/x`, { method: "DELETE", headers: { "sec-fetch-site": site } }), new URL(`${ORIGIN}/api/integrations/linear?board=${BOARD}`));
     expect((await del(agent("vedu"))).status).toBe(403);
+    expect((await del(person("vedu"), "cross-site")).status).toBe(403);
     expect((await del(person("ann"))).status).toBe(403); // not who connected it, not an owner
     s.calls.length = 0;
     expect((await del(person("vedu"))).status).toBe(200);
@@ -390,11 +395,11 @@ describe("Linear: the webhook", () => {
     await signed(s, { type: "Comment", action: "create", data: { id: "cm_1", issueId: "iss_1", body: "@agents can someone check the logs? and @vedu's agent please retry", userId: "lu_jane", user: { id: "lu_jane", name: "Jane @all Doe" } } });
     expect(s.notes).toHaveLength(1);
     const n = s.notes[0];
-    expect(n).toMatchObject({ board: BOARD, user: "vedu", seq: 7 });
+    expect(n).toMatchObject({ board: BOARD, user: "vedu", seq: 7, data: { linear: { author: "Jane all Doe", issue: "ENG-1" } } });
     expect(n.text).toBe("Jane all Doe commented on Linear (ENG-1):\n\n@agents can someone check the logs? and @vedu's agent please retry");
     // Every member's agent, the linker's own included (it's not the linker's words); no person, nobody from the name.
     const key = (m: Mention) => `${m.user}${m.agent ? "'s agent" : ""}`;
-    expect(n.mentions.map(key).sort()).toEqual(["ann's agent", "val's agent", "vedu's agent"]);
+    expect(n.mentions.map(key).sort()).toEqual(["ann's agent", "olga's agent", "val's agent", "vedu's agent"]);
     // The token's own Linear user's comments, empty ones, and comments on other issues aren't brought back.
     await signed(s, { type: "Comment", action: "create", data: { id: "cm_2", issueId: "iss_1", body: "from the app", userId: "lu_app" } });
     await signed(s, { type: "Comment", action: "create", data: { id: "cm_3", issueId: "iss_1", body: "  " } });
@@ -411,6 +416,116 @@ describe("Linear: the webhook", () => {
     await signed(s, { type: "Issue", action: "update", data: { id: "iss_1", state: { type: "completed" } }, updatedFrom: { stateId: "st_todo" } });
     expect(s.notes).toEqual([]);
     expect(s.statusSets).toEqual([]);
+  });
+});
+
+describe("Linear: only owners link, and a link lasts while its maker owns the board", () => {
+  afterEach(() => void vi.unstubAllGlobals());
+
+  it("a contributor can't create or replace a link; another owner can replace it", async () => {
+    const s = setup();
+    await link(s);
+    const st = await L.signState("lin_secret", { user: "ann", board: BOARD, exp: T0 + 1000 });
+    expect((await L.callback(s.l, person("ann"), new URL(`${ORIGIN}/cb?code=good&state=${encodeURIComponent(st)}`))).status).toBe(403);
+    const post = (who: string) =>
+      L.choose(s.l, person(who), new Request(`${ORIGIN}/api/integrations/linear`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board: BOARD, team_id: "tm_eng" }) }), new URL(`${ORIGIN}/x`));
+    expect((await post("ann")).status).toBe(403);
+    expect(s.db.prepare("SELECT created_by FROM linear_links WHERE board_id = ?").get(BOARD)).toEqual({ created_by: "vedu" });
+    await link(s, "olga");
+    expect(s.db.prepare("SELECT created_by FROM linear_links WHERE board_id = ?").get(BOARD)).toEqual({ created_by: "olga" });
+  });
+
+  it("a removed or demoted linker's link stops syncing at once", async () => {
+    for (const change of ["removed", "demoted"] as const) {
+      const s = setup();
+      await link(s);
+      if (change === "removed") s.db.prepare("DELETE FROM members WHERE board_id = ? AND user = 'vedu'").run(BOARD);
+      else s.db.prepare("UPDATE members SET role = 'contributor' WHERE board_id = ? AND user = 'vedu'").run(BOARD);
+      expect(await L.syncTask(s.l, BOARD, task(7, "todo"))).toBe("off");
+      expect(s.calls).toEqual([]);
+    }
+  });
+
+  it("removing or demoting the linker, or deleting the board, drops the link and revokes the token at Linear", async () => {
+    for (const change of ["removed", "demoted", "other demoted", "board deleted"] as const) {
+      const s = setup();
+      await link(s);
+      const fetched: string[] = [];
+      vi.stubGlobal("fetch", async (u: RequestInfo | URL) => (fetched.push(String(u)), new Response("{}")));
+      const off: boolean[] = [];
+      const env = { ...ENV, DB: s.l.db, BOARD: { idFromName: (x: string) => x, get: () => ({ setLinear: async (on: boolean) => void off.push(on) }) } } as unknown as Env;
+      if (change === "removed") await registry.removeMember(env, BOARD, "vedu");
+      if (change === "demoted") await registry.setMemberAccess(env, BOARD, "vedu", { role: "contributor" });
+      if (change === "other demoted") await registry.setMemberAccess(env, BOARD, "olga", { role: "contributor" });
+      if (change === "board deleted") await registry.deleteBoard(env, BOARD);
+      const left = s.db.prepare("SELECT COUNT(*) AS n FROM linear_links").get().n;
+      if (change === "other demoted") {
+        expect(left).toBe(1);
+        expect(fetched).toEqual([]);
+      } else {
+        expect(left).toBe(0);
+        expect(fetched).toEqual([L.LINEAR_REVOKE]);
+        expect(off).toEqual([false]);
+      }
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("account deletion revokes the person's Linear tokens before their rows go", async () => {
+    const s = setup();
+    await link(s);
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", async (u: RequestInfo | URL) => (fetched.push(String(u)), new Response("{}")));
+    const env = { ...ENV, DB: s.l.db, BOARD: { idFromName: (x: string) => x, get: () => ({ setLinear: async () => {} }) } } as unknown as Env;
+    expect(await L.dropLinksFor(env, { by: "vedu" })).toBe(1);
+    expect(fetched).toEqual([L.LINEAR_REVOKE]);
+    expect(s.db.prepare("SELECT COUNT(*) AS n FROM linear_links").get().n).toBe(0);
+  });
+});
+
+describe("Linear: the webhook's guards", () => {
+  it("dedupes on the signed body, not the delivery header", async () => {
+    const s = setup();
+    await link(s);
+    await L.syncTask(s.l, BOARD, task(7, "todo"));
+    const ev = { type: "Issue", action: "update", data: { id: "iss_1", state: { type: "completed" } }, updatedFrom: { stateId: "st_todo" } };
+    expect(await (await signed(s, ev, { delivery: "a" })).json()).toEqual({ ok: true, applied: "accepted" });
+    expect(await (await signed(s, ev, { delivery: "b" })).json()).toEqual({ ok: true, applied: "duplicate" });
+  });
+
+  it("refuses a payload without organizationId, ignores another organization's, and refuses bodies over 1 MB before reading them", async () => {
+    const s = setup();
+    await link(s);
+    await L.syncTask(s.l, BOARD, task(7, "todo"));
+    const raw = JSON.stringify({ webhookTimestamp: T0, type: "Issue", action: "update", data: { id: "iss_1", state: { type: "completed" } }, updatedFrom: { stateId: "st_todo" } });
+    const res = await L.webhook(s.l, new Request(`${ORIGIN}/x`, { method: "POST", headers: { "linear-signature": await L.hmacHex("whsec", raw) }, body: raw }), s.ctx);
+    expect(res.status).toBe(400);
+    await signed(s, { type: "Issue", action: "update", organizationId: "org_evil", data: { id: "iss_1", state: { type: "completed" } }, updatedFrom: { stateId: "st_todo" } });
+    expect(s.statusSets).toEqual([]);
+    let read = false;
+    const big = { headers: new Headers({ "content-length": String(L.MAX_WEBHOOK_BYTES + 1) }), text: async () => ((read = true), "") } as unknown as Request;
+    expect((await L.webhook(s.l, big, s.ctx)).status).toBe(413);
+    expect(read).toBe(false);
+  });
+
+  it("an issue moved to Triage or Backlog makes its task to do, and isn't pushed back to Todo", async () => {
+    for (const [stateId, type] of [["st_triage", "triage"], ["st_backlog", "backlog"]]) {
+      const s = setup();
+      await link(s);
+      s.tasks.set(7, "doing");
+      await L.syncTask(s.l, BOARD, task(7, "doing"));
+      await signed(s, { type: "Issue", action: "update", data: { id: "iss_1", stateId, state: { id: stateId, type } }, updatedFrom: { stateId: "st_prog" } });
+      expect(s.statusSets).toEqual([{ user: "vedu", seq: 7, status: "todo" }]);
+      s.calls.length = 0;
+      expect(await L.syncTask(s.l, BOARD, task(7, "todo"))).toBe("unchanged");
+      expect(s.calls).toEqual([]);
+    }
+  });
+
+  it("agents read a Linear comment as from outside Atteo, through the linker's link", () => {
+    const e = { seq: 9, ts: 1, author: "vedu", type: "note", text: "x", to: null, reply_to: 7, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, via: "agent", origin: "linear", data: { linear: { author: "Jane Doe", issue: "ENG-1" } } } as Entry;
+    expect(authorLabel(e)).toBe("Linear comment by Jane Doe (via vedu's Linear link)");
+    expect(authorLabel({ ...e, origin: undefined })).toBe("vedu's agent");
   });
 });
 

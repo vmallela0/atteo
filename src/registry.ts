@@ -7,6 +7,7 @@ import { checkCanAddMember } from "./billing";
 import { agentNameIndex, foldAgentName } from "./mentions";
 import { noteInviteRedeemed, type Later } from "./observe";
 import { PERSON_ONLY_KINDS, type Env } from "./types";
+import { dropLinksFor as dropLinearLinks } from "./linear";
 
 export interface BoardRow {
   id: string;
@@ -159,6 +160,8 @@ export async function memberRole(env: Env, boardId: string, user: string): Promi
 
 export async function setMemberAccess(env: Env, boardId: string, user: string, change: { role?: Role; expires_at?: number | null }) {
   if (change.role) await env.DB.prepare(`UPDATE members SET role = ? WHERE board_id = ? AND user = ?`).bind(change.role, boardId, user).run();
+  // A Linear link lasts while its maker owns the board (src/linear.ts).
+  if (change.role && change.role !== "owner") await dropLinearLinks(env, { board: boardId, by: user });
   if (change.expires_at !== undefined) await env.DB.prepare(`UPDATE members SET expires_at = ? WHERE board_id = ? AND user = ?`).bind(change.expires_at, boardId, user).run();
 }
 
@@ -182,6 +185,7 @@ export async function expiredMembers(env: Env): Promise<{ board_id: string; user
 }
 
 export async function removeMember(env: Env, boardId: string, user: string) {
+  await dropLinearLinks(env, { board: boardId, by: user }); // their Linear link goes with them (src/linear.ts)
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user),
     env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ? AND user = ?`).bind(boardId, user),
@@ -213,6 +217,7 @@ export async function deletedAt(env: Env, boardId: string): Promise<number | nul
 
 /** Removes a board from the directory: memberships, invitations, repo links, joined sessions, and the board row. */
 export async function deleteBoard(env: Env, boardId: string) {
+  await dropLinearLinks(env, { board: boardId }); // revokes its Linear token
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM notifications WHERE kind = 'repo_join' AND json_extract(data, '$.join') IN (SELECT id FROM repo_join_requests WHERE board_id = ?)`).bind(boardId),
     env.DB.prepare(`DELETE FROM repo_join_requests WHERE board_id = ?`).bind(boardId),

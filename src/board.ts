@@ -3605,8 +3605,14 @@ export class Board extends DurableObject<Env> {
     // while one that names them interrupts. (Encrypted text can't be read here: those count as named.)
     const group = !info.encrypted && [ALL_MEMBERS, ALL_HUMANS].some((g) => hasGroupMention(e.text, g));
     const named = (u: string) => new RegExp(`(^|[^A-Za-z0-9_.@/-])@${u.replace(/[.]/g, "\\.")}(?![A-Za-z0-9_'’/-])`, "i").test(e.text);
-    const dataFor = (u: string, k: string) =>
+    const dataBase = (u: string, k: string) =>
       everyOne.length && u === e.author ? JSON.stringify({ each: everyOne }) : k === "from_your_person" && fromPerson ? JSON.stringify(fromPerson) : k === "mention" && group && !named(u) ? JSON.stringify({ broadcast: true }) : null;
+    // A Linear comment (origin "linear"): the mail says who wrote it outside Atteo, so it isn't read as the linker's agent.
+    const linearAuthor = e.origin === "linear" ? ((e.data?.linear as { author?: unknown } | undefined)?.author ?? "someone") : null;
+    const dataFor = (u: string, k: string) => {
+      const base = dataBase(u, k);
+      return linearAuthor == null ? base : JSON.stringify({ ...(base ? (JSON.parse(base) as object) : {}), linear: String(linearAuthor).slice(0, 60) });
+    };
     await this.env.DB.batch(
       [...kinds].map(([u, k]) =>
         this.env.DB.prepare(

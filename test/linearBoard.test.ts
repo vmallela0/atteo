@@ -120,12 +120,13 @@ describe("a Linear comment on the board", () => {
     const { board, db, directory, settle } = openBoard();
     const task = await board.taskCreate("vedu", { title: "Fix checkout" }, { via: "person" });
     const ms = [{ user: "vedu", agent: true }, { user: "ann", agent: true }];
-    const e = await board.post("vedu", { type: "note", text: "Jane commented on Linear (ENG-1):\n\n@agents please look", reply_to: task.task.seq, via: "agent", client: "Linear", mentions: ms }, { origin: "linear" });
+    const e = await board.post("vedu", { type: "note", text: "Jane commented on Linear (ENG-1):\n\n@agents please look", reply_to: task.task.seq, via: "agent", client: "Linear", mentions: ms, data: { linear: { author: "Jane", issue: "ENG-1" } } }, { origin: "linear" });
     await settle();
     expect(e.origin).toBe("linear");
     expect(mentionsAt(db, e.seq).map((m) => `${m.user}:${m.agent}`).sort()).toEqual(["ann:true", "vedu:true"]);
-    const mail = directory.db.prepare("SELECT user, kind FROM notifications WHERE board_id = ? AND seq = ? ORDER BY user").all(BOARD, e.seq);
-    expect(mail).toEqual([{ user: "ann", kind: "agent" }, { user: "vedu", kind: "agent" }]);
+    const mail = directory.db.prepare("SELECT user, kind, data FROM notifications WHERE board_id = ? AND seq = ? ORDER BY user").all(BOARD, e.seq);
+    // The mail carries who wrote it on Linear, so the mailbox labels it as from outside Atteo.
+    expect(mail).toEqual([{ user: "ann", kind: "agent", data: '{"linear":"Jane"}' }, { user: "vedu", kind: "agent", data: '{"linear":"Jane"}' }]);
 
     // The same words from vedu's own agent (no origin): a self-mention, dropped as before.
     const own = await board.post("vedu", { type: "note", text: "@agents please look", reply_to: task.task.seq, via: "agent", client: "Claude Code", mentions: ms });
