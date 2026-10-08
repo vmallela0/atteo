@@ -212,6 +212,10 @@ export interface Env {
   DEV_FAKE_CLOCK?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost + x-dev-now → test request time (src/util.ts)
   DEV_FAKE_NEAR_QUOTA?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" lets POST /api/ops/limits {nearQuota: true} fake load-shedding level 1 on localhost (src/limits.ts)
   DEV_FAKE_ADMIN?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost lets POST /api/ops/sessions { admin: true } mint an operator browser session for /_ops checks (src/auth.ts)
+  DEV_HOPS?: string; // LOCAL bench env ONLY, never wrangler.jsonc: "1" + localhost counts D1/Durable Object round trips per request (x-dev-hops; src/devHops.ts)
+  DEV_D1_MS?: string; // with DEV_HOPS: ms added before each D1 query, to give a local run production's hop cost
+  DEV_DO_MS?: string; // with DEV_HOPS: ms added before each board Durable Object call
+  DEV_HOPS_LOG?: string; // with DEV_HOPS: "1" logs every D1 query and Durable Object call per request
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
   // Free-plan guardrails (src/limits.ts; INFRA-ASSESSMENT §4i). All optional vars; the defaults are in limits().
   RATE_AGENT_PER_MIN?: string; // var: requests per minute per agent token (default 600; per isolate)

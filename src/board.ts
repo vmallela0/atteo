@@ -44,6 +44,7 @@ import { onEntry as teamsOnEntry } from "./teams";
 import type { Listener } from "./listen";
 import { memberRole } from "./registry";
 import { LIVE_MS } from "./sessions";
+import { meterBoardEnv } from "./devHops";
 import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
 import { priceUsage, PRICE_DATE, type PricedUsage, type Usage } from "./spend";
 
@@ -409,7 +410,7 @@ export class Board extends DurableObject<Env> {
   private clockOffset = 0; // local tests only (devClock): moves the lease clock forward
 
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
+    super(ctx, meterBoardEnv(env)); // the bench's hop meter (src/devHops.ts); the env as is unless DEV_HOPS=1
     this.sql = ctx.storage.sql;
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);

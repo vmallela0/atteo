@@ -32,6 +32,7 @@ import * as agents from "./agents";
 import * as askAgent from "./askAgent";
 import * as dm from "./dm";
 import { settle, waitForBoard } from "./waits";
+import * as devHops from "./devHops";
 import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
@@ -734,6 +735,13 @@ const handler = {
   },
 
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
+    // The hop meter (src/devHops.ts): local bench runs only (DEV_HOPS=1 on localhost); otherwise null and nothing changes.
+    const metered = devHops.meter(rawEnv, request);
+    if (metered) return devHops.stamp(await handler.serve(request, metered.env, ctx), metered.hops);
+    return handler.serve(request, rawEnv, ctx);
+  },
+
+  async serve(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
     // Local runs (wrangler dev, every test suite) never load analytics: the key in wrangler.jsonc is production's.
     return withAnalytics(isLocalHost(new URL(request.url).hostname) ? {} : rawEnv, async () => {
     // Database reads retry through dropped connections (a transient D1 error must never fail someone's post).
@@ -4496,7 +4504,7 @@ const handler = {
     }
     });
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env> & { serve(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> };
 
 // Errors also go to Sentry when SENTRY_DSN is set (prod); with no DSN the SDK stays off (dev/CI).
 /** Everyday or Developer (#1272): Developer when the person chose it, or (auto) once they've connected a coding agent. */
