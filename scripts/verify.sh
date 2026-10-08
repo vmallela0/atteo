@@ -19,7 +19,7 @@
 #   BROWSER_CHANGED=origin/main scripts/verify.sh   # only the browser checks the changes since origin/main need
 #   SHIP_FULL=1 scripts/ship.sh       # a landing in one step: this, then push and deploy
 #
-# Env: VERIFY_PORT (default 8610; uses PORT..PORT+3) · SUITES (default "vitest e2e cli browser"; naming cli always runs
+# Env: VERIFY_PORT (default 8610; uses PORT..PORT+3) · VERIFY_VARS ("KEY:VALUE …" for every server, e.g. D1_REPLICAS:1) · SUITES (default "vitest e2e cli browser"; naming cli always runs
 #   it) · ALL=1 (run cli regardless) · BASE_REF (what "changed" means for the cli rule; default the last ship, else
 #   origin/main) · BROWSER_CHANGED (a ref: run only the browser checks checks-map.json picks for the files changed
 #   since it; when it picks none, the browser server isn't started either) · VERIFY_DIR (logs and state; default
@@ -97,7 +97,9 @@ server() {
     || { echo "migrations failed for $name (log: $OUT/$name.migrate.log)" >&2; exit 1; }
   # Its own inspector port too: servers started together otherwise race for wrangler's default one and lose (bind()).
   # DEV_FAKE_ADMIN: the localhost-only /_ops test session (PR 60) works in every suite without each lander editing .dev.vars.
-  exec npx wrangler dev --port "$port" --inspector-port $((port + 1000)) --persist-to "$dir" ${envf:+--env-file "$envf"} --var DEV_FAKE_ADMIN:1 >"$OUT/$name.server.log" 2>&1
+  # VERIFY_VARS="KEY:VALUE …" adds vars to every server, e.g. D1_REPLICAS:1 runs the suites with replica Sessions on.
+  # shellcheck disable=SC2086
+  exec npx wrangler dev --port "$port" --inspector-port $((port + 1000)) --persist-to "$dir" ${envf:+--env-file "$envf"} --var DEV_FAKE_ADMIN:1 ${VERIFY_VARS:+--var $VERIFY_VARS} >"$OUT/$name.server.log" 2>&1
 }
 # up <port> <name> [path]: wait for it to answer; give up at once if the server (or its migration) already died.
 up() {

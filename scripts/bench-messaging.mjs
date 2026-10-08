@@ -20,7 +20,7 @@
 //     (staging only, docs/STAGING.md; STAGING_BENCH=1 scripts/staging.sh runs this): light load, N=20 M=2 by default,
 //     no hop counts (staging doesn't meter), printed and never checked against the baseline
 //   node scripts/bench-messaging.mjs --update              # write this run's numbers as the profile's baseline
-// Options: --n --m --port --base --d1-ms --do-ms --no-browser --json <file> --update --no-check --keep (state dir and
+// Options: --n --m --port --base --d1-ms --do-ms --replica-ms --no-browser --json <file> --update --no-check --keep (state dir and
 //   server log) --log-hops (the server log names every D1 query and Durable Object call, per request)
 // Env: GROW, SLACK, PW_CHROME, ADMIN_KEY (with --base; default ci-admin-key).
 // Local servers and staging only: --base must be localhost or the staging Worker. Never production.
@@ -39,8 +39,11 @@ const STAGING_HOST = "atteo-staging.vedu-mallela.workers.dev";
 const remote = (() => { try { return new URL(opt("base", "http://localhost")).hostname === STAGING_HOST; } catch { return false; } })();
 const N = Number(opt("n", remote ? 20 : 40)), M = Number(opt("m", remote ? 2 : 3)), PORT = Number(opt("port", 8640));
 const D1_MS = Number(opt("d1-ms", 0)), DO_MS = Number(opt("do-ms", 0));
+// --replica-ms <ms>: the server runs with D1_REPLICAS=1 (src/replicas.ts) and a read a replica may serve costs this
+// instead of --d1-ms: the local model of read replicas near the Worker (its own profile in the baseline).
+const REPLICA_MS = opt("replica-ms", null) == null ? null : Number(opt("replica-ms", 0));
 const GROW = Number(process.env.GROW ?? 0.5), SLACK = Number(process.env.SLACK ?? 15);
-const PROFILE = remote ? `staging` : `d1=${D1_MS},do=${DO_MS}`;
+const PROFILE = remote ? `staging` : `d1=${D1_MS},do=${DO_MS}${REPLICA_MS == null ? "" : `,replica=${REPLICA_MS}`}`;
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 let BASE = (opt("base", "") || `http://localhost:${PORT}`).replace(/\/$/, "");
 if (!remote && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(BASE).hostname)) { console.error(`bench-messaging: local servers and staging only (--base must be localhost or https://${STAGING_HOST}); never production.`); process.exit(2); }
@@ -64,7 +67,7 @@ if (!opt("base")) {
   try { await fetch(`${BASE}/health`); console.error(`bench-messaging: port ${PORT} is busy; stop that server or pass --port`); process.exit(2); } catch {}
   stateDir = mkdtempSync(join(tmpdir(), "atteo-bench-"));
   const env = join(stateDir, "bench.env");
-  writeFileSync(env, [`WORKOS_API_KEY=sk_test_ci_placeholder`, `ADMIN_KEY=${KEY}`, `POSTS_PER_MINUTE=100000`, `PUBLIC_URL=${BASE}`, `DEV_HOPS=1`, `DEV_D1_MS=${D1_MS}`, `DEV_DO_MS=${DO_MS}`, `DEV_HOPS_LOG=${flag("log-hops") ? 1 : 0}`, ""].join("\n"));
+  writeFileSync(env, [`WORKOS_API_KEY=sk_test_ci_placeholder`, `ADMIN_KEY=${KEY}`, `POSTS_PER_MINUTE=100000`, `PUBLIC_URL=${BASE}`, `DEV_HOPS=1`, `DEV_D1_MS=${D1_MS}`, `DEV_DO_MS=${DO_MS}`, `DEV_HOPS_LOG=${flag("log-hops") ? 1 : 0}`, ...(REPLICA_MS == null ? [] : [`D1_REPLICAS=1`, `DEV_D1_REPLICA_MS=${REPLICA_MS}`]), ""].join("\n"));
   execFileSync("npx", ["wrangler", "d1", "migrations", "apply", "agent-board", "--local", "--persist-to", join(stateDir, "state")], { cwd: ROOT, env: { ...process.env, CI: "1" }, stdio: "ignore" });
   const { openSync } = await import("node:fs");
   const log = openSync(join(stateDir, "server.log"), "w");
@@ -101,6 +104,9 @@ async function timed(k, url, init = {}) {
   const body = await r.text();
   const ms = now() - t0;
   if (k) add(k, ms, hopsOf(r));
+  // With D1_REPLICAS=1 (src/replicas.ts): which D1 instances served the request's reads (D1's own meta).
+  const served = r.headers.get("x-d1-served");
+  if (k && served) (S[k].served ??= []).push(served);
   return { r, body, ms };
 }
 let rid = 0;
@@ -248,13 +254,13 @@ const hopNum = (h, k) => (h ? Number(h.match(new RegExp(`${k}=(\\d+)`))?.[1]) : 
 const out = { profile: PROFILE, n: N, m: M, base: BASE, at: new Date().toISOString(), metrics: {} };
 for (const [k, v] of Object.entries(S)) {
   const h = mode(v.hops);
-  out.metrics[k] = { n: v.t.length, p50: +pct(v.t, 50).toFixed(1), p95: +pct(v.t, 95).toFixed(1), p99: +pct(v.t, 99).toFixed(1), ...(h ? { d1: hopNum(h, "d1"), do: hopNum(h, "do") } : {}) };
+  out.metrics[k] = { n: v.t.length, p50: +pct(v.t, 50).toFixed(1), p95: +pct(v.t, 95).toFixed(1), p99: +pct(v.t, 99).toFixed(1), ...(h ? { d1: hopNum(h, "d1"), do: hopNum(h, "do") } : {}), ...(v.served ? { served: mode(v.served) } : {}) };
 }
 if (S["deliver: missed (5s)"]) out.metrics["deliver: missed (5s)"] = { n: S["deliver: missed (5s)"].t.length, p50: 0, p95: 0, p99: 0 };
 const pad = (s, n) => String(s).padEnd(n), lp = (s, n) => String(s).padStart(n);
 console.log(`\nmessaging bench · ${remote ? `staging (${BASE}, real Cloudflare; from this machine)` : `profile ${PROFILE} (ms added per D1 query, per Durable Object call)`} · N=${N} posts per kind · M=${M} listeners\n`);
 console.log(`${pad("metric", 36)}${lp("n", 5)}${lp("p50", 9)}${lp("p95", 9)}${lp("p99", 9)}${lp("D1", 5)}${lp("DO", 5)}`);
-for (const [k, v] of Object.entries(out.metrics)) console.log(`${pad(k, 36)}${lp(v.n, 5)}${lp(v.p50, 9)}${lp(v.p95, 9)}${lp(v.p99, 9)}${lp(v.d1 ?? "", 5)}${lp(v.do ?? "", 5)}`);
+for (const [k, v] of Object.entries(out.metrics)) console.log(`${pad(k, 36)}${lp(v.n, 5)}${lp(v.p50, 9)}${lp(v.p95, 9)}${lp(v.p99, 9)}${lp(v.d1 ?? "", 5)}${lp(v.do ?? "", 5)}${v.served ? `   d1 served by: ${v.served}` : ""}`);
 const jsonOut = opt("json", "");
 if (jsonOut) writeFileSync(jsonOut, JSON.stringify(out, null, 1) + "\n");
 console.log("\n" + JSON.stringify(out));

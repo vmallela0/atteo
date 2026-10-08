@@ -119,7 +119,10 @@
         "VOICE_MONTHLY_MINUTES": "60",
         "VOICE_GLOBAL_MONTHLY_MINUTES": "600",
         "TTS_MONTHLY_CHARS": "150000",
-        "TTS_GLOBAL_MONTHLY_CHARS": "2000000"
+        "TTS_GLOBAL_MONTHLY_CHARS": "2000000",
+        // D1 read replicas (vedu #6581, src/replicas.ts): the hot board reads through a replica Session. Staging's
+        // database has read replication on; prod's top level leaves this unset (off) until the security review.
+        "D1_REPLICAS": "1"
       }
       // Secrets (wrangler secret put X --env staging): ADMIN_KEY only, a fresh random value staging.sh makes. Never a prod
       // secret: no WORKOS_*, RESEND_*, SENTRY_DSN, STRIPE_*, BACKUP_* or integration keys, so sign-in, email, error

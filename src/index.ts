@@ -33,6 +33,7 @@ import * as askAgent from "./askAgent";
 import * as dm from "./dm";
 import { settle, waitForBoard } from "./waits";
 import * as devHops from "./devHops";
+import * as replicas from "./replicas";
 import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
@@ -754,8 +755,14 @@ const handler = {
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
     // The hop meter (src/devHops.ts): local bench runs only (DEV_HOPS=1 on localhost); otherwise null and nothing changes.
     const metered = devHops.meter(rawEnv, request);
-    if (metered) return devHops.stamp(await handler.serve(request, metered.env, ctx), metered.hops);
-    return handler.serve(request, rawEnv, ctx);
+    const base = metered?.env ?? rawEnv;
+    // D1 read replicas (src/replicas.ts): with D1_REPLICAS=1, the hot board reads go through a first-primary Session;
+    // otherwise null, and env and every request are exactly as before.
+    const rs = replicas.begin(base, request);
+    const env = rs ? { ...base, DB: rs.db } : base;
+    let res = await handler.serve(request, env, ctx);
+    if (rs) res = replicas.stamp(res, rs);
+    return metered ? devHops.stamp(res, metered.hops) : res;
   },
 
   async serve(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {

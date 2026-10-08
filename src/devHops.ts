@@ -9,18 +9,31 @@
 //   DEV_D1_MS  added before each D1 query or batch (default 0)
 //   DEV_DO_MS  added before each Durable Object call (default 0)
 //   DEV_HOPS_LOG=1  also logs each hop (the SQL, or the Durable Object method) to the server log
+//   DEV_D1_REPLICA_MS  with D1_REPLICAS=1 (src/replicas.ts): instead of DEV_D1_MS for a read a replica may serve (each
+//                      query in a replica Session after its first); default DEV_D1_MS. Shown as x-dev-hops replica=<n>.
 import type { Env } from "./types";
 import { isLocalHost } from "./util";
 
 export interface Hops {
   d1: number;
   do: number;
+  replica?: number; // of d1: reads in a replica Session after its first query (src/replicas.ts)
 }
 
 const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
-/** D1 with each query (and each batch, one round trip) counted and delayed. */
-export function meterD1(db: D1Database, hops: Hops, delay: number, log?: (what: string) => void): D1Database {
+/** D1 with each query (and each batch, one round trip) counted and delayed. A Session made from it (withSession, as
+ *  src/replicas.ts does) is metered too: its first query goes to the primary (`delay`); each later one may be read from
+ *  a replica, so it costs `replicaDelay` and also counts as replica=<n>. */
+export function meterD1<T extends Pick<D1Database, "prepare" | "batch">>(db: T, hops: Hops, delay: number, log?: (what: string) => void, replicaDelay = delay, inSession = false): T {
+  let n = 0;
+  const hop = async (what: string) => {
+    const replica = inSession && n++ > 0;
+    hops.d1++;
+    if (replica) hops.replica = (hops.replica ?? 0) + 1;
+    log?.(`${replica ? "d1 (replica)" : "d1"} ${what}`);
+    await sleep(replica ? replicaDelay : delay);
+  };
   const raw = new WeakMap<object, D1PreparedStatement>(); // proxy → the real statement (batch() wants real ones)
   const wrap = (stmt: D1PreparedStatement, sql: string): D1PreparedStatement => {
     const p = new Proxy(stmt, {
@@ -30,9 +43,7 @@ export function meterD1(db: D1Database, hops: Hops, delay: number, log?: (what: 
         if (prop === "bind") return (...a: unknown[]) => wrap(v.apply(target, a), sql);
         if (prop === "first" || prop === "all" || prop === "raw" || prop === "run")
           return async (...a: unknown[]) => {
-            hops.d1++;
-            log?.(`d1 ${sql.replace(/\s+/g, " ").slice(0, 140)}`);
-            await sleep(delay);
+            await hop(sql.replace(/\s+/g, " ").slice(0, 140));
             return v.apply(target, a);
           };
         return v.bind(target);
@@ -43,21 +54,20 @@ export function meterD1(db: D1Database, hops: Hops, delay: number, log?: (what: 
   };
   return new Proxy(db, {
     get(target, prop, recv) {
-      const v = Reflect.get(target, prop, recv);
+      const v = Reflect.get(target, prop, recv) as ((...a: unknown[]) => any) | unknown;
+      if (typeof v !== "function") return v;
       if (prop === "prepare") return (sql: string) => wrap(v.call(target, sql), sql);
       if (prop === "batch")
         return async (stmts: D1PreparedStatement[]) => {
-          hops.d1++;
-          log?.(`d1 batch of ${stmts.length}`);
-          await sleep(delay);
+          await hop(`batch of ${stmts.length}`);
           return v.call(target, stmts.map((x) => raw.get(x) ?? x));
         };
       if (prop === "exec")
         return async (sql: string) => {
-          hops.d1++;
-          await sleep(delay);
+          await hop("exec");
           return v.call(target, sql);
         };
+      if (prop === "withSession") return (...a: unknown[]) => meterD1(v.apply(target, a) as D1DatabaseSession, hops, delay, log, replicaDelay, true);
       return typeof v === "function" ? v.bind(target) : v;
     },
   });
@@ -96,13 +106,14 @@ export function meter(env: Env, request: Request): { env: Env; hops: Hops } | nu
   const url = new URL(request.url);
   const t0 = Date.now(); // +ms since the request began: hops logged at the same offset ran side by side
   const log = env.DEV_HOPS_LOG === "1" ? (what: string) => console.log(`[hops] ${request.method} ${url.pathname} +${Date.now() - t0}ms ${what}`) : undefined;
-  return { env: { ...env, DB: meterD1(env.DB, hops, ms(env.DEV_D1_MS), log), BOARD: meterDO(env.BOARD, hops, ms(env.DEV_DO_MS), log) }, hops };
+  const d1 = ms(env.DEV_D1_MS), replica = env.DEV_D1_REPLICA_MS == null || env.DEV_D1_REPLICA_MS === "" ? d1 : ms(env.DEV_D1_REPLICA_MS);
+  return { env: { ...env, DB: meterD1(env.DB, hops, d1, log, replica), BOARD: meterDO(env.BOARD, hops, ms(env.DEV_DO_MS), log) }, hops };
 }
 
 /** The response with its hop counts in a header (a WebSocket upgrade is passed through as is). */
 export function stamp(res: Response, hops: Hops): Response {
   if (res.status === 101 || res.webSocket) return res;
-  const v = `d1=${hops.d1} do=${hops.do}`;
+  const v = `d1=${hops.d1} do=${hops.do}${hops.replica ? ` replica=${hops.replica}` : ""}`;
   try {
     res.headers.set("x-dev-hops", v);
     return res;
