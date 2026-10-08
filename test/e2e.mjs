@@ -8214,6 +8214,15 @@ await step("ask one agent (jxn #6339): my grok, someone's muse, keep waiting, fi
   assert(!((await api(J, "GET", "/api/mailbox?peek=1", null, lead)).body.mail ?? []).some((x) => x.text?.includes(`Q1 ${run}`)), "another session of mine doesn't get it");
   r = await api(J, "POST", "/api/ask", { to: "my claude code", text: `Q2 ${run}` }, muse); // no wait_seconds: sends and returns (jxn #6419)
   assert(r.body.status === "waiting" && r.body.to === `${J}/lead`, `by client: ${JSON.stringify(r.body)}`);
+  // All my agents, like texting yourself (jxn #6431): one question, in each other running agent's own mailbox, every answer back.
+  let ms;
+  [r, ...ms] = await Promise.all([api(J, "POST", "/api/ask", { to: "my agents", text: `Q7 ${run}`, wait_seconds: 20 }, muse), answer(grok, `Q7 ${run}`, "grok: all"), answer(lead, `Q7 ${run}`, "lead: all")]);
+  assert(ms[0]?.to_session === "grok" && ms[1]?.to_session === "lead", `each one's own mail: ${JSON.stringify(ms)}`);
+  assert(r.body.status === "answered" && [...r.body.agents].sort().join() === "grok,lead", `to the others, not the asker: ${JSON.stringify(r.body)}`);
+  assert(r.body.answers.map((a) => `${a.agent}=${a.text}`).sort().join() === "grok=grok: all,lead=lead: all", JSON.stringify(r.body.answers));
+  assert(!((await api(J, "GET", "/api/mailbox?peek=1", null, muse)).body.mail ?? []).some((x) => x.text?.includes(`Q7 ${run}`)), "the asking session doesn't get its own question");
+  r = await api(J, "POST", "/api/ask", { to: "me", text: `Q8 ${run}` }, muse);
+  assert(r.body.status === "waiting" && r.body.agents.length === 2 && r.body.answers.length === 0, `me: sends to all and returns: ${JSON.stringify(r.body)}`);
   // Someone else's, in the words people use: on our direct board.
   [r] = await Promise.all([api(V, "POST", "/api/ask", { to: `${J}’s muse`, text: `Q3 ${run}`, wait_seconds: 20 }, vs), answer(muse, `Q3 ${run}`, "muse: yes")]);
   assert(r.body.status === "answered" && r.body.answer.text === "muse: yes", JSON.stringify(r));

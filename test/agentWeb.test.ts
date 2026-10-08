@@ -448,7 +448,7 @@ describe("/a ask and friends (jxn #6397)", () => {
     expect(f.stub(direct).entries[0]).toMatchObject({ type: "question", text: "free friday?", via: "agent", client: "browser agent", mentions: [{ user: "theo", agent: true, session: "muse" }] });
   });
 
-  it("with no agent running says how to start one; the person's own name in the DM form points to Your agents", async () => {
+  it("with no agent running says how to start one; a DM to yourself goes to all your agents (jxn #6431)", async () => {
     const f = fixture(); addUser(f.db, "maya"); addSession(f.db, "maya", "old", "Grok");
     f.db.prepare(`UPDATE agent_sessions SET last_seen = ?`).run(Date.now() - 3600_000); // idle, not running
     const { cookie } = await signedIn(f);
@@ -458,11 +458,43 @@ describe("/a ask and friends (jxn #6397)", () => {
     const csrf = csrfFrom(home);
     for (const person of ["maya", "@Maya"]) {
       const res = await routeAgentWeb(formRequest("/a/message", { csrf, person, text: "hi me" }, cookie), f.env, f.deps);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toContain("To talk to your own agents, use Your agents on Agent home");
-      expect(html).toContain(`href="/a#ask"`);
+      expect(html).toContain("Sent to old. They'll answer in your agent chat."); // idle, not gone: it's in its mailbox
     }
+    const chat = f.db.prepare(`SELECT id FROM boards WHERE direct_key = 'self:maya'`).get().id as string;
+    expect(f.stub(chat).entries[0]).toMatchObject({ type: "question", text: "@maya/old hi me", via: "agent", mentions: [{ user: "maya", agent: true, session: "old" }] });
+  });
+
+  it("messages all of the person's agents at once and shows each one's answer (jxn #6431)", async () => {
+    const f = fixture(); addUser(f.db, "maya"); addSession(f.db, "maya", "muse", "Muse"); addSession(f.db, "maya", "grok", "Grok");
+    const { cookie } = await signedIn(f);
+    const html = await homeHtml(f, cookie);
+    const ours = html.slice(html.indexOf(`<h2 id="ask">Your agents</h2>`), html.indexOf("<h2>Friends</h2>"));
+    expect(ours).toMatch(/<form method="post" action="\/a\/ask"><input type="hidden" name="csrf" value="[a-f0-9]{64}"><input type="hidden" name="all" value="1"><label>Message all my agents \(2 running\)/);
+    const csrf = csrfFrom(html);
+    const sent = await routeAgentWeb(formRequest("/a/ask", { csrf, all: "1", text: "standup?" }, cookie), f.env, f.deps);
+    expect(sent.status).toBe(200);
+    const chat = f.db.prepare(`SELECT id FROM boards WHERE direct_key = 'self:maya'`).get().id as string;
+    // One copy each (mail is one per post), each in that agent's own mailbox.
+    const [q1, q2] = f.stub(chat).entries;
+    const copies = Object.fromEntries([q1, q2].map((q) => [q.mentions?.[0]?.session, q]));
+    expect(copies.muse).toMatchObject({ type: "question", text: "@maya/muse standup?", mentions: [{ user: "maya", agent: true, session: "muse" }] });
+    expect(copies.grok).toMatchObject({ type: "question", text: "@maya/grok standup?", mentions: [{ user: "maya", agent: true, session: "grok" }] });
+    const sentHtml = await sent.text();
+    expect(sentHtml).toMatch(/Sent to (muse, grok|grok, muse)\. They'll answer in your agent chat\./);
+    expect(sentHtml).toContain(`name="seq" value="${q1.seq}"`);
+    f.stub(chat).entries.push(answer(3, copies.muse.seq, "muse: <b>shipping</b>"));
+    let checked = await (await routeAgentWeb(formRequest("/a/ask/check", { csrf, to: "my agents", board: chat, seq: String(q1.seq) }, cookie), f.env, f.deps)).text();
+    expect(checked).toContain("1 of 2 answered so far.");
+    expect(checked).toContain("<h2>muse (#3 at ");
+    expect(checked).toContain("&lt;b&gt;shipping&lt;/b&gt;");
+    expect(checked).toContain(`action="/a/ask/check"`);
+    f.stub(chat).entries.push(answer(4, copies.grok.seq, "grok: reviewing"));
+    checked = await (await routeAgentWeb(formRequest("/a/ask/check", { csrf, to: "my agents", board: chat, seq: String(q1.seq) }, cookie), f.env, f.deps)).text();
+    expect(checked).toContain("All 2 answered.");
+    expect(checked).toContain("<h2>grok (#4 at ");
+    expect(checked).not.toContain(`action="/a/ask/check"`);
   });
 
   it("lists friends, escaped, each with a one-click Message form that opens the DM", async () => {
