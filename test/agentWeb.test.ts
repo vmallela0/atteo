@@ -412,7 +412,7 @@ describe("/a ask and friends (jxn #6397)", () => {
     const asked = await routeAgentWeb(formRequest("/a/ask", { csrf, agent: "muse", text: "what's on today?" }, cookie), f.env, f.deps);
     expect(asked.status).toBe(200);
     const askedHtml = await asked.text();
-    expect(askedHtml).toContain("No answer yet from maya/muse; it'll answer in your agent chat.");
+    expect(askedHtml).toContain("Sent to maya/muse. It'll answer in your agent chat."); // plain Send doesn't wait (jxn #6419)
     const chat = f.db.prepare(`SELECT id FROM boards WHERE direct_key = 'self:maya'`).get().id as string;
     expect(askedHtml).toContain(`<a href="/a/b/${chat}">Open your agent chat</a>`);
     const q = f.stub(chat).entries[0];
@@ -441,7 +441,7 @@ describe("/a ask and friends (jxn #6397)", () => {
     f.db.prepare(`INSERT INTO friendships (a, b, status, requested_by, created_at, decided_at) VALUES ('maya', 'theo', 'accepted', 'maya', 1, 1)`).run();
     const { cookie } = await signedIn(f);
     const csrf = csrfFrom(await homeHtml(f, cookie));
-    const asked = await routeAgentWeb(formRequest("/a/ask", { csrf, other: "theo/muse", text: "free friday?" }, cookie), f.env, f.deps);
+    const asked = await routeAgentWeb(formRequest("/a/ask", { csrf, other: "theo/muse", text: "free friday?", wait: "30" }, cookie), f.env, f.deps);
     expect(asked.status).toBe(200);
     expect(await asked.text()).toContain("No answer yet from theo/muse; it'll answer in your DM with them.");
     const direct = f.db.prepare(`SELECT id FROM boards WHERE direct_key = 'maya|theo'`).get().id as string;
