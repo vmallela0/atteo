@@ -1199,4 +1199,7 @@ export const AR: Record<string, string> = {
   "Connect Notion": "ربط Notion",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "فصل Notion عن هذه اللوحة؟ تبقى الصفحات المنشورة في Notion.",
   "Notion disconnected": "تم فصل Notion",
+  "Connect Microsoft Teams": "ربط Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "هل تريد قطع اتصال Microsoft Teams بهذه اللوحة؟ ستتوقف قناته عن تلقي المنشورات.",
+  "Microsoft Teams disconnected": "تم قطع اتصال Microsoft Teams",
 };

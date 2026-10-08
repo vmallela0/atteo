@@ -1,7 +1,8 @@
 // Browser check for vedu #6508: board info → Integrations. ⋯ → Integrations opens it; Linear's status loads from
 // /api/integrations/linear (stubbed here: no real Linear), Notion's from /api/integrations/notion (stubbed: not
-// connected), Slack's from the page (the fake bridge), and Discord and Microsoft Teams are "Coming soon". Only an owner sees Connect; whoever linked it or an owner sees Disconnect; a
-// server without Linear says so. 1280 and 390.
+// connected), Microsoft Teams' from /api/integrations/teams (stubbed: not connected, then linked), Slack's from the page
+// (the fake bridge), and Discord is "Coming soon". Only an owner sees Connect; whoever linked it or an owner sees
+// Disconnect; a server without Linear says so. 1280 and 390.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 const BASE=process.env.BASE||"http://localhost:8787";
@@ -12,6 +13,7 @@ const board=(await ops("boards",{user:A,title:`Integrations ${run}`})).board.id;
 const cookie={[A]:(await ops("sessions",{user:A})).cookie,[B]:(await ops("sessions",{user:B})).cookie};
 let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
 const LINKED={linked:true,ready:true,org:{id:"o1",name:"Acme"},team:{id:"t1",key:"ENG",name:"Engineering"},project:{id:"p1",name:"Checkout"},blocked_label:false,created_by:A,created_at:1,issues:2};
+const TEAMS_LINKED={linked:true,active:true,team_name:"Acme Team",channel_name:"eng",created_by:A,linked_by_name:"Jane Doe",created_at:1};
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 // state: what GET /api/integrations/linear answers ("off" = 503, as on a server without Linear's secrets)
 const open=async(user,w,phone,state)=>{
@@ -23,6 +25,7 @@ const open=async(user,w,phone,state)=>{
     if(state.v==="off")return r.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"Linear isn't set up yet"})});
     return r.fulfill({status:200,contentType:"application/json",body:JSON.stringify(state.v==="linked"?LINKED:{linked:false})})});
   await p.route("**/api/integrations/notion?*",r=>r.fulfill({status:200,contentType:"application/json",body:JSON.stringify({linked:false})}));
+  await p.route("**/api/integrations/teams?*",r=>r.fulfill({status:200,contentType:"application/json",body:JSON.stringify(state.teams==="linked"?TEAMS_LINKED:{linked:false})}));
   await p.goto(`${BASE}/b/${board}`);await p.locator("#composer-text").waitFor();
   return {ctx,p,errors,deletes};
 };
@@ -32,7 +35,7 @@ const panel=async(p,want)=>{if(!(await p.locator(".actions .board-head-menu").ev
 const settle=async(p)=>{await p.locator(".actions .board-head-menu").evaluate(d=>d.open=false);await p.waitForTimeout(450)};
 const fits=async(p,w)=>{for(const r of await p.locator("#acc-integrations .int-row").all()){const x=await r.boundingBox();if(!x||x.x<0||x.x+x.width>w+0.5)return false}return true};
 for(const [label,w,phone] of [["desktop",1280,false],["phone",390,true]]){
-  // The owner, Linear not connected yet: Connect Linear, Connect Slack, Connect Notion, two coming soon.
+  // The owner, Linear not connected yet: Connect Linear, Connect Slack, Connect Notion, Connect Microsoft Teams, one coming soon.
   const st={v:"none"};const {ctx,p,errors,deletes}=await open(A,w,phone,st);
   await panel(p,"Not connected");
   check(await p.locator("#acc-integrations").isVisible(),`${label}: ⋯ → Integrations opens board info at Integrations`);
@@ -41,7 +44,9 @@ for(const [label,w,phone] of [["desktop",1280,false],["phone",390,true]]){
   check((await p.locator("#int-slack .int-st").innerText()).includes("Not connected"),`${label}: Slack says not connected`);
   check((await p.locator("#int-slack a").getAttribute("href"))===`/slack/connect?board=${board}`,`${label}: the owner gets Connect Slack`);
   const soon=p.locator("#acc-integrations [data-soon]");
-  check(await soon.count()===2&&(await soon.allInnerTexts()).every(t=>t.includes("Coming soon")),`${label}: Discord, Teams are greyed "Coming soon"`);
+  check(await soon.count()===1&&(await soon.allInnerTexts()).every(t=>t.includes("Coming soon")),`${label}: Discord is greyed "Coming soon"`);
+  await p.locator("#int-teams .int-st").filter({hasText:"Not connected"}).waitFor({timeout:8000}).catch(()=>{});
+  check((await p.locator("#int-teams a").getAttribute("href"))===`/api/integrations/teams/start?board=${board}`,`${label}: the owner gets Connect Microsoft Teams → /start`);
   await p.locator("#int-notion .int-st").filter({hasText:"Not connected"}).waitFor({timeout:8000}).catch(()=>{});
   check((await p.locator("#int-notion a").getAttribute("href"))===`/api/integrations/notion/start?board=${board}`,`${label}: the owner gets Connect Notion → /start`);
   check(await soon.locator("a,button").count()===0,`${label}: …with nothing to click`);
@@ -51,7 +56,11 @@ for(const [label,w,phone] of [["desktop",1280,false],["phone",390,true]]){
   check(!!box&&box.y>=0&&box.y<820,`${label}: board info scrolls to Integrations (again after the members list loads above it)`);
   await p.screenshot({path:`${SHOTS_DIR}/integrations-${label}.png`});
   // Linked: team · project, by whom, and Disconnect (with a confirm) back to not connected.
+  st.teams="linked";
   st.v="linked";await p.locator("#invite [data-close]").first().click();await panel(p,"Engineering");
+  await p.locator("#int-teams .int-st").filter({hasText:"Acme Team"}).waitFor({timeout:8000}).catch(()=>{});
+  check((await p.locator("#int-teams .int-st").innerText()).includes("eng · Acme Team"),`${label}: Teams linked shows channel · team`);
+  check(await p.locator("[data-teams-disconnect]").count()===1,`${label}: …and Disconnect for the owner`);
   const s=await p.locator("#int-linear .int-st").innerText();
   check(s.includes("Engineering · Checkout")&&s.includes(`connected by ${A}`),`${label}: linked shows team · project and who connected it`);
   await settle(p);await p.screenshot({path:`${SHOTS_DIR}/integrations-${label}-linked.png`});
@@ -71,6 +80,7 @@ for(const [label,w,phone] of [["desktop",1280,false],["phone",390,true]]){
   st2.v="none";await o2.p.locator("#invite [data-close]").first().click();await panel(o2.p,"Not connected");
   check(await o2.p.locator("#int-linear a").count()===0,`${label}: …and no Connect Linear when it isn't connected`);
   check(await o2.p.locator("#int-notion a, #int-notion button").count()===0,`${label}: …nor Connect Notion`);
+  check(await o2.p.locator("#int-teams a, #int-teams button").count()===0,`${label}: …nor Connect Microsoft Teams`);
   check(o2.errors.length===0,`${label}: contributor: no page errors ${o2.errors.join(" | ")}`);
   await o2.ctx.close();
 }

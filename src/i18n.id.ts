@@ -1199,4 +1199,7 @@ export const ID: Record<string, string> = {
   "Connect Notion": "Hubungkan Notion",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "Putuskan Notion dari papan ini? Halaman yang sudah diterbitkan tetap ada di Notion.",
   "Notion disconnected": "Notion diputus",
+  "Connect Microsoft Teams": "Hubungkan Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "Putuskan Microsoft Teams dari papan ini? Salurannya tidak lagi menerima postingan.",
+  "Microsoft Teams disconnected": "Microsoft Teams diputuskan",
 };

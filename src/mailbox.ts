@@ -13,7 +13,7 @@ import type { Env } from "./types";
 import { OWN_MAIL_HINT } from "./audience";
 import { FOR_LABEL, triagePreview } from "./ping";
 import { proseForAgent } from "./util";
-import { discordLabel, linearLabel, notionLabel } from "./state";
+import { discordLabel, linearLabel, notionLabel, teamsLabel } from "./state";
 import { sendCountAlert } from "./agentEmail";
 
 export const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger", "from_your_person"];
@@ -63,10 +63,10 @@ export const UNDELIVERED_SQL = undeliveredSql(false);
 export const UNDELIVERED_DIRECT_SQL = undeliveredSql(true);
 
 /** A notification's data: Just mine (board.ts ownMail), or whether mail from your person was direct (board.ts notify). */
-function dataOf(data: string | null): { audience?: string; direct?: boolean; linear?: string; discord?: string; notion?: string } {
+function dataOf(data: string | null): { audience?: string; direct?: boolean; linear?: string; discord?: string; notion?: string; teams?: string } {
   if (!data) return {};
   try {
-    return JSON.parse(data) as { audience?: string; direct?: boolean; linear?: string; discord?: string; notion?: string };
+    return JSON.parse(data) as { audience?: string; direct?: boolean; linear?: string; discord?: string; notion?: string; teams?: string };
   } catch {
     return {};
   }
@@ -244,9 +244,9 @@ export async function collect(
       const kind: Mail["kind"] = r.kind === "from_your_person" ? "from_your_person" : r.kind === "decision" ? "human_decision" : (r.board_kind === "direct" && r.kind !== "contact_request" && r.kind !== "contact_accept") || fromOwner ? "dm" : r.kind === "agent" ? "for_your_agent" : (r.kind as Mail["kind"]);
       return {
         id: r.id, kind, board: r.board_id || null, board_title: r.board_title == null ? null : proseForAgent(r.board_title), seq: r.board_id ? r.seq : null,
-        // A Linear comment or Discord message (src/linear.ts, src/discord.ts) is someone outside Atteo, through the linker's link: never their own words.
+        // A Linear comment or Discord or Teams message (src/linear.ts, src/discord.ts, src/teams.ts) is someone outside Atteo, through the linker's link: never their own words.
         // A Notion import (src/notion.ts) is a page from outside Atteo, labelled by its title.
-        from: d.linear != null ? linearLabel({ author: d.linear }, r.actor) : d.discord != null ? discordLabel({ author: d.discord }, r.actor) : d.notion != null ? notionLabel({ title: d.notion }, r.actor) : r.actor, from_via: r.actor_via, type: r.entry_type, ...(full?.title ? { title: proseForAgent(full.title) } : {}), text, preview: triagePreview(full?.title, body, { sealed: !!r.encrypted }), ts: r.created_at,
+        from: d.linear != null ? linearLabel({ author: d.linear }, r.actor) : d.discord != null ? discordLabel({ author: d.discord }, r.actor) : d.notion != null ? notionLabel({ title: d.notion }, r.actor) : d.teams != null ? teamsLabel({ author: d.teams }, r.actor) : r.actor, from_via: r.actor_via, type: r.entry_type, ...(full?.title ? { title: proseForAgent(full.title) } : {}), text, preview: triagePreview(full?.title, body, { sealed: !!r.encrypted }), ts: r.created_at,
         for: r.to_session ? FOR_LABEL.session : kind === "mention" || kind === "human_decision" ? FOR_LABEL.person : kind === "reply" ? "a reply to you" : FOR_LABEL.agent,
         ...(r.encrypted ? { encrypted: true } : {}),
         ...(fromOwner ? { from_owner: true } : {}),

@@ -1200,4 +1200,7 @@ export const ZH_CN: Record<string, string> = {
   "Connect Notion": "连接 Notion",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "要从此看板断开 Notion 吗？已发布的页面会留在 Notion 中。",
   "Notion disconnected": "已断开 Notion",
+  "Connect Microsoft Teams": "连接 Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "要断开此看板与 Microsoft Teams 的连接吗？其频道将不再收到帖子。",
+  "Microsoft Teams disconnected": "已断开 Microsoft Teams",
 };

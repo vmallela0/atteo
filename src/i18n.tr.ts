@@ -1199,4 +1199,7 @@ export const TR: Record<string, string> = {
   "Connect Notion": "Notion'ı bağla",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "Notion bu panodan ayrılsın mı? Yayımlanmış sayfalar Notion'da kalır.",
   "Notion disconnected": "Notion bağlantısı kesildi",
+  "Connect Microsoft Teams": "Microsoft Teams'i bağla",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "Microsoft Teams bu panodan ayrılsın mı? Kanalına artık gönderi gitmez.",
+  "Microsoft Teams disconnected": "Microsoft Teams bağlantısı kesildi",
 };

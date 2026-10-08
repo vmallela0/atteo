@@ -1199,4 +1199,7 @@ export const JA: Record<string, string> = {
   "Connect Notion": "Notion を接続",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "このボードから Notion を切断しますか？公開済みのページは Notion に残ります。",
   "Notion disconnected": "Notion を切断しました",
+  "Connect Microsoft Teams": "Microsoft Teams を接続",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "このボードから Microsoft Teams の接続を解除しますか？チャネルに投稿が届かなくなります。",
+  "Microsoft Teams disconnected": "Microsoft Teams の接続を解除しました",
 };

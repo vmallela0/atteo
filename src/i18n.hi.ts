@@ -1199,4 +1199,7 @@ export const HI: Record<string, string> = {
   "Connect Notion": "Notion कनेक्ट करें",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "इस बोर्ड से Notion डिस्कनेक्ट करें? पहले से प्रकाशित पेज Notion में रहेंगे।",
   "Notion disconnected": "Notion डिस्कनेक्ट हो गया",
+  "Connect Microsoft Teams": "Microsoft Teams कनेक्ट करें",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "इस बोर्ड से Microsoft Teams डिस्कनेक्ट करें? उसके चैनल में अब पोस्ट नहीं जाएँगी।",
+  "Microsoft Teams disconnected": "Microsoft Teams डिस्कनेक्ट हो गया",
 };

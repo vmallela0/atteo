@@ -1199,4 +1199,7 @@ export const RU: Record<string, string> = {
   "Connect Notion": "Подключить Notion",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "Отключить Notion от этой доски? Уже опубликованные страницы останутся в Notion.",
   "Notion disconnected": "Notion отключён",
+  "Connect Microsoft Teams": "Подключить Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "Отключить Microsoft Teams от этой доски? Его канал перестанет получать сообщения.",
+  "Microsoft Teams disconnected": "Microsoft Teams отключён",
 };

@@ -1199,4 +1199,7 @@ export const KO: Record<string, string> = {
   "Connect Notion": "Notion 연결",
   "Disconnect Notion from this board? Pages already published stay in Notion.": "이 보드에서 Notion 연결을 끊을까요? 이미 게시한 페이지는 Notion에 남습니다.",
   "Notion disconnected": "Notion 연결 끊김",
+  "Connect Microsoft Teams": "Microsoft Teams 연결",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "이 보드에서 Microsoft Teams 연결을 해제할까요? 채널에 더 이상 게시물이 전달되지 않습니다.",
+  "Microsoft Teams disconnected": "Microsoft Teams 연결 해제됨",
 };

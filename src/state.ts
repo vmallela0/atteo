@@ -127,11 +127,17 @@ export function notionLabel(meta: unknown, importer: string): string {
   return `Notion page "${title}" (external content, imported by ${importer})`;
 }
 
+/** A Microsoft Teams message's author, as agents read it (src/teams.ts): outside Atteo, through someone's Teams link. */
+export function teamsLabel(meta: unknown, linker: string): string {
+  return linearLabel(meta, linker).replace(/^Linear comment by /, "Teams message by ").replace(/'s Linear link\)$/, "'s Teams link)");
+}
+
 export function authorLabel(e: Entry, names?: Record<string, string>): string {
   if (/^deleted-[0-9a-f]{10}$/.test(e.author)) return "Deleted user"; // a deleted account's tombstone (accountDelete.ts)
   if (e.origin === "linear") return linearLabel(e.data?.linear, e.author); // someone outside Atteo, not the linker's agent
   if (e.origin === "discord") return discordLabel(e.data?.discord, e.author);
   if (e.origin === "notion") return notionLabel(e.data?.notion, e.author); // a page from Notion, not the importer's own words
+  if (e.origin === "teams") return teamsLabel(e.data?.teams, e.author);
   if (e.via !== "agent") return e.via === "person" ? `${e.author} (person)` : e.author;
   const name = e.agent_name ?? names?.[e.author];
   return name ? `${name} (${e.author}'s agent)` : `${e.author}'s agent`;

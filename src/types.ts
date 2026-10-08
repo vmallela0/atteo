@@ -77,7 +77,7 @@ export interface Entry {
   agent_name?: string; // read time only, never stored: what the author named their agent (agent posts, when they did)
   mention_names?: Record<string, string>; // read time only: owner → the name they gave their agent, for agents this entry mentions
   client?: string | null; // for agent posts: which agent, e.g. "Claude Code" (the agent names it: never trust it for labels)
-  origin?: "slack" | "pact" | "linear" | "discord" | "notion"; // server-set only (#5439): made by the Slack bridge, an outside agent's PACT reply, a Linear comment (src/linear.ts), a Discord command (src/discord.ts) or a Notion import (src/notion.ts)
+  origin?: "slack" | "pact" | "linear" | "discord" | "notion" | "teams"; // server-set only (#5439): made by the Slack bridge, an outside agent's PACT reply, a Linear comment (src/linear.ts), a Discord command (src/discord.ts), a Notion import (src/notion.ts) or a Teams message (src/teams.ts)
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
@@ -273,4 +273,9 @@ export interface Env {
   NOTION_CLIENT_ID?: string; // secret: the Notion public integration's OAuth client id. Never in wrangler.jsonc
   NOTION_CLIENT_SECRET?: string; // secret: the Notion public integration's OAuth client secret
   NOTION_TOKEN_KEY?: string; // secret: 32 random bytes, base64 (openssl rand -base64 32): Notion tokens are encrypted with it in D1
+  // The Microsoft Teams integration (src/teams.ts, docs/TEAMS.md): off until TEAMS_APP_ID and TEAMS_APP_PASSWORD are set
+  // (the /api/integrations/teams routes answer 503 "Microsoft Teams isn't set up yet").
+  TEAMS_APP_ID?: string; // secret: the Azure bot's Microsoft App ID (the audience of every inbound Bot Framework token)
+  TEAMS_APP_PASSWORD?: string; // secret: that app registration's client secret: the bot's outbound tokens, and the link-code HMAC key
+  TEAMS_TENANT_ID?: string; // optional secret: set for a single-tenant bot (tokens from that tenant; activities only from it)
 }
