@@ -1250,9 +1250,10 @@ export function agentsSection(agents: AgentHere[], boardId: string, readOnly = f
 export const E2E_CHECKBOX =
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.";
 function privacyBadge(encrypted: boolean | undefined, T: (s: string) => string): string {
+  // Only encrypted boards carry a badge; a regular board says nothing at the top (vedu #6553).
   return encrypted
     ? `<div class="privacy-note"><button class="badge e2e-badge" type="button" data-open="privacy-info" aria-haspopup="dialog">🔒 ${esc(T("End-to-end encrypted"))} ›</button></div>`
-    : `<div class="privacy-note"><button class="badge e2e-badge plain" type="button" data-open="privacy-info" aria-haspopup="dialog">${esc(T("Readable by Atteo's servers"))} ›</button></div>`;
+    : "";
 }
 function privacyDialog(encrypted: boolean, T: (s: string) => string, agents: { who: string; what: string | null }[], slack: string[]): string {
   const li = (s: string) => `<li>${s}</li>`;

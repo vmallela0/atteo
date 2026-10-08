@@ -38,6 +38,12 @@ for (const [w, h, size] of [[1280, 860, "desktop"], [390, 844, "phone"]]) {
       const tag = `${name} ${size} ${scheme}`, sealed = name.startsWith("sealed");
       await p.goto(`${BASE}/b/${id}`);
       const badge = p.locator(".e2e-badge").first();
+      if (!sealed) {
+        // A regular board shows no badge at the top of its conversation (vedu #6553).
+        await p.locator("#thread").waitFor({ timeout: 8000 }).catch(() => {});
+        check((await p.locator(".privacy-note, .e2e-badge").count()) === 0, `${tag}: no "Readable by Atteo's servers" badge`);
+        continue;
+      }
       await badge.waitFor({ timeout: 8000 }).catch(() => {});
       const label = await badge.innerText().catch(() => "");
       check(sealed ? label.includes("End-to-end encrypted") : label.includes("Readable by Atteo's servers"), `${tag}: the conversation starts with "${label.trim()}"`);
