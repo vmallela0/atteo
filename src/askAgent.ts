@@ -85,6 +85,7 @@ export type AskInput = {
   waitMs: number;
   idem?: string;
   signal?: AbortSignal;
+  replyTo?: number | null; // in that thread: a reply to this entry (the browser agent's Reply, src/agentWeb.ts)
 };
 
 type Stub = (id: string) => DurableObjectStub<Board>;
@@ -131,12 +132,12 @@ export async function ask(env: Env, stub: Stub, p: AskInput): Promise<AskResult>
   if (t.own) {
     const d = await social.openAgentChat(env, p.me, (bid, title, creator, o) => stub(bid).init(bid, title, creator, o));
     const mentions: Mention[] = [{ user: p.me, agent: true, session: agent!.name }];
-    const e = await stub(d.id).post(p.me, { type: "question", text: `@${p.me}/${agent!.name} ${text}`, to: null, mentions, via: p.via, client: p.client ?? null, session: p.session ?? null, ...(p.sessionName ? { session_name: p.sessionName } : {}), idem: p.idem ?? crypto.randomUUID() });
+    const e = await stub(d.id).post(p.me, { type: "question", text: `@${p.me}/${agent!.name} ${text}`, to: null, mentions, via: p.via, client: p.client ?? null, session: p.session ?? null, ...(p.sessionName ? { session_name: p.sessionName } : {}), ...(p.replyTo ? { reply_to: p.replyTo } : {}), idem: p.idem ?? crypto.randomUUID() });
     await registry.bumpBoard(env, d.id, e.seq).catch(() => {});
     board = d.id;
     seq = e.seq;
   } else {
-    const d = await dm.deliver(env, stub, p.me, user, text, p.via, { type: "question", session: p.session ?? null, sessionName: p.sessionName ?? null, client: p.client ?? null, toSession: agent?.name ?? null, idem: p.idem });
+    const d = await dm.deliver(env, stub, p.me, user, text, p.via, { type: "question", session: p.session ?? null, sessionName: p.sessionName ?? null, client: p.client ?? null, toSession: agent?.name ?? null, idem: p.idem, replyTo: p.replyTo ?? null });
     board = d.board;
     seq = d.seq;
   }
@@ -151,7 +152,7 @@ async function askAll(env: Env, stub: Stub, p: AskInput, text: string, mine: Lis
   const targets = mine.filter((x) => sessions.listed(x) && x.state === "live" && x.id !== p.session).slice(0, 20);
   const d = await social.openAgentChat(env, p.me, (bid, title, creator, o) => stub(bid).init(bid, title, creator, o));
   const agents = targets.map((x) => x.name);
-  const e = await stub(d.id).post(p.me, { type: "question", text: `@agents ${text}`, to: null, mentions: [{ user: p.me, agent: true }], data: { ask_all: agents }, via: p.via, client: p.client ?? null, session: p.session ?? null, ...(p.sessionName ? { session_name: p.sessionName } : {}), idem: p.idem ?? crypto.randomUUID() });
+  const e = await stub(d.id).post(p.me, { type: "question", text: `@agents ${text}`, to: null, mentions: [{ user: p.me, agent: true }], data: { ask_all: agents }, via: p.via, client: p.client ?? null, session: p.session ?? null, ...(p.sessionName ? { session_name: p.sessionName } : {}), ...(p.replyTo ? { reply_to: p.replyTo } : {}), idem: p.idem ?? crypto.randomUUID() });
   await registry.bumpBoard(env, d.id, e.seq).catch(() => {});
   if (!agents.length) {
     const label = `${p.me}'s agent`;
@@ -162,7 +163,7 @@ async function askAll(env: Env, stub: Stub, p: AskInput, text: string, mine: Lis
 }
 
 /** Which of your agents wrote an entry: the session name its client starts with ("lead · Claude Code"). */
-const sessionOf = (e: Entry): string | null => (e.client?.includes(" · ") ? e.client.split(" · ")[0] : null);
+export const sessionOf = (e: Pick<Entry, "client">): string | null => (e.client?.includes(" · ") ? e.client.split(" · ")[0] : null);
 
 /** Every answer to an all-my-agents question, until each agent it went to has answered or waitMs runs out. */
 export async function awaitAll(env: Env, stub: Stub, q: { me: string; board: string; seq: number; agents: string[]; waitMs: number; signal?: AbortSignal }): Promise<AskResult> {
