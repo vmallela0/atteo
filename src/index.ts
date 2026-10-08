@@ -1032,7 +1032,9 @@ const handler = {
       if (path === "/oauth/authorize" && method === "GET") {
         if (!viewer || viewer.via === "agent") return redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`);
         try {
-          const r = await oauth.startAuthorize(env, viewer.name, url.searchParams, clientLookup);
+          // A person can make us fetch at most 30 documents the cache can't answer per 10 minutes (no host probing).
+          const lookup = { ...clientLookup, beforeFetch: () => appSignin.hit(env, `cimd:u:${viewer.name}`, 30) };
+          const r = await oauth.startAuthorize(env, viewer.name, url.searchParams, lookup);
           return consentPage(viewer, r.id, r.client.name, r.redirect, r.person, r.host);
         } catch (e) {
           return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });

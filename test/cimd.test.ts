@@ -1,7 +1,7 @@
 // OAuth Client ID Metadata Documents (vedu #6575): src/cimd.ts and its use in src/oauth.ts, with a mocked fetch.
 import { beforeEach, describe, expect, it } from "vitest";
 import { CIMD_MAX_BYTES, cacheSeconds, checkClientIdUrl, cleanName, clearCimdCache, resolveCimdClient, type CimdOptions } from "../src/cimd";
-import { authorizationServer, exchange, finishAuthorize, register, startAuthorize, type ClientLookup } from "../src/oauth";
+import { authorizationServer, cimdLabel, exchange, finishAuthorize, register, startAuthorize, type ClientLookup } from "../src/oauth";
 import { consentPage } from "../src/oauthPage";
 import type { Env } from "../src/types";
 
@@ -231,6 +231,24 @@ describe("fetching and checking the document", () => {
   });
 });
 
+describe("a per-person cap on fetches (beforeFetch)", () => {
+  it("is asked only when the cache can't answer; a refusal is a 429 and nothing is fetched", async () => {
+    const m = mock(() => json(DOC));
+    let asked = 0;
+    let allow = false;
+    const o = opts(m.f, { beforeFetch: async () => (asked++, allow) });
+    await expect(resolveCimdClient(ID, o)).rejects.toMatchObject({ status: 429 });
+    expect(m.calls).toHaveLength(0);
+    allow = true;
+    await resolveCimdClient(ID, o);
+    await resolveCimdClient(ID, o);
+    expect([asked, m.calls.length]).toEqual([2, 1]);
+    // Refused URLs never get that far.
+    await expect(resolveCimdClient("https://127.0.0.1/c.json", o)).rejects.toMatchObject({ code: "invalid_client" });
+    expect(asked).toBe(2);
+  });
+});
+
 describe("caching", () => {
   it("max-age within an hour; no-store and no-cache aren't cached; five minutes without a header", () => {
     expect(cacheSeconds(null)).toBe(300);
@@ -332,6 +350,18 @@ describe("the OAuth flow with a URL client_id", () => {
     const t2 = await exchange(env, { grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: ID }, null, lookup);
     expect(t2.access_token).not.toBe(t.access_token);
     expect(db.prepare(`SELECT label FROM tokens WHERE revoked_at IS NULL`).all()).toEqual([{ label: "Smithery Connect · connect.smithery.ai" }]);
+  });
+
+  it("the connection's label keeps the whole domain, even with a 60-character name", async () => {
+    const { env, db } = fakeEnv();
+    const lookup = lookupWith(mock(() => json({ ...DOC, client_name: "S".repeat(60) })).f);
+    const { verifier, challenge } = pkce();
+    const { code } = await codeFor(env, lookup, challenge);
+    await exchange(env, { grant_type: "authorization_code", code, client_id: ID, code_verifier: verifier }, null, lookup);
+    const label = db.prepare(`SELECT label FROM tokens`).get().label as string;
+    expect(label.length).toBeLessThanOrEqual(80);
+    expect(label.endsWith(" · connect.smithery.ai")).toBe(true);
+    expect(cimdLabel("x", "h".repeat(100))).toBe("h".repeat(80));
   });
 
   it("refuses a redirect_uri the document doesn't list, and a mismatched document", async () => {

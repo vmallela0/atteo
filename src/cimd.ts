@@ -41,6 +41,8 @@ export interface CimdOptions {
   ownHosts: string[];
   /** Local test servers only (ALLOW_LOCAL_WEBHOOKS=1 on a loopback origin): http(s)://localhost client_ids. */
   allowLocal?: boolean;
+  /** Asked before each fetch the cache can't answer (a per-person cap at /authorize); false refuses with a 429. */
+  beforeFetch?: () => Promise<boolean>;
   fetch?: typeof fetch;
   timeoutMs?: number;
   now?: () => number;
@@ -180,6 +182,7 @@ export async function resolveCimdClient(raw: string, o: CimdOptions): Promise<Ci
   if (hit && hit.until > now) return hit.client;
   if (hit) cache.delete(raw);
   const host = u.host;
+  if (o.beforeFetch && !(await o.beforeFetch())) throw new CimdError("temporarily_unavailable", "Too many app lookups in a row. Try again in a few minutes.", 429);
   const down = (why: string) => new CimdError("temporarily_unavailable", `Couldn't read the app's metadata document at ${host} (${why}). Try again in a minute.`, 503);
   let r: Response;
   try {

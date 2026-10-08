@@ -72,6 +72,12 @@ export async function register(env: Env, body: { client_name?: unknown; redirect
 /** How a request may fetch a client's metadata document (src/cimd.ts). Without it, URL client_ids are refused. */
 export type ClientLookup = Omit<CimdOptions, "now">;
 
+/** "<name> · <host>" in at most 80 characters (tokens.label's limit): the name is shortened, never the host. */
+export function cimdLabel(name: string, host: string): string {
+  const tail = ` · ${host}`;
+  return tail.length >= 80 ? host.slice(0, 80) : `${name.slice(0, 80 - tail.length).trimEnd()}${tail}`;
+}
+
 /** A client_id URL's document, as a client; CimdError becomes the OAuth error it stands for. */
 async function cimdClient(id: string, lookup: ClientLookup | undefined) {
   if (!lookup) throw new OAuthError("invalid_client", "This app's client_id is a URL, which isn't accepted here.");
@@ -205,8 +211,9 @@ export async function exchange(
   if (!f.code_verifier || (await s256(f.code_verifier)) !== row.code_challenge) throw new OAuthError("invalid_grant", "PKCE verification failed.");
   const c = cimd ?? (await client(env, row.client_id));
   const person = row.scope === "person";
-  // A URL client's connection carries its domain, so Agent connections shows who it really is.
-  const label = person ? "Atteo app" : cimd ? `${cimd.name} · ${cimd.host}` : (c?.name ?? "MCP app");
+  // A URL client's connection carries its domain, so Agent connections shows who it really is. Labels are kept to 80
+  // characters, so the name gives way and the domain always fits whole.
+  const label = person ? "Atteo app" : cimd ? cimdLabel(cimd.name, cimd.host) : (c?.name ?? "MCP app");
   const out = await issue(env, row.user, row.client_id, person ? "person" : null, label, person ? "app" : "cli");
   // A refresh carries the same connection on, so only the first exchange is logged.
   await record(env, row.user, person ? "signin.app" : "oauth.connected", request, { label, kind: person ? "app" : "cli" });
