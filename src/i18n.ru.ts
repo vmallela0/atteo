@@ -1182,4 +1182,18 @@ export const RU: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "Интеграции",
+  "Not connected": "Не подключено",
+  "Disconnect": "Отключить",
+  "Couldn’t load": "Не удалось загрузить",
+  "Not set up on this server yet": "На этом сервере ещё не настроено",
+  "Pick a team": "Выбрать команду",
+  "Not available on end-to-end encrypted boards": "Недоступно на досках со сквозным шифрованием",
+  "Connect Linear": "Подключить Linear",
+  "No team picked yet": "Команда ещё не выбрана",
+  "connected by {name}": "подключил(а) {name}",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "Отключить Linear от этой доски? Задачи в Linear останутся; синхронизация задач прекратится.",
+  "Couldn’t disconnect": "Не удалось отключить",
+  "Linear disconnected": "Linear отключён",
 };

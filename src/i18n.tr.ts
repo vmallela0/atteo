@@ -1182,4 +1182,18 @@ export const TR: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "Entegrasyonlar",
+  "Not connected": "Bağlı değil",
+  "Disconnect": "Bağlantıyı kes",
+  "Couldn’t load": "Yüklenemedi",
+  "Not set up on this server yet": "Bu sunucuda henüz kurulmadı",
+  "Pick a team": "Ekip seç",
+  "Not available on end-to-end encrypted boards": "Uçtan uca şifreli panolarda kullanılamaz",
+  "Connect Linear": "Linear'ı bağla",
+  "No team picked yet": "Henüz ekip seçilmedi",
+  "connected by {name}": "{name} bağladı",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "Linear'ın bu panoyla bağlantısı kesilsin mi? Kayıtları Linear'da kalır; görevlerin eşitlenmesi durur.",
+  "Couldn’t disconnect": "Bağlantı kesilemedi",
+  "Linear disconnected": "Linear bağlantısı kesildi",
 };

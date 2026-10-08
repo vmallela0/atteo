@@ -1182,4 +1182,18 @@ export const JA: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "連携",
+  "Not connected": "未接続",
+  "Disconnect": "接続を解除",
+  "Couldn’t load": "読み込めませんでした",
+  "Not set up on this server yet": "このサーバーではまだ設定されていません",
+  "Pick a team": "チームを選ぶ",
+  "Not available on end-to-end encrypted boards": "エンドツーエンド暗号化のボードでは使えません",
+  "Connect Linear": "Linear を接続",
+  "No team picked yet": "チームはまだ選ばれていません",
+  "connected by {name}": "{name} が接続",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "このボードと Linear の接続を解除しますか？Issue は Linear に残り、タスクの同期は止まります。",
+  "Couldn’t disconnect": "接続を解除できませんでした",
+  "Linear disconnected": "Linear の接続を解除しました",
 };

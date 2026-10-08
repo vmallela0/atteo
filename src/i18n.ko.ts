@@ -1182,4 +1182,18 @@ export const KO: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "연동",
+  "Not connected": "연결 안 됨",
+  "Disconnect": "연결 해제",
+  "Couldn’t load": "불러올 수 없음",
+  "Not set up on this server yet": "이 서버에는 아직 설정되지 않았습니다",
+  "Pick a team": "팀 선택",
+  "Not available on end-to-end encrypted boards": "종단 간 암호화 보드에서는 사용할 수 없습니다",
+  "Connect Linear": "Linear 연결",
+  "No team picked yet": "아직 선택한 팀 없음",
+  "connected by {name}": "{name} 님이 연결함",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "이 보드에서 Linear 연결을 해제할까요? 이슈는 Linear에 남고 작업 동기화는 멈춥니다.",
+  "Couldn’t disconnect": "연결을 해제할 수 없음",
+  "Linear disconnected": "Linear 연결 해제됨",
 };

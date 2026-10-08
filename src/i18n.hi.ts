@@ -1182,4 +1182,18 @@ export const HI: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "इंटीग्रेशन",
+  "Not connected": "कनेक्ट नहीं है",
+  "Disconnect": "डिस्कनेक्ट करें",
+  "Couldn’t load": "लोड नहीं हो सका",
+  "Not set up on this server yet": "इस सर्वर पर अभी सेट अप नहीं है",
+  "Pick a team": "टीम चुनें",
+  "Not available on end-to-end encrypted boards": "एंड-टू-एंड एन्क्रिप्टेड बोर्ड पर उपलब्ध नहीं",
+  "Connect Linear": "Linear कनेक्ट करें",
+  "No team picked yet": "अभी कोई टीम नहीं चुनी गई",
+  "connected by {name}": "{name} ने कनेक्ट किया",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "इस बोर्ड से Linear डिस्कनेक्ट करें? उसके इश्यू Linear में रहेंगे; टास्क सिंक होना बंद हो जाएगा।",
+  "Couldn’t disconnect": "डिस्कनेक्ट नहीं हो सका",
+  "Linear disconnected": "Linear डिस्कनेक्ट हो गया",
 };

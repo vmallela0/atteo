@@ -90,6 +90,7 @@ import {
   adminPage,
   BOARD_JS,
   BOARD_JS_PATH,
+  INTEGRATIONS_PAGE_JS,
   BOARD_TAIL_PATH,
   boardTail,
   boardPage,
@@ -2240,6 +2241,7 @@ const handler = {
         const css = path === CALL_CSS_PATH;
         return new Response(css ? CALL_CSS : CALL_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       }
+      if (path === "/integrations.js" && method === "GET") return new Response(INTEGRATIONS_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === BOARD_JS_PATH && method === "GET") return new Response(BOARD_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if ((path === "/app.css" || path === "/app.js") && method === "GET") {
         const css = path === "/app.css";

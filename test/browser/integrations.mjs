@@ -25,7 +25,7 @@ const open=async(user,w,phone,state)=>{
   await p.goto(`${BASE}/b/${board}`);await p.locator("#composer-text").waitFor();
   return {ctx,p,errors,deletes};
 };
-const panel=async(p,want)=>{if(!(await p.locator(".actions .board-head-menu").evaluate(d=>d.open)))await p.locator(".actions .board-head-menu summary").click();await p.locator('.board-head-menu-items [data-goto="acc-integrations"]').click();
+const panel=async(p,want)=>{if(!(await p.locator(".actions .board-head-menu").evaluate(d=>d.open)))await p.locator(".actions .board-head-menu summary").click();await p.locator('.board-head-menu-items [data-int-open]').click();
   await p.locator("#acc-integrations").waitFor();await p.locator("#int-linear .int-st").filter({hasText:want}).waitFor({timeout:8000}).catch(()=>{})};
 // For the screenshots: the ⋯ menu closed, the dialog's fade done.
 const settle=async(p)=>{await p.locator(".actions .board-head-menu").evaluate(d=>d.open=false);await p.waitForTimeout(450)};

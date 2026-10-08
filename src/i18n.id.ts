@@ -1182,4 +1182,18 @@ export const ID: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "Integrasi",
+  "Not connected": "Belum terhubung",
+  "Disconnect": "Putuskan",
+  "Couldn’t load": "Tidak bisa memuat",
+  "Not set up on this server yet": "Belum disiapkan di server ini",
+  "Pick a team": "Pilih tim",
+  "Not available on end-to-end encrypted boards": "Tidak tersedia di papan terenkripsi end-to-end",
+  "Connect Linear": "Hubungkan Linear",
+  "No team picked yet": "Belum ada tim yang dipilih",
+  "connected by {name}": "dihubungkan oleh {name}",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "Putuskan Linear dari papan ini? Issue-nya tetap di Linear; tugas berhenti disinkronkan.",
+  "Couldn’t disconnect": "Tidak bisa memutuskan",
+  "Linear disconnected": "Linear diputuskan",
 };

@@ -1183,4 +1183,18 @@ export const ZH_CN: Record<string, string> = {
   "Reset PIN": "Reset PIN",
   "Set PIN": "Set PIN",
   "Turn off PIN": "Turn off PIN",
+  // Board info → Integrations (vedu #6508)
+  "Integrations": "集成",
+  "Not connected": "未连接",
+  "Disconnect": "断开连接",
+  "Couldn’t load": "无法加载",
+  "Not set up on this server yet": "此服务器尚未设置",
+  "Pick a team": "选择团队",
+  "Not available on end-to-end encrypted boards": "端到端加密的看板不可用",
+  "Connect Linear": "连接 Linear",
+  "No team picked yet": "尚未选择团队",
+  "connected by {name}": "由 {name} 连接",
+  "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "要断开此看板与 Linear 的连接吗？其议题会保留在 Linear 中，任务将停止同步。",
+  "Couldn’t disconnect": "无法断开连接",
+  "Linear disconnected": "已断开 Linear",
 };
