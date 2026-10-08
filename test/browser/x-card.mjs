@@ -31,7 +31,7 @@ await p.goto(`${BASE}/b/${board}`); await p.waitForSelector("#composer-text");
 await p.waitForFunction(() => document.querySelectorAll("#thread a.xc").length >= 2, null, { timeout: 8000 }).catch(() => {});
 await p.waitForTimeout(300);
 
-const e1 = p.locator("#thread .entry", { hasText: "look https://x.com" }).first();
+const e1 = p.locator(`#${await p.locator("#thread .entry", { hasText: "look https://x.com" }).first().getAttribute("id")}`); // by id: its words change below
 const card = e1.locator("a.xc");
 check((await card.count()) === 1, `one card under the message, none for the profile link (${await card.count()})`);
 check((await card.locator(".xc-who").textContent()) === "Whales <b>bold</b>" && (await card.locator(".xc-h").textContent()) === "@unusual_whales", "name and @handle, as text");
@@ -50,6 +50,15 @@ check(clamp === "6", `the words are clamped to six lines (${clamp})`);
 const colors = await card.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).borderTopColor]);
 check(colors[0] !== "rgba(0, 0, 0, 0)" && colors[1] !== "rgba(0, 0, 0, 0)", `the card has the board's card look (${colors.join(" / ")})`);
 await e1.screenshot({ path: `${SHOTS_DIR}/x-card.png` });
+
+// A body redone in place (an edit, a task's text refreshed): its cards follow its links, never doubled.
+const redo = (html) => e1.locator(":scope>.grow>.body").evaluate((b, h) => { b.innerHTML = h; }, html);
+await redo('<p>same <a href="https://x.com/unusual_whales/status/2107938834180874486">link</a> again</p>'); await p.waitForTimeout(300);
+check((await e1.locator("a.xc").count()) === 1, `the same link redone keeps one card (${await e1.locator("a.xc").count()})`);
+await redo("<p>no links now</p>"); await p.waitForTimeout(300);
+check((await e1.locator("a.xc, .xcs").count()) === 0, "a body redone without the link loses its card");
+await redo('<p>back <a href="https://twitter.com/unusual_whales/status/2107938834180874486?s=20">here</a></p>'); await p.waitForTimeout(300);
+check((await e1.locator("a.xc").count()) === 1, "and gets it back with the link");
 
 // Live: a message that arrives while the board is open gets its card.
 check(await post("live one https://x.com/unusual_whales/status/2107938834180874486"), "a live message posts");

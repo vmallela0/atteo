@@ -187,12 +187,16 @@ const xcEl=(t,c,s)=>{const e=document.createElement(t);e.className=c;if(s!=null)
 function xcCard(j){if(!j||typeof j.url!=='string'||!XRE.test(j.url))return null;const a=xcEl('a','xc');a.href=j.url;a.target='_blank';a.rel='noopener noreferrer';
   const hd=xcEl('div','xc-hd');hd.append(xcEl('span','xc-who',String(j.author||j.handle||'')),xcEl('span','xc-h','@'+String(j.handle||'')),xcEl('span','xc-x','𝕏'));a.append(hd);
   if(j.text)a.append(xcEl('div','xc-t',String(j.text)));if(j.date)a.append(xcEl('div','xc-d',String(j.date)));return a}
-function xcFill(body){const seen=new Set(),want=[];body.querySelectorAll('a[href]:not([data-xc])').forEach(l=>{l.dataset.xc='1';if(l.closest('blockquote'))return;
-  const m=XRE.exec(l.getAttribute('href')||'');if(m&&!seen.has(m[2])&&want.length<XMAX){seen.add(m[2]);want.push(m)}});
-  if(!want.length)return;let box=body.nextElementSibling;if(!box||!box.classList.contains('xcs')){box=xcEl('div','xcs');body.after(box)}
-  want.forEach(m=>{const slot=xcEl('div','xc-slot');box.append(slot);xcGet(m[2],m[1]).then(j=>{const c=xcCard(j);if(c)slot.replaceWith(c);else slot.remove()})})}
+// The posts a message links to (its own words, not quotes), as "id handle" pairs; a body is redone when they change
+// (an edit, a task's text refreshed in place), so its cards always match its links.
+function xcIds(b){const out=new Map();b.querySelectorAll('a[href]').forEach(l=>{if(out.size>=XMAX||l.closest('blockquote'))return;const m=XRE.exec(l.getAttribute('href')||'');if(m&&!out.has(m[2]))out.set(m[2],m[1])});return out}
+function xcFill(body){const ids=xcIds(body);let box=body.nextElementSibling;if(box&&!box.classList.contains('xcs'))box=null;
+  if(box)[...box.children].forEach(c=>{if(!ids.has(c.dataset.id))c.remove()});if(!ids.size){if(box)box.remove();return}
+  if(!box){box=xcEl('div','xcs');body.after(box)}
+  ids.forEach((h,id)=>{if([...box.children].some(c=>c.dataset.id===id))return;const slot=xcEl('div','xc-slot');slot.dataset.id=id;box.append(slot);
+    xcGet(id,h).then(j=>{const c=xcCard(j);if(c&&slot.isConnected){c.dataset.id=id;slot.replaceWith(c)}else slot.remove()})})}
 const xcIO='IntersectionObserver' in window?new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting){xcIO.unobserve(x.target);xcFill(x.target)}}),{rootMargin:'600px 0px'}):null;
-function xcScan(){const t=document.getElementById('thread');if(!t)return;t.querySelectorAll('.entry .body').forEach(b=>{if(!b.querySelector('a[href]:not([data-xc])'))return;
-  if(![...b.querySelectorAll('a[href]:not([data-xc])')].some(l=>XRE.test(l.getAttribute('href')||'')))return;if(xcIO)xcIO.observe(b);else xcFill(b)})}
+function xcScan(){const t=document.getElementById('thread');if(!t)return;t.querySelectorAll('.entry .body').forEach(b=>{const k=[...xcIds(b).keys()].join(',');
+  if((b.dataset.xck||'')===k)return;b.dataset.xck=k;if(xcIO&&k)xcIO.observe(b);else xcFill(b)})}
 xcScan();let xcQ=false;const xcT=document.getElementById('thread');if(xcT)new MutationObserver(()=>{if(xcQ)return;xcQ=true;requestAnimationFrame(()=>{xcQ=false;xcScan()})}).observe(xcT,{childList:true,subtree:true})}
 `;
