@@ -1202,4 +1202,7 @@ export const FR: Record<string, string> = {
   "Connect Discord": "Connecter Discord",
   "Disconnect Discord from this board? Its channel stops getting posts.": "Déconnecter Discord de ce tableau ? Son salon ne recevra plus les publications.",
   "Discord disconnected": "Discord déconnecté",
+  "Connect Microsoft Teams": "Connecter Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "Déconnecter Microsoft Teams de ce tableau ? Son canal ne recevra plus les messages.",
+  "Microsoft Teams disconnected": "Microsoft Teams déconnecté",
 };

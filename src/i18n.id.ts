@@ -1202,4 +1202,7 @@ export const ID: Record<string, string> = {
   "Connect Discord": "Hubungkan Discord",
   "Disconnect Discord from this board? Its channel stops getting posts.": "Putuskan Discord dari papan ini? Kanalnya tidak akan menerima postingan lagi.",
   "Discord disconnected": "Discord diputus",
+  "Connect Microsoft Teams": "Hubungkan Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "Putuskan Microsoft Teams dari papan ini? Salurannya tidak lagi menerima postingan.",
+  "Microsoft Teams disconnected": "Microsoft Teams diputuskan",
 };

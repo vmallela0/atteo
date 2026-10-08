@@ -107,6 +107,10 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put NOTION_CLIENT_ID
    npx wrangler secret put NOTION_CLIENT_SECRET
    npx wrangler secret put NOTION_TOKEN_KEY      # openssl rand -base64 32: Notion tokens are encrypted with it
+   # optional: Microsoft Teams (src/teams.ts; docs/TEAMS.md); omit the first two and the routes are 503
+   npx wrangler secret put TEAMS_APP_ID          # the Azure bot's Microsoft App ID
+   npx wrangler secret put TEAMS_APP_PASSWORD    # its app registration's client secret
+   npx wrangler secret put TEAMS_TENANT_ID       # optional: single-tenant bots only
    # outbound Checks (omit and postGithubChange never fetches; do not put these in wrangler.jsonc):
    # npx wrangler secret put GITHUB_APP_ID
    # npx wrangler secret put GITHUB_APP_PRIVATE_KEY
@@ -132,6 +136,9 @@ your team on your own Cloudflare account in about 15 minutes.
    If `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` or `NOTION_TOKEN_KEY` is absent, `/api/integrations/notion/*` answers 503
    "Notion isn't set up yet". The Notion integration is public, with redirect URI
    `https://<your host>/api/integrations/notion/callback` and the Read, Update and Insert content capabilities.
+   If `TEAMS_APP_ID` or `TEAMS_APP_PASSWORD` is absent, `/api/integrations/teams/*` answers 503 "Microsoft Teams isn't set
+   up yet". Set the Azure bot's messaging endpoint to `https://<your host>/api/integrations/teams/messages`, turn on its
+   Microsoft Teams channel and upload the app manifest ([TEAMS.md](TEAMS.md)).
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
    If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).

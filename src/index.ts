@@ -85,6 +85,7 @@ import * as slack from "./slack";
 import * as linear from "./linear";
 import * as discord from "./discord";
 import * as notion from "./notion";
+import * as teams from "./teams";
 import { slackOn } from "./slackCore";
 import { CALL_CSS, CALL_CSS_PATH, CALL_CSS_SRC, CALL_JS, CALL_JS_PATH, callPageBody } from "./callWeb";
 import { MAX_SCHEDULES } from "./schedules";
@@ -902,6 +903,12 @@ const handler = {
       if (path === "/api/integrations/notion/import" && method === "POST") return await notion.importPage(notion.notionFor(env, origin), viewer, request);
       if (path === "/api/integrations/notion/parents" && method === "POST") return await notion.addParent(notion.notionFor(env, origin), viewer, request, url);
       if (path === "/api/integrations/notion/parents" && method === "DELETE") return await notion.removeParent(notion.notionFor(env, origin), viewer, request, url);
+      // ---- Microsoft Teams (src/teams.ts): a channel follows a board; the bot's messaging endpoint (a Bot Framework JWT, no session) ----
+      if (path === "/api/integrations/teams/messages" && method === "POST") return await teams.messages(teams.teamsFor(env, origin), request, ctx);
+      if (path === "/api/integrations/teams/start" && method === "GET") return await teams.start(teams.teamsFor(env, origin), viewer, url);
+      if (path === "/api/integrations/teams/code" && method === "POST") return await teams.code(teams.teamsFor(env, origin), viewer, request, url);
+      if (path === "/api/integrations/teams" && method === "GET") return await teams.status(teams.teamsFor(env, origin), viewer, url);
+      if (path === "/api/integrations/teams" && method === "DELETE") return await teams.unlink(teams.teamsFor(env, origin), viewer, request, url);
       if (path === "/api/integrations/slack" && method === "GET") return await slack.boardStatus(slack.bridgeFor(env, origin), viewer, url, request);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed

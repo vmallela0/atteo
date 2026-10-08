@@ -40,6 +40,7 @@ import { mutersOf } from "./moderation";
 import { onApprovalDecided as slackOnApproval, onEntry as slackOnEntry } from "./slack";
 import { linearFor, syncTask as linearSyncTask } from "./linear";
 import { onEntry as discordOnEntry } from "./discord";
+import { onEntry as teamsOnEntry } from "./teams";
 import type { Listener } from "./listen";
 import { memberRole } from "./registry";
 import { LIVE_MS } from "./sessions";
@@ -340,7 +341,7 @@ function toEntry(r: Row): Entry {
     retracts: (r.retracts as number | null) ?? null,
     via: ((r.via as string | null) ?? null) as Entry["via"],
     client: (r.client as string | null) ?? null,
-    ...(r.origin === "slack" || r.origin === "pact" || r.origin === "linear" || r.origin === "discord" || r.origin === "notion" ? { origin: r.origin as Entry["origin"] } : {}),
+    ...(r.origin === "slack" || r.origin === "pact" || r.origin === "linear" || r.origin === "discord" || r.origin === "notion" || r.origin === "teams" ? { origin: r.origin as Entry["origin"] } : {}),
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
     artifact_version: (r.artifact_version as number | null) ?? null,
@@ -1401,7 +1402,7 @@ export class Board extends DurableObject<Env> {
     return { price_date: PRICE_DATE, self_reported: true, this_week: sum(seen), agents: grouped("agent"), tasks: grouped("task_seq"), days: grouped("day").sort((a, b) => String((a as Record<string, unknown>).day).localeCompare(String((b as Record<string, unknown>).day))) };
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" | "linear" | "discord" | "notion" } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" | "linear" | "discord" | "notion" | "teams" } = {}): Promise<Entry> {
     this.renewLeases(user, input.session);
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
@@ -1567,8 +1568,8 @@ export class Board extends DurableObject<Env> {
       if (typeof m?.user !== "string" || !USER_RE.test(m.user)) continue;
       const clean = { user: m.user, agent: m.agent === true || typeof m.session === "string", ...(typeof m.session === "string" && SESSION_NAME_RE.test(m.session) ? { session: m.session } : {}) };
       if (people && ((!own && clean.agent) || !people.includes(clean.user))) continue; // people-only: its own people, never an agent; just mine: its person and their agents
-      // A Linear comment or a Discord message (src/linear.ts, src/discord.ts) is someone else's words under the linker's name: their own agent counts too.
-      if ((internal.origin === "linear" || internal.origin === "discord" || keep(clean, user, input.via)) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
+      // A Linear comment or a Discord or Teams message (src/linear.ts, src/discord.ts, src/teams.ts) is someone else's words under the linker's name: their own agent counts too.
+      if ((internal.origin === "linear" || internal.origin === "discord" || internal.origin === "teams" || keep(clean, user, input.via)) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
       if (mentions.length >= cap) break;
     }
     if (mentions.length > 1 && !internal.seeding && hasGroupMention(text, ALL_MEMBERS)) this.allLimit(user);
@@ -1733,6 +1734,8 @@ export class Board extends DurableObject<Env> {
     if (entry.type === "task" && !internal.seeding) this.linearKick(entry.seq); // a new task, to Linear when the board is linked
     // Discord (src/discord.ts): a linked board's public posts go to its channel, never one that came from Discord.
     if (this.meta("discord") === "1" && !info.encrypted && !internal.seeding && !internal.notice && !internal.system && entry.origin !== "discord") this.discordSend(info, entry);
+    // Microsoft Teams (src/teams.ts) the same way, never one that came from Teams.
+    if (this.meta("teams") === "1" && !info.encrypted && !internal.seeding && !internal.notice && !internal.system && entry.origin !== "teams") this.teamsSend(info, entry);
     // Workflow triggers: a post (not a notice, a system line, a seed or an unsend); a task post is also a new task.
     if (!internal.seeding && !internal.notice && !internal.system && entry.retracts == null) {
       this.fireTriggers({ on: "entry", actor: user, via: entry.via ?? null, seq: entry.seq, entry });
@@ -2363,6 +2366,21 @@ export class Board extends DurableObject<Env> {
   private discordSend(info: BoardInfo, e: Entry) {
     const next = this.discordChain.then(() => discordOnEntry(this.env, { id: info.id, title: info.title }, e)).catch((err) => console.error("discord bridge failed", err));
     this.discordChain = next;
+    this.ctx.waitUntil(next);
+  }
+
+  /** The Microsoft Teams integration's switch (src/teams.ts): on while a channel is linked. */
+  async setTeams(on: boolean): Promise<void> {
+    this.info();
+    this.setMeta("teams", on ? "1" : "0");
+  }
+
+  private teamsChain: Promise<void> = Promise.resolve();
+
+  /** One post to the linked Teams channel, after the ones before it (in order per board). */
+  private teamsSend(info: BoardInfo, e: Entry) {
+    const next = this.teamsChain.then(() => teamsOnEntry(this.env, { id: info.id, title: info.title }, e)).catch((err) => console.error("teams bridge failed", err));
+    this.teamsChain = next;
     this.ctx.waitUntil(next);
   }
 
@@ -3558,7 +3576,7 @@ export class Board extends DurableObject<Env> {
       // Your own agent pinging you counts; you mentioning yourself doesn't, and handing work to your own agent is mail
       // of its own (from_your_person, below), not a mention.
       // A Linear comment (origin "linear", server-set) isn't the author's own words: "@<author>'s agent" in it is mail.
-      if (m.user === e.author && !(e.via === "agent" && !m.agent) && e.origin !== "linear" && e.origin !== "discord") continue;
+      if (m.user === e.author && !(e.via === "agent" && !m.agent) && e.origin !== "linear" && e.origin !== "discord" && e.origin !== "teams") continue;
       add(m.user, m.agent ? "agent" : "mention");
       if (m.agent) forAgents.add(m.user);
     }
@@ -3640,8 +3658,9 @@ export class Board extends DurableObject<Env> {
     const dataBase = (u: string, k: string) =>
       everyOne.length && u === e.author ? JSON.stringify({ each: everyOne }) : k === "from_your_person" && fromPerson ? JSON.stringify(fromPerson) : k === "mention" && group && !named(u) ? JSON.stringify({ broadcast: true }) : null;
     // A Linear comment (origin "linear"): the mail says who wrote it outside Atteo, so it isn't read as the linker's agent.
-    // A Discord message (origin "discord", src/discord.ts) the same way; a Notion import (src/notion.ts) by its page's title.
-    const outside = e.origin === "linear" || e.origin === "discord" || e.origin === "notion" ? e.origin : null;
+    // A Discord message (origin "discord", src/discord.ts) or a Teams message (origin "teams", src/teams.ts) the same way;
+    // a Notion import (src/notion.ts) by its page's title.
+    const outside = e.origin === "linear" || e.origin === "discord" || e.origin === "notion" || e.origin === "teams" ? e.origin : null;
     const outsideMeta = outside ? (e.data?.[outside] as { author?: unknown; title?: unknown } | undefined) : undefined;
     const outsideAuthor = outside ? ((outside === "notion" ? outsideMeta?.title : outsideMeta?.author) ?? "someone") : null;
     const dataFor = (u: string, k: string) => {

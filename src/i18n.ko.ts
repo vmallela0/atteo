@@ -1202,4 +1202,7 @@ export const KO: Record<string, string> = {
   "Connect Discord": "Discord 연결",
   "Disconnect Discord from this board? Its channel stops getting posts.": "이 보드에서 Discord 연결을 끊을까요? 해당 채널에 더 이상 게시물이 가지 않습니다.",
   "Discord disconnected": "Discord 연결 끊김",
+  "Connect Microsoft Teams": "Microsoft Teams 연결",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "이 보드에서 Microsoft Teams 연결을 해제할까요? 채널에 더 이상 게시물이 전달되지 않습니다.",
+  "Microsoft Teams disconnected": "Microsoft Teams 연결 해제됨",
 };

@@ -7,7 +7,7 @@
 
 import type { ApprovalRef, Entry } from "./types";
 import { screenText } from "./screen";
-import { discordLabel, linearLabel, notionLabel } from "./state";
+import { discordLabel, linearLabel, notionLabel, teamsLabel } from "./state";
 import { isLocalHost } from "./util";
 
 export const SLACK_API = "https://slack.com/api/";
@@ -180,8 +180,8 @@ export type Route = "own" | "thread" | "digest" | "skip";
 export function authorLabel(e: Pick<Entry, "author" | "via" | "client" | "origin" | "data">): { username: string; context: string } {
   // A Linear comment or a Discord message (server-set origin): someone outside Atteo, through the linker's link, never
   // the linker's agent's own words.
-  if (e.origin === "linear" || e.origin === "discord" || e.origin === "notion") {
-    const label = e.origin === "linear" ? linearLabel(e.data?.linear, e.author) : e.origin === "notion" ? notionLabel(e.data?.notion, e.author) : discordLabel(e.data?.discord, e.author);
+  if (e.origin === "linear" || e.origin === "discord" || e.origin === "notion" || e.origin === "teams") {
+    const label = e.origin === "linear" ? linearLabel(e.data?.linear, e.author) : e.origin === "notion" ? notionLabel(e.data?.notion, e.author) : e.origin === "teams" ? teamsLabel(e.data?.teams, e.author) : discordLabel(e.data?.discord, e.author);
     return { username: plainName(label), context: `🔗 ${esc(label)}` };
   }
   const outside = e.origin === "pact";

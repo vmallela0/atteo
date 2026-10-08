@@ -1203,4 +1203,7 @@ export const ZH_HANT: Record<string, string> = {
   "Connect Discord": "連接 Discord",
   "Disconnect Discord from this board? Its channel stops getting posts.": "要從此看板中斷 Discord 嗎？它的頻道將不再收到貼文。",
   "Discord disconnected": "已中斷 Discord",
+  "Connect Microsoft Teams": "連接 Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "要中斷此看板與 Microsoft Teams 的連線嗎？其頻道將不再收到貼文。",
+  "Microsoft Teams disconnected": "已中斷 Microsoft Teams",
 };

@@ -123,7 +123,7 @@ export function nameLabel(s: unknown): string {
   return String(s ?? "").replace(/[@\r\n\t<>`*_~[\]|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60) || "Someone";
 }
 
-const clip = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
+export const clip = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
 
 /** The board note for /atteo post: its Discord author as a label, then the words. */
 export function postNote(author: string, text: string): string {
@@ -195,22 +195,27 @@ export function discordFor(env: Env, origin?: string): Discord {
       setDiscord: (board, on) => stubOf(env, board).setDiscord(on),
       notice: async (board, user, text) => void (await stubOf(env, board).notice(user, "Discord", text, { via: "agent", client: "Discord", session: null })),
       members: async (board) => (await registry.boardMembers(env, board)).map((m) => ({ user: m.user, agent_name: m.agent_name })),
-      async answer(board, me, user, seq, waitMs) {
-        // Like askAgent.awaitAnswer, but read as the linker's agent, it would also see their Just mine and people-only
-        // replies: only an answer that may leave the board counts (answerFor), else it keeps waiting.
-        const s = stubOf(env, board);
-        const deadline = Date.now() + Math.max(0, waitMs);
-        for (;;) {
-          const recent = (await s.page(null, 100, { user: me, person: false })).filter((e) => e.seq > seq);
-          const hit = answerFor(recent, { seq, user });
-          if (hit) return { seq: hit.seq, text: hit.text };
-          const left = deadline - Date.now();
-          if (left < 250) return null;
-          await waitForBoard(s, { kind: "any", after: recent.length ? recent[recent.length - 1].seq : seq }, left);
-        }
-      },
+      answer: (board, me, user, seq, waitMs) => publicAnswer(env, board, me, user, seq, waitMs),
     },
   };
+}
+
+/**
+ * The reply by `user`'s agent to question `seq` that may leave the board, waiting up to waitMs; or null. Like
+ * askAgent.awaitAnswer, but read as the linker's agent, it would also see their Just mine and people-only replies: only
+ * an answer that may leave the board counts (answerFor), else it keeps waiting. Teams uses it too (src/teams.ts).
+ */
+export async function publicAnswer(env: Env, board: string, me: string, user: string, seq: number, waitMs: number): Promise<{ seq: number; text: string } | null> {
+  const s = stubOf(env, board);
+  const deadline = Date.now() + Math.max(0, waitMs);
+  for (;;) {
+    const recent = (await s.page(null, 100, { user: me, person: false })).filter((e) => e.seq > seq);
+    const hit = answerFor(recent, { seq, user });
+    if (hit) return { seq: hit.seq, text: hit.text };
+    const left = deadline - Date.now();
+    if (left < 250) return null;
+    await waitForBoard(s, { kind: "any", after: recent.length ? recent[recent.length - 1].seq : seq }, left);
+  }
 }
 
 /** The answer to an /atteo ask that may go to Discord: `user`'s agent's reply to `seq`, public (no audience) and not flagged. */

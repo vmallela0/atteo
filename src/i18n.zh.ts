@@ -1203,4 +1203,7 @@ export const ZH_CN: Record<string, string> = {
   "Connect Discord": "连接 Discord",
   "Disconnect Discord from this board? Its channel stops getting posts.": "要从此看板断开 Discord 吗？它的频道将不再收到帖子。",
   "Discord disconnected": "已断开 Discord",
+  "Connect Microsoft Teams": "连接 Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "要断开此看板与 Microsoft Teams 的连接吗？其频道将不再收到帖子。",
+  "Microsoft Teams disconnected": "已断开 Microsoft Teams",
 };

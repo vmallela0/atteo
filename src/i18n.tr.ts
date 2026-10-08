@@ -1202,4 +1202,7 @@ export const TR: Record<string, string> = {
   "Connect Discord": "Discord'u bağla",
   "Disconnect Discord from this board? Its channel stops getting posts.": "Discord bu panodan ayrılsın mı? Kanalına artık gönderi gitmez.",
   "Discord disconnected": "Discord bağlantısı kesildi",
+  "Connect Microsoft Teams": "Microsoft Teams'i bağla",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "Microsoft Teams bu panodan ayrılsın mı? Kanalına artık gönderi gitmez.",
+  "Microsoft Teams disconnected": "Microsoft Teams bağlantısı kesildi",
 };

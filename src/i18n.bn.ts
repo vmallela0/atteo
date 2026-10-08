@@ -1202,4 +1202,7 @@ export const BN: Record<string, string> = {
   "Connect Discord": "Discord সংযুক্ত করুন",
   "Disconnect Discord from this board? Its channel stops getting posts.": "এই বোর্ড থেকে Discord বিচ্ছিন্ন করবেন? এর চ্যানেলে আর পোস্ট যাবে না।",
   "Discord disconnected": "Discord বিচ্ছিন্ন হয়েছে",
+  "Connect Microsoft Teams": "Microsoft Teams সংযুক্ত করুন",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "এই বোর্ড থেকে Microsoft Teams বিচ্ছিন্ন করবেন? এর চ্যানেলে আর পোস্ট যাবে না।",
+  "Microsoft Teams disconnected": "Microsoft Teams বিচ্ছিন্ন হয়েছে",
 };

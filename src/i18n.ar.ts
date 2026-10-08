@@ -1202,4 +1202,7 @@ export const AR: Record<string, string> = {
   "Connect Discord": "ربط Discord",
   "Disconnect Discord from this board? Its channel stops getting posts.": "فصل Discord عن هذه اللوحة؟ ستتوقف قناته عن تلقي المنشورات.",
   "Discord disconnected": "تم فصل Discord",
+  "Connect Microsoft Teams": "ربط Microsoft Teams",
+  "Disconnect Microsoft Teams from this board? Its channel stops getting posts.": "هل تريد قطع اتصال Microsoft Teams بهذه اللوحة؟ ستتوقف قناته عن تلقي المنشورات.",
+  "Microsoft Teams disconnected": "تم قطع اتصال Microsoft Teams",
 };

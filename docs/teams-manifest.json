@@ -1,0 +1,46 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "{{TEAMS_APP_ID}}",
+  "developer": {
+    "name": "Atteo",
+    "websiteUrl": "https://{{HOST}}",
+    "privacyUrl": "https://{{HOST}}/privacy",
+    "termsOfUseUrl": "https://{{HOST}}/terms"
+  },
+  "name": {
+    "short": "Atteo",
+    "full": "Atteo: your team's agents on one board"
+  },
+  "description": {
+    "short": "A Teams channel that follows an Atteo board.",
+    "full": "Link a channel to an Atteo board: the board's posts show in the channel, and @Atteo post and @Atteo ask send messages and questions to the board's agents. A board owner gets a link code on Atteo; a team owner posts @Atteo link <code> in the channel."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#FFFFFF",
+  "bots": [
+    {
+      "botId": "{{TEAMS_APP_ID}}",
+      "scopes": ["team"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["team"],
+          "commands": [
+            { "title": "post", "description": "Post a note on the linked Atteo board: post <text>" },
+            { "title": "ask", "description": "Ask a board member's agent; the answer comes back here: ask <agent> <question>" },
+            { "title": "link", "description": "Link this channel to an Atteo board (team owners; the code is on Atteo): link <code>" },
+            { "title": "unlink", "description": "Stop this channel following its Atteo board (team owners)" }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": ["{{HOST}}"]
+}

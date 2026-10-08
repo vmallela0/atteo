@@ -7,6 +7,8 @@ const B = "b_folderboard1";
 const LINEAR = `/api/integrations/linear?board=${B}`;
 const SLACK = `/api/integrations/slack?board=${B}`;
 const NOTION = `/api/integrations/notion?board=${B}`;
+const TEAMS = `/api/integrations/teams?board=${B}`;
+const teamsLinked = { linked: true, active: true, team_name: "Acme Team", channel_name: "eng", created_by: "vedu", linked_by_name: "Jane Doe", created_at: 1 };
 const DISCORD = `/api/integrations/discord?board=${B}`;
 const discordLinked = { linked: true, active: true, guild_id: "g1", channel_id: "c1", created_by: "ann", linked_by_name: "Ann", created_at: 1 };
 const notionLinked = { linked: true, active: true, workspace: { id: "w1", name: "Acme HQ" }, created_by: "ann", created_at: 1, published: 2, imported: 1 };
@@ -39,9 +41,10 @@ beforeEach(() => {
 });
 
 describe("atteo connect (the list)", () => {
-  it("lists Linear, Slack, Notion and Discord with their status, and the ones coming soon", async () => {
+  it("lists Linear, Slack, Notion, Microsoft Teams and Discord with their status; nothing is coming soon", async () => {
     answers[`GET ${LINEAR}`] = { status: 200, body: linked };
     answers[`GET ${NOTION}`] = { status: 200, body: notionLinked };
+    answers[`GET ${TEAMS}`] = { status: 200, body: teamsLinked };
     answers[`GET ${DISCORD}`] = { status: 200, body: discordLinked };
     answers[`GET ${SLACK}`] = { status: 200, body: { connected: true, channels: [{ name: "eng", lane: "decisions", paused: null }, { name: "old", lane: "everything", paused: "archived" }] } };
     await listIntegrations({}, deps());
@@ -50,17 +53,19 @@ describe("atteo connect (the list)", () => {
     expect(p).toMatch(/linear\s+connected · Engineering \(ENG\) · project Checkout · by ann · 3 issues/);
     expect(p).toMatch(/slack\s+connected · #eng, #old \(paused\)/);
     expect(p).toMatch(/notion\s+connected · Acme HQ · by ann · 2 published, 1 imported/);
+    expect(p).toMatch(/teams\s+connected · eng in Acme Team · by vedu/);
     expect(p).toMatch(/discord\s+connected · by ann\n/);
     expect(p).not.toMatch(/g1|c1/); // no Discord ids
-    expect(p).toMatch(/teams\s+coming soon/);
-    expect(p).not.toMatch(/(notion|discord)\s+coming soon/);
+    expect(p).not.toContain("coming soon");
   });
   it("says when an integration isn't set up on the server, or isn't connected", async () => {
     answers[`GET ${LINEAR}`] = { status: 503, body: { error: "Linear isn't set up yet" } };
     answers[`GET ${SLACK}`] = { status: 200, body: { connected: false, channels: [] } };
     answers[`GET ${NOTION}`] = { status: 503, body: { error: "Notion isn't set up yet" } };
+    answers[`GET ${TEAMS}`] = { status: 503, body: { error: "Microsoft Teams isn't set up yet" } };
     answers[`GET ${DISCORD}`] = { status: 200, body: { linked: false } };
     await listIntegrations({}, deps());
+    expect(printed()).toMatch(/teams\s+not set up on this server yet/);
     expect(printed()).toMatch(/discord\s+not connected/);
     expect(printed()).toMatch(/linear\s+not set up on this server yet/);
     expect(printed()).toMatch(/notion\s+not set up on this server yet/);
@@ -71,6 +76,8 @@ describe("atteo connect (the list)", () => {
     answers["GET /api/integrations/linear?board=b_otherboard1"] = { status: 200, body: { linked: false } };
     answers["GET /api/integrations/slack?board=b_otherboard1"] = { status: 503, body: { error: "Slack isn't set up yet" } };
     answers["GET /api/integrations/notion?board=b_otherboard1"] = { status: 200, body: { linked: false } };
+    answers["GET /api/integrations/teams?board=b_otherboard1"] = { status: 200, body: { linked: false } };
+    answers["GET /api/integrations/discord?board=b_otherboard1"] = { status: 200, body: { linked: false } };
     await listIntegrations({ board: "checkout REWRITE" }, deps());
     expect(printed()).toContain('Integrations on "Checkout rewrite" (b_otherboard1):');
     expect(printed()).toMatch(/linear\s+not connected/);
@@ -80,9 +87,10 @@ describe("atteo connect (the list)", () => {
     answers[`GET ${LINEAR}`] = { status: 200, body: linked };
     answers[`GET ${SLACK}`] = { status: 503, body: { error: "Slack isn't set up yet" } };
     answers[`GET ${NOTION}`] = { status: 200, body: notionLinked };
+    answers[`GET ${TEAMS}`] = { status: 200, body: teamsLinked };
     answers[`GET ${DISCORD}`] = { status: 503, body: { error: "Discord isn't set up yet" } };
     await listIntegrations({ json: true }, deps());
-    expect(JSON.parse(printed())).toEqual({ board: B, linear: linked, slack: { error: "Slack isn't set up yet", status: 503 }, notion: notionLinked, discord: { error: "Discord isn't set up yet", status: 503 }, coming_soon: ["teams"] });
+    expect(JSON.parse(printed())).toEqual({ board: B, linear: linked, slack: { error: "Slack isn't set up yet", status: 503 }, notion: notionLinked, teams: teamsLinked, discord: { error: "Discord isn't set up yet", status: 503 }, coming_soon: [] });
   });
 });
 
@@ -142,15 +150,36 @@ describe("atteo connect linear", () => {
     await expect(connectIntegration("discord", {}, deps({ open }))).rejects.toThrow("Discord isn't set up on https://atteo.test yet.");
     expect(open).toHaveBeenCalledTimes(1);
   });
-  it("Slack's link is the owner's connect page; the rest are coming soon; anything else is unknown", async () => {
+  it("Slack's link is the owner's connect page; anything else is unknown", async () => {
     answers[`GET ${SLACK}`] = { status: 200, body: { connected: false, channels: [] } };
     const open = vi.fn();
     await connectIntegration("slack", {}, deps({ open }));
     expect(open).toHaveBeenCalledWith(`https://atteo.test/slack/connect?board=${B}`);
-    await connectIntegration("teams", {}, deps({ open }));
-    expect(printed()).toContain("Microsoft Teams is coming soon");
     expect(open).toHaveBeenCalledTimes(1);
     await expect(connectIntegration("jira", {}, deps({ open }))).rejects.toThrow(/Unknown integration "jira"/);
+  });
+});
+
+describe("atteo connect teams / disconnect teams", () => {
+  it("prints and opens the start page, where a board owner gets the code a team owner posts in the channel", async () => {
+    answers[`GET ${TEAMS}`] = { status: 200, body: { linked: false } };
+    const open = vi.fn();
+    await connectIntegration("teams", {}, deps({ open }));
+    const url = `https://atteo.test/api/integrations/teams/start?board=${B}`;
+    expect(open).toHaveBeenCalledWith(url);
+    expect(printed()).toContain("@Atteo link <code>");
+    answers[`GET ${TEAMS}`] = { status: 503, body: { error: "Microsoft Teams isn't set up yet" } };
+    await expect(connectIntegration("teams", {}, deps({ open }))).rejects.toThrow("Microsoft Teams isn't set up on https://atteo.test yet.");
+  });
+  it("disconnects with DELETE after a yes; a refused CLI login names the web panel", async () => {
+    answers[`DELETE ${TEAMS}`] = { status: 200, body: { ok: true, linked: false } };
+    const confirm = vi.fn(async () => true);
+    await disconnectIntegration("teams", {}, deps({ confirm }));
+    expect(confirm).toHaveBeenCalledWith(`Disconnect Microsoft Teams from ${B}? Its channel stops getting posts.`);
+    expect(calls).toContainEqual({ method: "DELETE", path: TEAMS });
+    expect(printed()).toContain(`Microsoft Teams is disconnected from ${B}.`);
+    answers[`DELETE ${TEAMS}`] = { status: 403, body: { error: "Connecting Microsoft Teams is for people, signed in on Atteo. An agent's token can't." } };
+    await expect(disconnectIntegration("teams", { yes: true }, deps())).rejects.toThrow(`https://atteo.test/b/${B}#integrations`);
   });
 });
 
