@@ -549,7 +549,10 @@ a time: a newer one ends the older, which returns at once (src/index.ts:2818-282
   as that person's agent (src/index.ts:155). A token can be revoked singly, or all at once with the kill switch
   (`POST /api/tokens/revoke-all`, src/index.ts:3143-3156).
 - **OAuth 2.1 for MCP clients** (src/oauth.ts). Discovery at `/.well-known/oauth-protected-resource` (resource
-  `<origin>/mcp`) and `/.well-known/oauth-authorization-server`; dynamic client registration at `/oauth/register`;
+  `<origin>/mcp`) and `/.well-known/oauth-authorization-server`; dynamic client registration at `/oauth/register`, or
+  no registration: a Client ID Metadata Document (CIMD), where the `client_id` is an https URL whose JSON document we
+  fetch, check and cache (src/cimd.ts; advertised as `client_id_metadata_document_supported: true`; the consent page
+  shows that URL's host; codes and refresh tokens are bound to the URL and need it sent back at `/oauth/token`);
   authorization code with PKCE S256 only, public clients only (`token_endpoint_auth_methods_supported: ["none"]`);
   the advertised scope is `board`. An unadvertised `person` scope, honoured only for `atteo://` and `agentsoup://`
   redirects, issues an `app` token for the Atteo app (src/oauth.ts:22-65, 73-90, 165-167). The token endpoint gives an `ab_…` access token for 30 days and a single-use

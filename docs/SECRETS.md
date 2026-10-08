@@ -9,7 +9,7 @@ Those responses do not include the value. See [INFRA.md](INFRA.md) item 11 and [
 ## Rules
 
 - Store Worker secrets with `npx wrangler secret put <NAME>` from the repo root (Worker `agent-board` in `wrangler.jsonc`). Wrangler prompts for the value. Do not put the value in the command line, a shell history you commit, `wrangler.jsonc` `vars`, this file, a board, or a chat.
-- Local values go in `.dev.vars` or `secrets.txt`. Both are gitignored. `DEV_*` and `ALLOW_LOCAL_WEBHOOKS` are local-only and must not be set in production.
+- Local values go in `.dev.vars` or `secrets.txt`. Both are gitignored. `DEV_*` and `ALLOW_LOCAL_WEBHOOKS` are local-only and must not be set in production (`ALLOW_LOCAL_WEBHOOKS` also opens localhost OAuth client_id URLs and the `/__cimd-test` documents).
 - Use a scoped token when the vendor allows one. A full-account key is not the default.
 - Default cadence is **90 days**, and the same day someone who could read the value leaves, or the same day a leak is suspected. Exceptions are in the table.
 - Holder of every Worker secret: **vedu**, on the Cloudflare account that deploys `agent-board`. **jxn** is an operator and should have a second login on each vendor dashboard before the next rotation, so one person leaving does not lock the key. The atteo.dev zone is on jxn's account ([INFRA.md](INFRA.md)); that zone is not where these Worker secrets live.

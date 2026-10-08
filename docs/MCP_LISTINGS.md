@@ -12,7 +12,7 @@ separate process: [CLAUDE_DIRECTORY.md](CLAUDE_DIRECTORY.md).
 | Official MCP Registry | `mcp-publisher` with `server.json` (repo root) | A key pair, then a DNS TXT record **or** the `MCP_REGISTRY_AUTH` secret + deploy; then `login` + `publish` | No | None |
 | PulseMCP | Copies the official registry | Nothing. Publish to the registry | No | Submissions are paused; they pick up registry entries when they reopen |
 | Glama | Copies the official registry as a "connector" | Optional: claim it (`GLAMA_CLAIM` secret or a DNS TXT) after it appears | Only for the open-source "server" listing, which we skip | None for the connector listing |
-| Smithery | URL publish at smithery.ai/new | Sign in, paste the URL, pick a namespace | No | Its OAuth sign-in uses CIMD, which Atteo doesn't support yet (see Smithery) |
+| Smithery | URL publish at smithery.ai/new | Sign in, paste the URL, pick a namespace | No | None: its OAuth sign-in uses CIMD, which Atteo supports since vedu #6575 (see Smithery) |
 | mcp.so | Web form, "Remote Server" tab | Sign in, fill two fields, pay | No | The current form offers only the $39 "Premium" plan |
 
 Facts the copy rests on (from the code):
@@ -20,7 +20,8 @@ Facts the copy rests on (from the code):
 - Remote MCP server at `https://atteo.dev/mcp`, Streamable HTTP with JSON responses (src/mcp.ts).
 - OAuth 2.1 sign-in: an unauthenticated call gets `401` with `WWW-Authenticate: Bearer resource_metadata=…`;
   `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` are public; PKCE S256; dynamic
-  client registration at `/oauth/register` (src/oauth.ts). No Client ID Metadata Documents (CIMD).
+  client registration at `/oauth/register` (src/oauth.ts), and Client ID Metadata Documents (CIMD: an https
+  `client_id` URL, src/cimd.ts; `client_id_metadata_document_supported: true`).
 - 34 tools, each with a title and read-only/destructive hints (`TOOL_ANNOTATIONS` in src/mcp.ts).
 - Local stdio option: the `atteo` CLI (`curl -fsSL https://atteo.dev/install.sh | sh`, Node 20+) runs `atteo mcp`, a
   stdio server that relays to the same remote server and does end-to-end encryption locally for encrypted boards. The
@@ -229,21 +230,19 @@ Sources: https://smithery.ai/docs/build/publish.md and the Smithery OAuth and sc
 Smithery publishes an existing server by URL ("bring your own hosting"); no repo and no `smithery.yaml`. Its gateway
 proxies to our server.
 
-**Blocker:** Smithery registers itself with an OAuth server through **Client ID Metadata Documents (CIMD)**, where the
-`client_id` is an https URL. Atteo supports dynamic client registration only (no
-`client_id_metadata_document_supported`; src/oauth.ts), so Smithery's sign-in, and with it the authenticated scan of
-our tools, will most likely fail. Two ways forward:
-
-- Publish anyway: the scan falls back to `/.well-known/mcp/server-card.json` (this branch; deploy first) for the tool
-  list, but users connecting through Smithery's gateway would hit the same OAuth problem. Not recommended until tested.
-- Add CIMD support to src/oauth.ts first (accept an https `client_id`, fetch and cache its metadata document, check
-  `redirect_uris` against it, advertise `"client_id_metadata_document_supported": true`). Claude's directory docs
-  recommend it too (CLAUDE_DIRECTORY.md, Recommendations). A separate task.
+**Unblocked (vedu #6575):** Smithery registers itself with an OAuth server through **Client ID Metadata Documents
+(CIMD)**, where the `client_id` is an https URL. Atteo now supports CIMD (src/cimd.ts) and advertises
+`"client_id_metadata_document_supported": true`. Smithery Connect's document
+(`https://connect.smithery.ai/.well-known/oauth-client`, checked Oct 8 2026) passes our checks: `client_id` equal to
+its URL, one https redirect (`https://connect.smithery.ai/oauth/callback`), `token_endpoint_auth_method` `none`. Its
+`client_uri` and `logo_uri` are on `smithery.ai`, another host; we don't require those to match (some strict servers
+do, and refuse Smithery for it) and don't show the logo. The consent page reads "Smithery Connect wants to be your
+agent", from `connect.smithery.ai`. Not yet tried end to end with Smithery itself: confirm on the first sign-in.
 
 Two things already check out: an unauthenticated `POST /mcp` with Smithery's scanner User-Agent
 (`SmitheryBot/1.0 (+https://smithery.ai)`) gets `401` (not `403`), and Bot Fight Mode is off.
 
-**Steps for vedu (once CIMD lands, or to try it):**
+**Steps for vedu (once the CIMD branch is deployed):**
 
 1. Deploy this branch (for the server card).
 2. Go to https://smithery.ai/new and sign in (GitHub or Google).
@@ -281,4 +280,4 @@ The project's GitHub issues (chatmcp/mcpso) aren't a reliable route: no template
 2. Official MCP Registry (steps above). PulseMCP and Glama follow from it.
 3. Claim the Glama connector once it shows up (optional).
 4. mcp.so: decide on the $39.
-5. Smithery: after CIMD support, or try it and see whether the OAuth popup completes.
+5. Smithery: CIMD is supported; publish and check that the OAuth popup completes.

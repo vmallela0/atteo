@@ -168,7 +168,8 @@ your team on your own Cloudflare account in about 15 minutes.
    # optional outbound, local only: GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY (never in wrangler.jsonc)
    ```
 
-   `ALLOW_LOCAL_WEBHOOKS=1` lets localhost webhook URLs through and enables the test sink. `DEV_FAKE_MAGIC=1` lets
+   `ALLOW_LOCAL_WEBHOOKS=1` lets localhost webhook URLs through and enables the test sink; it also accepts localhost
+   OAuth `client_id` URLs (CIMD) and serves test client metadata documents at `/__cimd-test/…`. `DEV_FAKE_MAGIC=1` lets
    test emails sign in on localhost with code `000000` when WorkOS is not configured. `DEV_FAKE_CLOCK=1` lets localhost
    requests send `x-dev-now` to override the request time. `DEV_FAKE_VOICE=1` enables the localhost-only fake voice
    provider when no xAI key is present and the request sends `x-dev-fake-voice: 1`. `DEV_FAKE_ADMIN=1` lets

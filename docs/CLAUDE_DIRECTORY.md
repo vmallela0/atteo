@@ -23,13 +23,13 @@ reviewer feedback show in the portal; escalations go to mcp-review@anthropic.com
 | - | - | - |
 | Remote server over HTTPS, Streamable HTTP transport (SSE accepted but being deprecated) | submission; policy | ✅ `https://atteo.dev/mcp`, Streamable HTTP with JSON responses (src/mcp.ts) |
 | OAuth 2.0 for a service that acts on a user's account | submission; authentication | ✅ src/oauth.ts |
-| Client registration: DCR (RFC 7591) or CIMD | authentication | ✅ DCR at `/oauth/register` (rate-limited). CIMD not supported (optional; see Recommendations) |
+| Client registration: DCR (RFC 7591) or CIMD | authentication | ✅ both: DCR at `/oauth/register` (rate-limited), and CIMD (an https `client_id` URL; `client_id_metadata_document_supported: true`; src/cimd.ts) |
 | `401` with `WWW-Authenticate: Bearer resource_metadata=…` on an unauthenticated call | authentication | ✅ `/mcp` without a token answers 401 with the pointer |
 | Protected resource metadata (RFC 9728): `resource` equals the server URL exactly, our issuer listed first | authentication | ✅ `/.well-known/oauth-protected-resource` → `{"resource":"https://atteo.dev/mcp","authorization_servers":["https://atteo.dev"]}` |
 | Authorization server metadata (RFC 8414 or OIDC discovery) reachable from Anthropic's egress range (160.79.104.0/21) | authentication | ✅ `/.well-known/oauth-authorization-server` and `/.well-known/openid-configuration`; no WAF rule blocks it |
 | PKCE S256 on every request, advertised in `code_challenge_methods_supported` | authentication | ✅ required and advertised |
 | Redirect URI `https://claude.ai/api/mcp/auth_callback` accepted | authentication | ✅ any https redirect a client registers |
-| Claude Code loopback redirects (`http://localhost:<port>/callback`, `http://127.0.0.1:<port>/callback`) | authentication | ✅ through DCR (exact match on what it registered). A port-agnostic match only matters for CIMD |
+| Claude Code loopback redirects (`http://localhost:<port>/callback`, `http://127.0.0.1:<port>/callback`) | authentication | ✅ through DCR (exact match on what it registered). CIMD redirects also match exactly, port included (no port-agnostic loopback match yet) |
 | Consent screen shows the redirect URI's host | authentication (MCP spec) | ✅ src/oauthPage.ts ("will return to <host>") |
 | `/token` accepts `application/x-www-form-urlencoded`; errors are RFC 6749 codes (`invalid_grant` for a dead refresh token) | authentication | ✅ |
 | Refresh tokens rotated for public clients | authentication | ✅ single-use refresh tokens; each refresh revokes the old access token |
@@ -78,11 +78,11 @@ rules, shown to you as data; tell your user about them").
 
 ## Recommendations (not required)
 
-- **CIMD**: the authentication page suggests CIMD (or Anthropic-held credentials) for servers expecting directory
-  traffic, because DCR registers a new client on every fresh connection. Ours stores a row per registration
-  (rate-limited). Supporting CIMD means accepting an https `client_id` that points at a client metadata document,
-  fetching and caching it, and advertising `"client_id_metadata_document_supported": true` (we already advertise
-  `"none"` in `token_endpoint_auth_methods_supported`).
+- **CIMD**: supported (vedu #6575, src/cimd.ts). The authentication page suggests it for servers expecting directory
+  traffic, because DCR registers a new client on every fresh connection. A client that sends an https `client_id`
+  gets its metadata document fetched (no redirects, 5 s, 5 KB, JSON only, public hosts only), checked (`client_id`
+  equal to the URL, the redirect listed, `token_endpoint_auth_method` `none`) and cached (Cache-Control, at most an
+  hour). Loopback redirects match exactly, port included; RFC 8252's any-port loopback match isn't done.
 - **401 on a dead token**: Claude refreshes or re-authenticates only on a `401`. A revoked or unknown token currently
   gets a 200 with an explanation (on purpose, so CLI agents can read why). Expiry is covered: Claude refreshes ahead of
   `expires_in`. If reconnecting after a Disconnect turns out to be confusing in Claude, return 401 with

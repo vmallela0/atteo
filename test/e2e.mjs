@@ -3818,6 +3818,46 @@ await step("OAuth refresh tokens: rotate on use (old one rejected), same scope a
   assert(dead.status === 400 && (await dead.json()).error === "invalid_grant", "refresh after revoke is refused");
 });
 
+await step("MCP OAuth with a client metadata document (CIMD, vedu #6575): a URL client_id, no registration, bound to that URL", async () => {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const as = await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json();
+  assert(as.client_id_metadata_document_supported === true && as.registration_endpoint, JSON.stringify(as));
+  // A local test server serves the document itself (/__cimd-test, ALLOW_LOCAL_WEBHOOKS=1 on localhost only); a real
+  // client_id is https on a public host.
+  const id = `${BASE}/__cimd-test/client-${run}`;
+  const cb = "http://localhost:47126/callback";
+  const name = `CIMD Agent ${run}`;
+  const doc = { client_id: id, client_name: `<b>${name}</b>`, redirect_uris: [cb], grant_types: ["authorization_code", "refresh_token"], token_endpoint_auth_method: "none" };
+  assert((await fetch(id, { method: "POST", body: JSON.stringify(doc) })).ok, "test document set");
+  const verifier = randomBytes(32).toString("base64url");
+  const q = new URLSearchParams({ response_type: "code", client_id: id, redirect_uri: cb, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", state: "c1" });
+  const with_ = (o) => `/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(q), ...o })}`;
+  const consent = await (await web(`/oauth/authorize?${q}`, A)).text();
+  has(consent, `&lt;b&gt;${name}&lt;/b&gt; wants to be your agent`); // the name, escaped
+  has(consent, `From <b style="color:var(--ink)">${new URL(BASE).host}</b>`); // and the domain it came from
+  has(consent, "data-loopback");
+  assert((await web(with_({ redirect_uri: "http://localhost:47127/callback" }), A)).status === 400, "a redirect the document doesn't list");
+  for (const bad of ["http://example.com/client.json", "https://10.0.0.1/client.json", "https://localhost/client.json", `${BASE}/__cimd-test/missing-${run}`])
+    assert((await web(with_({ client_id: bad }), A)).status === 400, `client_id ${bad}`);
+  const rid = consent.match(/name="request_id" value="([^"]+)"/)[1];
+  const allow = await web(`/oauth/authorize`, A, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` });
+  const back = new URL(allow.headers.get("location"));
+  assert(back.origin + back.pathname === cb && back.searchParams.get("state") === "c1", allow.headers.get("location"));
+  const code = back.searchParams.get("code");
+  const token = (f) => fetch(`${BASE}/oauth/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(f) });
+  const t = await (await token({ grant_type: "authorization_code", code, redirect_uri: cb, client_id: id, code_verifier: verifier })).json();
+  assert(t.access_token?.startsWith("ab_") && t.refresh_token && t.scope === "board", JSON.stringify(t));
+  has((await tool(t.access_token, null, "list_boards")).text, `e2e ${run}`);
+  // Refresh: the same client_id must be sent.
+  const noId = await token({ grant_type: "refresh_token", refresh_token: t.refresh_token });
+  assert(noId.status === 400 && (await noId.json()).error === "invalid_grant", "refresh without the client_id");
+  const t2 = await (await token({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: id })).json();
+  assert(t2.access_token?.startsWith("ab_") && t2.access_token !== t.access_token, JSON.stringify(t2));
+  // Listed under Agent connections with its domain.
+  const live = (await (await web("/api/tokens", A)).json()).tokens.filter((x) => x.label === `<b>${name}</b> · ${new URL(BASE).host}` && !x.revoked_at);
+  assert(live.length === 1, JSON.stringify(live));
+});
+
 await step("the Atteo app signs in as the person (scope=person, atteo:// only): it can do what only people can; agent tokens still can't", async () => {
   const { createHash, randomBytes } = await import("node:crypto");
   const cb = "atteo://auth";
