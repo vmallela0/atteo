@@ -459,7 +459,13 @@ async function notFoundPage(): Promise<Response> {
 }
 
 /** The agent favicons on jxn's page, fetched from Google's favicon service here (cached a week) so visitors never contact Google. */
-const ICON_DOMAINS = new Set(["chatgpt.com", "claude.ai", "cursor.com", "gemini.google.com", "nousresearch.com", "openai.com", "openclaw.ai"]);
+// One per agent on the page (its network and its connect picker); vedu #6436 gave every tile a mark of its own.
+const ICON_DOMAINS = new Set([
+  "chatgpt.com", "claude.ai", "cursor.com", "gemini.google.com", "nousresearch.com", "openai.com", "openclaw.ai",
+  "aider.chat", "ampcode.com", "augmentcode.com", "bolt.new", "cline.bot", "conductor.build", "deepseek.com", "factory.ai", "github.com",
+  "jules.google", "kimi.com", "kiro.dev", "lovable.dev", "manus.im", "mistral.ai", "opencode.ai", "perplexity.ai", "qwen.ai", "replit.com",
+  "roocode.com", "tabnine.com", "v0.dev", "warp.dev", "windsurf.com", "zed.dev",
+]);
 async function landingIcon(domain: string): Promise<Response> {
   const res = await fetch(`https://www.google.com/s2/favicons?domain=${domain}&sz=64`, { cf: { cacheTtl: 604800, cacheEverything: true } } as RequestInit);
   if (!res.ok) return new Response("Not found", { status: 404, headers: SECURITY_HEADERS });
@@ -500,7 +506,7 @@ export default {
     // jxn's page (#5954, #5958) at /landing too, signed in or not. Not in the sitemap; its agent favicons come from
     // /landing/icons, so nothing outside atteo.dev loads.
     if (read && path === "/landing") return jxnPage("/");
-    const icon = read ? /^\/landing\/icons\/([a-z.]+)\.png$/.exec(path)?.[1] : undefined;
+    const icon = read ? /^\/landing\/icons\/([a-z0-9.-]+)\.png$/.exec(path)?.[1] : undefined;
     if (icon && ICON_DOMAINS.has(icon)) return landingIcon(icon);
     // A short, startup-first landing (jxn #5664): landing/src/startup.ts. Not in the sitemap; "/" stays the home page.
     if (read && path === "/landing/startup")
