@@ -884,6 +884,7 @@ const handler = {
       if (path === "/api/integrations/linear" && method === "GET") return await linear.status(linear.linearFor(env, origin), viewer, url);
       if (path === "/api/integrations/linear" && method === "POST") return await linear.choose(linear.linearFor(env, origin), viewer, request, url);
       if (path === "/api/integrations/linear" && method === "DELETE") return await linear.unlink(linear.linearFor(env, origin), viewer, request, url);
+      if (path === "/api/integrations/slack" && method === "GET") return await slack.boardStatus(slack.bridgeFor(env, origin), viewer, url, request);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed
       // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.

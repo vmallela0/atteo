@@ -1212,6 +1212,19 @@ function machinesHtml(rows: { user: string; machine: string | null; agents: numb
   return `<ul class="ag-machines xs muted" aria-label="${esc(T("Agents running on members' machines"))}">${owners.flatMap((u) => live.filter((r) => r.user === u).map(line)).join("")}</ul>`;
 }
 
+/** Board info → Integrations (vedu #6508): Linear (its status loads from /api/integrations/linear), Slack (the bridge's
+ *  channels, already known here), and what's coming. Connecting is for the board's owners (who linked Linear may also disconnect it), on the
+ *  web: each one's own OAuth pages. Never on "Your agent" or a DM, which can't be connected to anything. */
+export function integrationsSection(T: (s: string, v?: Record<string, string | number>) => string, o: { id: string; encrypted: boolean; archived: boolean; readOnly: boolean; isOwner: boolean; hidden: boolean; slack: boolean; slackChannels: string[] }): string {
+  if (o.hidden) return "";
+  const e2e = T("Not available on end-to-end encrypted boards");
+  const row = (name: string, status: string, act = "", extra = "") => `<li class="int-row"${extra}><div class="grow"><div class="small int-name">${esc(name)}</div><div class="xs muted int-st">${status}</div></div><div class="row int-act">${act}</div></li>`;
+  const slackStatus = !o.slack ? esc(T("Not set up on this server yet")) : o.encrypted ? esc(e2e) : o.slackChannels.length ? esc(T("Connected")) + " · " + o.slackChannels.map((c) => `<span class="mono">#${esc(c)}</span>`).join(", ") : esc(T("Not connected"));
+  const slackAct = o.slack && o.isOwner && !o.encrypted && !o.archived ? `<a class="btn sm" href="/slack/connect?board=${esc(encodeURIComponent(o.id))}">${esc(T(o.slackChannels.length ? "Manage" : "Connect Slack"))}</a>` : "";
+  const soon = ["Discord", "Notion", "Microsoft Teams"].map((n) => row(n, esc(T("Coming soon")), "", ` aria-disabled="true" data-soon`)).join("");
+  return `<section class="acc-sec" id="acc-integrations" data-can="${o.isOwner && !o.readOnly && !o.archived && !o.encrypted ? "1" : ""}"${o.encrypted ? ` data-block="${esc(e2e)}"` : ""}><h3>${esc(T("Integrations"))}</h3><ul class="int-list">${row("Linear", esc(T("Loading…")), "", ` id="int-linear"`)}${row("Slack", slackStatus, slackAct, ` id="int-slack"`)}${soon}</ul></section>`;
+}
+
 export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false, machines: { user: string; machine: string | null; agents: number }[] = [], viewer?: string): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   const row = (a: AgentHere) => {
@@ -2672,6 +2685,22 @@ async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)
   refreshTimes()}
 document.getElementById('acc-handoffs').addEventListener('click',e=>{if(e.target.closest('a'))document.getElementById('invite').close()}); // jump to the message: the board's #e link takes it from there
 setInterval(()=>{if(document.getElementById('invite').open&&!document.getElementById('acc-gate').hidden)gateLoad()},30000); // ages grow and the stalled flag moves while it's open
+// ---- Integrations (vedu #6508): Linear's status loads here; Slack's is in the page; the rest are "Coming soon" ----
+async function intLoad(){const li=document.getElementById('int-linear');if(!li)return;const sec=document.getElementById('acc-integrations'),st=li.querySelector('.int-st'),act=li.querySelector('.int-act');
+  if(sec.dataset.block){st.textContent=sec.dataset.block;act.innerHTML='';return}
+  const r=await fetch('/api/integrations/linear?board='+encodeURIComponent(BOARD)).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
+  const can=sec.dataset.can==='1',go=l=>'<a class="btn sm" href="/api/integrations/linear/start?board='+encodeURIComponent(BOARD)+'">'+esc(l)+'</a>';
+  li.classList.toggle('off',!!r&&r.status===503);
+  if(r&&r.status===503){st.textContent=tr('Not set up on this server yet');act.innerHTML='';return}
+  if(!r||!r.ok){st.textContent=j.error||tr('Couldn’t load');act.innerHTML='';return}
+  if(!j.linked){st.textContent=tr('Not connected');act.innerHTML=can?go(tr('Connect Linear')):'';return}
+  const where=j.team?j.team.name+(j.project?' · '+j.project.name:''):(j.org&&j.org.name?j.org.name+' · ':'')+tr('No team picked yet');
+  st.innerHTML=esc(where)+' <span class="faint">· '+esc(tr('connected by {name}',{name:j.created_by||''}))+'</span>';
+  act.innerHTML=(can&&!j.ready?go(tr('Pick a team')):'')+(j.created_by===ME||IS_OWNER?'<button class="btn ghost sm danger" type="button" data-linear-disconnect>'+esc(tr('Disconnect'))+'</button>':'')}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-linear-disconnect]');if(!b)return;
+  if(!confirm(tr('Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.')))return;b.disabled=true;
+  const r=await fetch('/api/integrations/linear?board='+encodeURIComponent(BOARD),{method:'DELETE'}).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
+  if(!r||!r.ok){b.disabled=false;toast(j.error||tr('Couldn’t disconnect'));return}toast(tr('Linear disconnected'));intLoad()});
 // ---- Triggers (#980): "when X happens, wake my agent (or one session) with a prompt"; each person manages their own ----
 const TRG_ON={task:'a new task',question:'a new question',entry:'any new message',change:'a change card',schedule:'every day at'};
 const trgApi='/api/boards/'+BOARD+'/triggers';
@@ -2738,7 +2767,8 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-sch-
   const on=d==='toggle'&&b.getAttribute('aria-checked')!=='true';
   const r=await fetch(schApi+'/'+encodeURIComponent(id),d==='delete'?{method:'DELETE'}:{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:on})}).catch(()=>null);
   if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr('Couldn’t save'));b.disabled=false;return}toast(d==='delete'?tr('Schedule deleted'):on?tr('Schedule on'):tr('Schedule off'));schLoad()});
-document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();schLoad();gateLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;const ld=Promise.all([accLoad(),trgLoad(),schLoad(),gateLoad(),intLoad()].map(x=>Promise.resolve(x).catch(()=>{})));const g=o.dataset.goto&&document.getElementById(o.dataset.goto);
+  if(g){setTimeout(()=>g.scrollIntoView({block:'nearest'}),60);ld.then(()=>g.scrollIntoView({block:'nearest'}))}}); // again once the sections above have loaded and moved it down
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
 let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
 async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
@@ -2833,6 +2863,7 @@ document.getElementById('board-tabs').addEventListener('keydown',e=>{if(!['Arrow
   const at=Math.max(0,vis.indexOf(document.activeElement));let next=e.key==='Home'?0:e.key==='End'?vis.length-1:(at+(e.key==='ArrowRight'?1:-1)+vis.length)%vis.length;
   const b=vis[next];tab(all.indexOf(b));b.focus()});
 if(location.hash==='#log')tab(1);if(location.hash==='#files'||location.hash==='#docs')tab(2);
+if(location.hash==='#integrations')setTimeout(()=>document.querySelector('[data-goto="acc-integrations"]')?.click(),0); // atteo disconnect's link: board info, at Integrations
 // ---- Tasks (Kanban): the board's tasks by status; drag a card to another column to change it ----
 // Frozen (vedu #4791): parked for the far future, last and folded until opened; dropping a card on it freezes it.
 const KCOLS=[['todo',tr('To do')],['doing',tr('In progress')],['blocked',tr('Blocked')],['done',tr('Done')],['frozen',tr('Frozen')]];let kFrozenOpen=false;
@@ -3237,6 +3268,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}${agentChat ? "" : privacyDia
       : ""
   }</section>
   <section class="acc-sec" id="acc-gate" hidden><h3 id="gate-h"></h3><ul class="acc-list" id="acc-handoffs"></ul></section>
+  ${integrationsSection(T, { id: info.id, encrypted: !!info.encrypted, archived: !!info.archived, readOnly, isOwner, hidden: agentChat || board.kind === "direct", slack: !!board.slack, slackChannels: board.slackChannels ?? [] })}
   <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul><p class="xs acc-dl"><a href="/api/boards/${esc(encodeURIComponent(info.id))}/audit/export" download>${esc(T("Download the full log (JSON)"))}</a></p></details>
   ${
     true
@@ -3261,7 +3293,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}${agentChat ? "" : privacyDia
     // Phones (jxn #4860): the header is menu, the board and "N working", search and the rail button.
     actions: `<button class="btn ghost sm bh-b" type="button" data-palette aria-label="${esc(T("Search or jump to…"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg></button>${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
-      `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" class="ol-all" data-ol-toggle data-open-l="${esc(T("Open all messages"))}" data-fold-l="${esc(T("Fold messages again"))}">${esc(T("Open all messages"))}</button><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}${
+      `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" class="ol-all" data-ol-toggle data-open-l="${esc(T("Open all messages"))}" data-fold-l="${esc(T("Fold messages again"))}">${esc(T("Open all messages"))}</button><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}${agentChat || board.kind === "direct" ? "" : `<button type="button" data-open="invite" data-goto="acc-integrations">${esc(T("Integrations"))}</button>`}${
         // The Slack bridge (src/slack.ts): its owner connects a channel; never an encrypted board, a DM or "Your agent".
         board.slack && isOwner && !info.encrypted && !agentChat && board.kind !== "direct" && !info.archived ? `<form method="get" action="/slack/connect"><input type="hidden" name="board" value="${esc(info.id)}"><button type="submit" data-slack-connect>${esc(T("Connect Slack"))}</button></form>` : ""
       }</div></details>`
