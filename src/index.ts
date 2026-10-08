@@ -148,6 +148,8 @@ import { quickReplies } from "./quickReplies";
 import { fontResponse } from "./fonts";
 import { MERMAID_PATH, mermaidResponse } from "./mermaid";
 import { AGENT_LOGO_FILES } from "./agent-logos";
+/** Local test servers only (ALLOW_LOCAL_WEBHOOKS=1): client metadata documents test/e2e.mjs serves itself (/__cimd-test/…). */
+const cimdTestDocs = new Map<string, string>();
 
 const OPS_PATH = "/_ops";
 
@@ -989,6 +991,21 @@ const handler = {
       if ((path.startsWith("/.well-known/oauth-") || path.startsWith("/oauth/")) && method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") return json(oauth.protectedResource(origin), 200, cors);
       if (path === "/.well-known/oauth-authorization-server" || path === "/.well-known/openid-configuration") return json(oauth.authorizationServer(origin), 200, cors);
+      // URL client_ids (CIMD, src/cimd.ts): never our own hosts; localhost documents only on a local test server.
+      const clientLookup: oauth.ClientLookup = {
+        ownHosts: [new URL(origin).hostname, url.hostname],
+        allowLocal: env.ALLOW_LOCAL_WEBHOOKS === "1" && isLocalHost(url.hostname),
+      };
+      // Local test servers only: a client metadata document test/e2e.mjs sets (POST) and the OAuth flow fetches (GET).
+      if (path.startsWith("/__cimd-test/") && env.ALLOW_LOCAL_WEBHOOKS === "1" && isLocalHost(url.hostname)) {
+        if (method === "POST") {
+          cimdTestDocs.set(path, await request.text());
+          if (cimdTestDocs.size > 50) cimdTestDocs.delete(cimdTestDocs.keys().next().value as string);
+          return json({ ok: true });
+        }
+        const doc = cimdTestDocs.get(path);
+        return doc ? new Response(doc, { headers: { "content-type": "application/json", "cache-control": "no-store" } }) : json({ error: "not found" }, 404);
+      }
       // ---- Public MCP directories (src/listings.ts, docs/MCP_LISTINGS.md) ----
       if (path === "/.well-known/mcp-registry-auth") return listings.registryAuth(env);
       if (path === "/.well-known/glama.json") return listings.glamaClaim(env);
@@ -1005,16 +1022,18 @@ const handler = {
         const ct = request.headers.get("content-type") ?? "";
         const f = ct.includes("json") ? ((await request.json().catch(() => ({}))) as Record<string, string>) : Object.fromEntries(new URLSearchParams(await request.text()));
         try {
-          return json(await oauth.exchange(env, f, request), 200, { ...cors, "cache-control": "no-store" });
+          return json(await oauth.exchange(env, f, request, clientLookup), 200, { ...cors, "cache-control": "no-store" });
         } catch (e) {
-          return json({ error: e instanceof oauth.OAuthError ? e.code : "invalid_request", error_description: e instanceof Error ? e.message : String(e) }, 400, cors);
+          // 503 only when a client's metadata document couldn't be fetched for now (CIMD); everything else stays a 400.
+          const status = e instanceof oauth.OAuthError && e.status === 503 ? 503 : 400;
+          return json({ error: e instanceof oauth.OAuthError ? e.code : "invalid_request", error_description: e instanceof Error ? e.message : String(e) }, status, { ...cors, "cache-control": "no-store" });
         }
       }
       if (path === "/oauth/authorize" && method === "GET") {
         if (!viewer || viewer.via === "agent") return redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`);
         try {
-          const r = await oauth.startAuthorize(env, viewer.name, url.searchParams);
-          return consentPage(viewer, r.id, r.client.name, r.redirect, r.person);
+          const r = await oauth.startAuthorize(env, viewer.name, url.searchParams, clientLookup);
+          return consentPage(viewer, r.id, r.client.name, r.redirect, r.person, r.host);
         } catch (e) {
           return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
         }

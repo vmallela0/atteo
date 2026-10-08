@@ -1,9 +1,12 @@
 // MCP OAuth: one-click connect for any agent that speaks MCP's authorization flow (claude.ai connectors, Claude Code
 // over HTTP, ChatGPT, and others). The agent registers itself (RFC 7591), sends the person here to sign in and approve,
 // and exchanges a single-use code (PKCE S256 required) for a personal token, the same kind `atteo login` gets.
+// Instead of registering, a client can use an https URL as its client_id (Client ID Metadata Documents, src/cimd.ts):
+// we fetch that document, check it and treat it like a registered client; everything after that is the same.
 
 import { record } from "./accountlog";
 import { createToken, randomSecret, revokeToken, sha256hex } from "./auth";
+import { CimdError, isCimdClientId, resolveCimdClient, type CimdOptions } from "./cimd";
 import type { Env } from "./types";
 
 export const OAUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
@@ -34,6 +37,7 @@ export function authorizationServer(origin: string) {
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
+    client_id_metadata_document_supported: true, // an https client_id URL instead of registering (src/cimd.ts)
     scopes_supported: ["board"], // "person" is the Atteo app's own sign-in; it isn't advertised, so connectors (Codex asks for every advertised scope) never request it
   };
 }
@@ -65,14 +69,32 @@ export async function register(env: Env, body: { client_name?: unknown; redirect
   return { client_id, client_name: name, redirect_uris: uris, token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] };
 }
 
+/** How a request may fetch a client's metadata document (src/cimd.ts). Without it, URL client_ids are refused. */
+export type ClientLookup = Omit<CimdOptions, "now">;
+
+/** A client_id URL's document, as a client; CimdError becomes the OAuth error it stands for. */
+async function cimdClient(id: string, lookup: ClientLookup | undefined) {
+  if (!lookup) throw new OAuthError("invalid_client", "This app's client_id is a URL, which isn't accepted here.");
+  try {
+    return await resolveCimdClient(id, lookup);
+  } catch (e) {
+    if (e instanceof CimdError) throw new OAuthError(e.code, e.message, e.status);
+    throw e;
+  }
+}
+
 export async function client(env: Env, id: string) {
   const c = await env.DB.prepare(`SELECT client_id, name, redirect_uris FROM oauth_clients WHERE client_id = ?`).bind(id).first<{ client_id: string; name: string; redirect_uris: string }>();
   return c ? { ...c, redirect_uris: JSON.parse(c.redirect_uris) as string[] } : null;
 }
 
 /** Validates an authorization request and stores it for the "Allow?" screen. */
-export async function startAuthorize(env: Env, user: string, p: URLSearchParams) {
-  const c = await client(env, p.get("client_id") ?? "");
+export async function startAuthorize(env: Env, user: string, p: URLSearchParams, lookup?: ClientLookup) {
+  const clientId = p.get("client_id") ?? "";
+  const cimd = isCimdClientId(clientId);
+  // A URL client_id: its metadata document, fetched (or cached) and checked, stands in for registration. Only a
+  // signed-in person reaches this (the route asks for sign-in first), so a signed-out caller can't make us fetch.
+  const c: { client_id: string; name: string; redirect_uris: string[]; host?: string } | null = cimd ? await cimdClient(clientId, lookup) : await client(env, clientId);
   // Unknown client_id: connectors cache the id from DCR and do not re-register when this page says
   // invalid_client — the person has to remove and re-add the connector. Prune keeps any client that
   // ever got a token, and unused DCR for 120 days, instead of trying to recover here.
@@ -85,12 +107,13 @@ export async function startAuthorize(env: Env, user: string, p: URLSearchParams)
   // scope "person": the Atteo app signing in as you (not your agent). Only for the app's own link, atteo:// (or
   // agentsoup://, the app's scheme before the rename, until every installed app has moved), so no agent connector can ask for it.
   // Anything else asking for it (Codex once asked for "board person") just gets an agent connection: no error page, no escalation.
-  const person = (p.get("scope") ?? "").split(/\s+/).includes("person") && /^(atteo|agentsoup):\/\//.test(redirect);
+  // Never for a URL client_id: anyone can host a document (and its redirects can't be app links anyway).
+  const person = !cimd && (p.get("scope") ?? "").split(/\s+/).includes("person") && /^(atteo|agentsoup):\/\//.test(redirect);
   const id = randomSecret("oq_", 16);
   await env.DB.prepare(`INSERT INTO oauth_requests (id, client_id, redirect_uri, code_challenge, state, user, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(id, c.client_id, redirect, challenge, p.get("state"), user, Date.now() + REQUEST_TTL_MS, person ? "person" : null)
     .run();
-  return { id, client: c, redirect, person };
+  return { id, client: c, redirect, person, host: c.host ?? null };
 }
 
 /** The person said yes (or no): back to the app with a code (or an error). */
@@ -133,7 +156,7 @@ async function issue(env: Env, user: string, clientId: string, scope: string | n
  * used up and the old access token revoked (one live token per connection). Refused once the connection's token was
  * revoked (Disconnect, the kill switch), so revoking still ends the connection for good.
  */
-async function refresh(env: Env, f: { refresh_token?: string; client_id?: string }) {
+async function refresh(env: Env, f: { refresh_token?: string; client_id?: string }, lookup?: ClientLookup) {
   const hash = await sha256hex(f.refresh_token ?? "");
   const now = Date.now();
   const row = await env.DB.prepare(
@@ -142,8 +165,12 @@ async function refresh(env: Env, f: { refresh_token?: string; client_id?: string
     .bind(hash)
     .first<{ user: string; client_id: string; scope: string | null; token_id: string; expires_at: number; used_at: number | null; label: string | null; kind: string | null; revoked_at: number | null }>();
   if (!row || row.used_at || row.expires_at < now) throw new OAuthError("invalid_grant", "The refresh token is invalid, expired or already used.");
-  if (f.client_id && f.client_id !== row.client_id) throw new OAuthError("invalid_grant", "The refresh token belongs to another app.");
+  // A URL client_id must be sent, and match exactly (public clients identify themselves by client_id).
+  if (isCimdClientId(row.client_id) ? f.client_id !== row.client_id : f.client_id && f.client_id !== row.client_id) throw new OAuthError("invalid_grant", "The refresh token belongs to another app.");
   if (!row.label || row.revoked_at) throw new OAuthError("invalid_grant", "This connection was revoked. Sign in again.");
+  // Its document must still be good (cached up to an hour), before the refresh token is used up: one that now asks
+  // for client authentication we don't do, or is gone, ends the connection; a fetch that fails for now (503) doesn't.
+  if (isCimdClientId(row.client_id)) await cimdClient(row.client_id, lookup);
   // Single use, atomically.
   const claim = await env.DB.prepare(`UPDATE oauth_refresh_tokens SET used_at = ? WHERE hash = ? AND used_at IS NULL`).bind(now, hash).run();
   if (!claim.meta.changes) throw new OAuthError("invalid_grant", "The refresh token was already used.");
@@ -153,21 +180,33 @@ async function refresh(env: Env, f: { refresh_token?: string; client_id?: string
 }
 
 /** Code (+ PKCE verifier) → a personal token for the person's agent; or a refresh token → a fresh pair. */
-export async function exchange(env: Env, f: { grant_type?: string; code?: string; redirect_uri?: string; client_id?: string; code_verifier?: string; refresh_token?: string }, request: Request | null = null) {
-  if (f.grant_type === "refresh_token") return refresh(env, f);
+export async function exchange(
+  env: Env,
+  f: { grant_type?: string; code?: string; redirect_uri?: string; client_id?: string; code_verifier?: string; refresh_token?: string },
+  request: Request | null = null,
+  lookup?: ClientLookup,
+) {
+  if (f.grant_type === "refresh_token") return refresh(env, f, lookup);
   if (f.grant_type !== "authorization_code") throw new OAuthError("unsupported_grant_type", "Only authorization_code and refresh_token are supported.");
   const hash = await sha256hex(f.code ?? "");
   const row = await env.DB.prepare(`SELECT * FROM oauth_codes WHERE code_hash = ?`).bind(hash).first<{ client_id: string; user: string; redirect_uri: string; code_challenge: string; expires_at: number; used: number; scope: string | null }>();
   if (!row || row.used || row.expires_at < Date.now()) throw new OAuthError("invalid_grant", "The code is invalid or expired.");
+  // A URL client_id: only now, with a real code in hand, is its document looked at (never the client_id in the body:
+  // this endpoint is open to anyone). Still good and still listing the redirect? Checked before the code is used up,
+  // so a document host that's briefly down (503) doesn't cost the person their sign-in.
+  const cimd = isCimdClientId(row.client_id) ? await cimdClient(row.client_id, lookup) : null;
+  if (cimd && !cimd.redirect_uris.includes(row.redirect_uri)) throw new OAuthError("invalid_grant", "The app no longer lists that redirect_uri.");
   // Single use, atomically.
   const claim = await env.DB.prepare(`UPDATE oauth_codes SET used = 1 WHERE code_hash = ? AND used = 0`).bind(hash).run();
   if (!claim.meta.changes) throw new OAuthError("invalid_grant", "The code was already used.");
-  if (f.client_id && f.client_id !== row.client_id) throw new OAuthError("invalid_grant", "The code belongs to another app.");
+  // A URL client_id must be sent, and match exactly; a registered one is checked when sent (as before).
+  if (cimd ? f.client_id !== row.client_id : f.client_id && f.client_id !== row.client_id) throw new OAuthError("invalid_grant", "The code belongs to another app.");
   if (f.redirect_uri && f.redirect_uri !== row.redirect_uri) throw new OAuthError("invalid_grant", "redirect_uri doesn't match.");
   if (!f.code_verifier || (await s256(f.code_verifier)) !== row.code_challenge) throw new OAuthError("invalid_grant", "PKCE verification failed.");
-  const c = await client(env, row.client_id);
+  const c = cimd ?? (await client(env, row.client_id));
   const person = row.scope === "person";
-  const label = person ? "Atteo app" : (c?.name ?? "MCP app");
+  // A URL client's connection carries its domain, so Agent connections shows who it really is.
+  const label = person ? "Atteo app" : cimd ? `${cimd.name} · ${cimd.host}` : (c?.name ?? "MCP app");
   const out = await issue(env, row.user, row.client_id, person ? "person" : null, label, person ? "app" : "cli");
   // A refresh carries the same connection on, so only the first exchange is logged.
   await record(env, row.user, person ? "signin.app" : "oauth.connected", request, { label, kind: person ? "app" : "cli" });
