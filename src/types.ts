@@ -165,6 +165,8 @@ export interface Env {
   PUBLIC_WRITES?: RateLimit; // wrangler.jsonc ratelimits: per-IP cap on signed-out endpoints that write or fan out (limits.ts publicAllowed)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var
+  RESEND_API_KEY?: string; // secret: count-only browser-agent alerts; absent means no alert email
+  RESEND_FROM?: string; // var: verified Resend sender, default notifications@atteo.dev
   ADMIN_EMAIL?: string; // var: comma-separated admin emails
   FREE_FOR_NOW?: string; // var: "0" turns the Free plan's caps and Upgrade back on (default: free for now, src/billing.ts)
   ADMIN_KEY?: string; // secret: automation/test access to /api/admin/*

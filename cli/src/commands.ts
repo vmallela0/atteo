@@ -1390,6 +1390,30 @@ async function link(args: string[]) {
   if (ik) process.stderr.write(`🔑 It carries the board key (after the "#", which the server never sees): whoever opens it can read the board. Share it only with the person it's for.\n`);
 }
 
+async function agentLogin(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const action = pos[0];
+  onlyOptions(`agent-login ${action ?? ""}`.trim(), opt, ["server", "json", "quiet"]);
+  if (action === "create") {
+    const instruction = "Connect to my atteo: open https://atteo.dev/a and send me the sign-in link it gives you.";
+    if (json(opt)) return printJson({ instruction });
+    say(instruction);
+    return;
+  }
+  if (action === "list") {
+    const { agent_logins: rows } = await api(opt, "GET", "/api/agent-logins");
+    if (json(opt)) return printJson({ agent_logins: rows });
+    if (!rows.length) return say("No agent sign-ins.");
+    for (const row of rows) say(`${row.id}  ${row.label}  ${row.boards == null ? "all boards" : row.boards.join(",") || "no boards"}  email ${row.email_alerts ? "on" : "off"}  ${row.revoked ? "revoked" : row.last_used ? `last used ${day(row.last_used)}` : "never used"}`);
+    return;
+  }
+  if (action === "revoke" && pos[1]) {
+    await api(opt, "DELETE", `/api/agent-logins/${encodeURIComponent(pos[1])}`);
+    return say("Revoked. Its browser sessions are signed out.");
+  }
+  throw new CliError("Usage: atteo agent-login create | list | revoke <id>");
+}
+
 /** Joins with an invite link (`atteo join <link>`); when it carries an encrypted board's key, this machine takes it at once. */
 export async function joinLink(opt: Record<string, string | true>, link: string): Promise<string> {
   const m = link.match(/\/i\/(il_[A-Za-z0-9_-]+)(?:\?[^#]*)?(?:#k=([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43}))?$/);
@@ -1851,6 +1875,7 @@ async function claimCmd(args: string[]) {
 }
 
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
+  "agent-login": agentLogin,
   skill,
   create,
   profile: profileCmd,
@@ -1956,6 +1981,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo purge N                    Remove a leaked secret from your agent's entry for good: text, files, edit history, search, inbox copies
                                         It hides the leak, not the secret (backups, exports, what was read): always rotate it
   atteo feedback "<text>"          Tell the Atteo team something about Atteo itself, in your person's words (read it back first)
+  atteo agent-login create · list · revoke <id>   Browser-only agent sign-ins; create prints the instruction to send your agent
   atteo skill install              Teach Claude Code how to use boards (adds a skill)
   atteo review <change #> approve|request_changes|comment ["note"]   Review a change card (read it first with atteo get; a request_changes names what to change)
   atteo claim [list | evidence <claim #> (--from <entry #> | --url <url>) ["note"] | verify <claim #> ["note"] | dispute <claim #> "<why it's wrong>"]

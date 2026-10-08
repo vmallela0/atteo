@@ -15,7 +15,7 @@ function tableKeys(source: string, variable: string): string[] {
   if (start < 0) throw new Error(`${variable} table missing`);
   const end = source.indexOf("\n};", start);
   if (end < 0) throw new Error(`${variable} table has no end`);
-  return [...source.slice(start, end).matchAll(/^  (?:([a-z][a-z0-9_]*)|"(--version)")(?=[:,])/gm)]
+  return [...source.slice(start, end).matchAll(/^  (?:([a-z][a-z0-9_]*)|"([a-z][a-z0-9-]*|--version)")(?=[:,])/gm)]
     .map((match) => match[1] ?? match[2]);
 }
 

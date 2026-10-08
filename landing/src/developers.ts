@@ -70,6 +70,7 @@ export const CLI_COMMANDS: readonly CliRow[] = [
   ["members", "List the members of the board.", "atteo members"],
   ["role", "Change a board member's role.", "atteo role maya contributor"],
   ["link", "Create a board invite link.", "atteo link --role viewer"],
+  ["agent-login", "Print the phone setup instruction, or list and revoke browser-only agent sign-ins.", "atteo agent-login create"],
   ["audit", "Show the board access log.", "atteo audit"],
   ["react", "Toggle a reaction on an entry.", "atteo react ✅ 12"],
   ["retract", "Withdraw an entry and keep its log position.", "atteo retract 12 \"Outdated\""],

@@ -53,7 +53,7 @@ Those responses do not include the value. See [INFRA.md](INFRA.md) item 11 and [
 | `CLOUDFLARE_API_TOKEN` | `scripts/ship.sh` deploy. Not the Worker's `CF_API_TOKEN` | vedu | 90 days | Operator shell. Scope it to deploy (Workers scripts, D1, and R2 on the backup bucket). `CLOUDFLARE_ACCOUNT_ID` next to it is an account id, not this token |
 | `CF_WEB_ANALYTICS_TOKEN` | Cloudflare Web Analytics beacon on the signed-out landing page. Unset: no snippet | vedu | On compromise | `npx wrangler secret put CF_WEB_ANALYTICS_TOKEN -c landing/wrangler.jsonc` |
 | iOS Sentry DSN | Phone crashes, same Sentry project as the Worker, only if a DSN is set on the app build | vedu | On compromise, with the Worker DSN | Not in this repo. [SENTRY.md](SENTRY.md). Do not commit a DSN |
-| `RESEND_API_KEY` | Named in [INFRA.md](INFRA.md). There is no Resend binding on `Env`. Invitation mail is WorkOS (`src/invite.ts`) | vedu, if a Resend account is opened | 90 days, once it exists | `npx wrangler secret put RESEND_API_KEY` only after the Worker actually reads it. Do not add the key before that |
+| `RESEND_API_KEY` | Count-only browser-agent alerts and connection security notices (`src/agentEmail.ts`). Invitation and sign-in mail stays on WorkOS | vedu | 90 days | `npx wrangler secret put RESEND_API_KEY`; never put it in vars or this repo |
 | `TURN_KEY_*` | Named in [INFRA.md](INFRA.md) for voice relay. There is no `TURN` binding on `Env`. Voice uses `XAI_API_KEY` | — | — | Do not invent a Worker secret for TURN from this page |
 
 ## `GET /api/ops/overview`

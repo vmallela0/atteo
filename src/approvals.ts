@@ -8,6 +8,7 @@ import type { ApprovalRef, Env } from "./types";
 import { offBoardSeq } from "./util";
 import * as rules from "./approvalRules";
 import * as boardkeys from "./boardkeys";
+import { sendCountAlert } from "./agentEmail";
 
 /** Undecided by then, a request is denied (timed out). expires_in (seconds) sets it per request. */
 export const DEFAULT_EXPIRES_S = 24 * 3600; // people answer approvals in their own time; a permission hook passes a short expires_in (e.g. 600)
@@ -172,7 +173,11 @@ export async function requestApproval(
   ];
   const written = await env.DB.batch(writes);
   if (cappedSpend && !written[0].meta.changes) return requestApproval(env, user, r, later, serverPrepared, true);
-  if (!auto) noteApprovalRequested(env, later, risk, user);
+  if (!auto) {
+    noteApprovalRequested(env, later, risk, user);
+    const alert = sendCountAlert(env, user).catch((e) => console.error("agent email alert failed", e));
+    if (later) later.waitUntil(alert); else await alert;
+  }
   return a;
 }
 

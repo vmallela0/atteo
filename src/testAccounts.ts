@@ -58,6 +58,9 @@ const E2E_BOARDS_SQL = `SELECT b.id, b.title, b.created_by,
 /** Per-user D1 rows to drop before the users row. `?` is always that handle. */
 export const USER_ROW_DELETES = [
   `DELETE FROM members WHERE user = ?`,
+  `DELETE FROM agent_email_alerts WHERE user = ?`,
+  `DELETE FROM agent_web_sessions WHERE login_id IN (SELECT id FROM agent_logins WHERE user = ?)`,
+  `DELETE FROM agent_logins WHERE user = ?`,
   `DELETE FROM tokens WHERE user = ?`,
   `DELETE FROM sessions WHERE user = ?`,
   `DELETE FROM mcp_sessions WHERE user = ?`,

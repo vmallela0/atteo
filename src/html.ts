@@ -6,6 +6,7 @@ import type { WebhookRow } from "./webhooks";
 import { PLANNED, PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
+import type { AgentLoginView } from "./agentLogins";
 import type { AccountLogRow } from "./accountlog";
 import type { AccessAll } from "./accessAll";
 import type { StandingAction, StandingRule } from "./standingRules";
@@ -772,7 +773,7 @@ const LEGAL = {
     // the vendor list goes out on request, and the voice consent screen still names xAI (App Review 5.1.2(i)).
     body: `<!-- Draft — review before publishing -->
 <p class="st-updated">Last updated October 6, 2026.</p>
-<h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and the payment processor's customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
+<h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and the payment processor's customer and subscription ids. For a short-lived agent sign-in request we keep the requesting browser, IP address and Cloudflare's approximate city/country when available, so you can recognize where it came from. We don't collect contacts or browsing history, and we don't track you across other apps or websites.</p>
 <h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p><p>Atteo staff don't look at what's on your boards, except to fix a problem you report and ask us to look at, to deal with abuse or a security issue, or when the law requires it.</p><p>Everything is sent over HTTPS and stored encrypted by our hosting provider. A board created as <em>end-to-end encrypted</em> is encrypted on its members' devices, so we only ever hold ciphertext and can't read it. Other boards are readable by our servers, which is what lets the website, the app and connected agents work with them; the promise above covers them. Every board says which kind it is at the top, and one tap shows who can read it.</p><p>On an end-to-end encrypted board we still see who is on it, the board's name and picture, when each message was posted, by whom and its kind (message, task, question), sizes, devices' public keys and IP addresses. Encryption can't protect against a member's compromised device, a member copying what they read, or an AI or service a member adds as a reader. On the website, the code that does the encryption is served by us; the iPhone app and the atteo CLI don't depend on that.</p>
 <h2>Services that process it for us</h2><ul>
 <li><b>Hosting</b>: our servers, database and file storage.</li>
@@ -907,6 +908,9 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
 <div class="bd">
   <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="quick" aria-selected="true">${esc(T("One click"))}</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">${esc(T("CLI"))}</button><button type="button" role="tab" data-ctab="url" aria-selected="false">${esc(T("MCP URL"))}</button><button type="button" role="tab" data-ctab="token" aria-selected="false">${esc(T("Token & API"))}</button></div>
   <div data-cpanel="quick" class="stack">
+    <p class="small"><b>${esc(T("Browser-only agent, from your phone"))}</b></p>
+    ${copyField("browser-agent-instruction", "Connect to my atteo: open https://atteo.dev/a and send me the sign-in link it gives you.")}
+    <p class="xs muted">${esc(T("Paste that into the agent. It sends back a one-time link; open it here and approve."))}</p>
     <p class="small muted">${esc(T("Pick your agent. It opens a browser to sign in; choose"))} <b>${esc(T("Allow"))}</b>${esc(T(". No token, no install."))}</p>
     ${connectTiles(viewer.lang)}
     <p class="small">Then, in any new session, say ${join}. Other clients: the <b>${esc(T("MCP URL"))}</b> ${esc(T("tab; agents with a shell: the"))} <b>${esc(T("CLI"))}</b> ${esc(T("tab."))}</p>
@@ -3266,8 +3270,8 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}${agentChat ? "" : privacyDia
 
 // ---------- CLI login approval ----------
 
-export function devicePage(viewer: Viewer, side: SideBoard[], code: string | null, d: { client: string; expires_at: number; status: string; created_at: number; ip?: string | null } | null, here = ""): Response {
-  const expired = !!d && d.expires_at < Date.now();
+export function devicePage(viewer: Viewer, side: SideBoard[], code: string | null, d: { client: string; expires_at: number; status: string; created_at: number; ip?: string | null; kind?: "cli" | "agent"; user_agent?: string | null; city?: string | null; country?: string | null; label?: string | null } | null, here = ""): Response {
+  const expired = !!d && d.expires_at <= Date.now();
   let body: string;
   if (!code || !d) {
     body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
@@ -3277,8 +3281,24 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
   <form method="post" action="/device"><label class="lbl" for="code">Code</label>
   <div class="row"><input class="input mono" id="code" name="code" placeholder="BCDF-GHJK" autocomplete="off" autofocus style="text-transform:uppercase;letter-spacing:.1em"><button class="btn primary">Continue</button></div></form></div>`;
   } else if (d.status !== "pending" || expired) {
-    const msg = expired ? "This code expired. Run atteo login again." : d.status === "denied" ? "This sign-in was denied." : "This sign-in was already approved. You can go back to your terminal.";
+    const msg = expired ? `This code expired. ${d.kind === "agent" ? "Ask your agent to start again." : "Run atteo login again."}` : d.status === "denied" ? "This sign-in was denied." : `This sign-in was already approved. You can go back to your ${d.kind === "agent" ? "agent" : "terminal"}.`;
     body = `<div class="card pad" style="max-width:460px;margin:24px auto 0;text-align:center"><h1 style="font-size:20px">${esc(code)}</h1><p class="muted" style="margin-top:8px">${esc(msg)}</p></div>`;
+  } else if (d.kind === "agent") {
+    const where = [d.city, d.country].filter(Boolean).join(", ") || d.ip || "an unknown place";
+    const boardChoices = side.filter((b) => b.kind !== "direct" && b.kind !== "agent").map((b) => `<label class="row" style="justify-content:flex-start"><input type="checkbox" data-device-board value="${esc(b.id)}" style="width:auto"> <span>${esc(b.title)} <span class="mono faint">${esc(b.id)}</span></span></label>`).join("");
+    body = `<div class="card pad" style="max-width:560px;margin:24px auto 0">
+  <p class="small muted">Browser-agent sign-in request</p>
+  <h1 style="font-size:20px;margin-top:4px">Approve a browser agent to act as your agent on atteo</h1>
+  <dl class="kv" style="margin:18px 0"><dt>Agent</dt><dd>${esc(d.label || "browser agent")}</dd><dt>Started</dt><dd>${esc(ago(d.created_at))} from ${esc(where)}</dd><dt>Browser</dt><dd>${esc(d.user_agent || "unknown browser")}</dd><dt>Expires</dt><dd>${esc(new Date(d.expires_at).toLocaleString())}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd></dl>
+  <p><b>An agent will be able to read and post on the boards you choose as you, send DMs and accept invitations.</b></p>
+  <p class="flash err">Only approve if you just asked your agent to connect.</p>
+  <form method="post" action="/api/device/decide" data-api data-done="decided" id="agent-device-form" style="margin-top:18px">
+    <input type="hidden" name="user_code" value="${esc(code)}"><input type="hidden" name="approve" id="approve" value="true"><input type="hidden" name="boards" id="device-boards" value="[]"><input type="hidden" name="all_boards" value="false">
+    <fieldset style="margin:14px 0"><legend><b>Boards this agent can use</b></legend><p class="small muted">Chosen boards is the default; none are preselected.</p><label class="row" style="justify-content:flex-start"><input type="checkbox" name="all_boards" value="true" id="device-all" style="width:auto"> <span>Select all boards, including ones you join later</span></label>${boardChoices || `<p class="small muted">You have no boards to select.</p>`}</fieldset>
+    <input type="hidden" name="email_alerts" value="false"><label class="row" style="justify-content:flex-start"><input type="checkbox" name="email_alerts" value="true" style="width:auto"> <span>Email me count-only alerts when something new is for me or my agent</span></label>
+    <div class="row" style="justify-content:flex-end"><button type="submit" class="btn" data-approve="false">Deny</button><button type="submit" class="btn primary" id="device-approve" data-approve="true" disabled>Approve</button></div>
+    <p data-result hidden style="margin-top:12px"></p>
+  </form></div>`;
   } else {
     body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
   <p class="small muted">Sign-in request</p>
@@ -3298,7 +3318,8 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
     narrow: true,
     crumbs: `<span class="cur">Approve sign-in</span>`,
     body,
-    script: `window.decided=(j,f)=>{f.outerHTML='<p class="flash '+(j.approved?'ok':'')+'" style="margin-top:18px">'+(j.message||'Done')+'</p>'};`,
+    script: `window.decided=(j,f)=>{f.outerHTML='<p class="flash '+(j.approved?'ok':'')+'" style="margin-top:18px">'+(j.message||'Done')+'</p>'};
+(()=>{const f=document.getElementById('agent-device-form');if(!f)return;const all=document.getElementById('device-all'),boxes=[...f.querySelectorAll('[data-device-board]')],out=document.getElementById('device-boards'),go=document.getElementById('device-approve');const sync=()=>{out.value=JSON.stringify(boxes.filter(x=>x.checked).map(x=>x.value));go.disabled=!all.checked&&!boxes.some(x=>x.checked)};f.addEventListener('change',sync);sync()})();`,
   });
 }
 
@@ -3897,7 +3918,12 @@ document.getElementById('approval-pin-form')?.addEventListener('submit',async e=
   const r=await fetch('/api/me/approval-pin',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({pin})});const j=await r.json().catch(()=>({}));toast(r.ok?tr('Approval PIN set'):j.error||tr('Could not save'));if(r.ok)setTimeout(()=>location.reload(),500)});
 document.getElementById('approval-pin-remove')?.addEventListener('click',async e=>{const r=await fetch('/api/me/approval-pin',{method:'DELETE'});const j=await r.json().catch(()=>({}));toast(r.ok?tr('Approval PIN removed'):j.error||tr('Could not save'));if(r.ok)setTimeout(()=>location.reload(),500)});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = [], access: AccessAll | null = null, rules: StandingRule[] | null = null, approvalPin: { enabled: boolean; locked_until: number; lockouts: number } | null = null): Response {
+const AGENT_LOGIN_JS = `
+(()=>{document.addEventListener('click',async e=>{const revoke=e.target.closest('[data-agent-revoke]'),alerts=e.target.closest('[data-agent-alerts]');
+  if(revoke){revoke.disabled=true;const r=await fetch('/api/agent-logins/'+encodeURIComponent(revoke.dataset.agentRevoke),{method:'DELETE'});const j=await r.json().catch(()=>({}));if(r.ok)location.reload();else{revoke.disabled=false;toast(j.error||tr('Could not revoke'))}}
+  if(alerts){alerts.disabled=true;const on=alerts.dataset.agentAlerts==='on',r=await fetch('/api/agent-logins/'+encodeURIComponent(alerts.dataset.id),{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({email_alerts:on})});const j=await r.json().catch(()=>({}));if(r.ok)location.reload();else{alerts.disabled=false;toast(j.error||tr('Could not save'))}}});})();`;
+
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = [], access: AccessAll | null = null, rules: StandingRule[] | null = null, approvalPin: { enabled: boolean; locked_until: number; lockouts: number } | null = null, agentLogins: AgentLoginView[] = []): Response {
   const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const rows = tokens.length
     ? tokens
@@ -3915,6 +3941,9 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
         )
         .join("")
     : `<tr><td colspan="4" class="empty small">${esc(T("No agents connected yet."))}</td></tr>`;
+  const agentLoginRows = agentLogins.length
+    ? agentLogins.map((a) => `<tr><td><div style="color:var(--ink)">${esc(a.label)}</div><div class="xs faint">created ${when(a.created_at)}${a.boards == null ? " · all boards" : ` · ${a.boards.length ? esc(a.boards.join(", ")) : "no boards"}`} · email ${a.email_alerts ? "on" : "off"}</div></td><td class="small muted hide-sm">${a.last_used ? when(a.last_used) : "never"}</td><td>${a.revoked ? `<span class="badge">${esc(T("Revoked"))}</span>` : `<span class="badge"><span class="dot" style="color:var(--ok)"></span>${esc(T("Active"))}</span>`}</td><td style="text-align:right">${a.revoked ? "" : `<button class="btn sm" type="button" data-agent-alerts="${a.email_alerts ? "off" : "on"}" data-id="${esc(a.id)}">Email ${a.email_alerts ? "off" : "on"}</button> <button class="btn sm danger" type="button" data-agent-revoke="${esc(a.id)}">${esc(T("Revoke"))}</button>`}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty small">${esc(T("No browser agent sign-ins yet."))}</td></tr>`;
   return appPage("Account · Atteo", {
     viewer,
     boards: side,
@@ -3950,6 +3979,9 @@ ${
 <p class="xs muted" style="margin:8px 0">${esc(T("Run this, approve in the browser, and start a new session."))}</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
     : ""
 }
+<div class="section-title" id="agent-sign-ins" style="margin-top:32px"><div><h2>${esc(T("Agent sign-ins"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("For browser-only assistants. Send this instruction; the agent asks and you approve on your phone."))}</p></div></div>
+${copyField("agent-connect-instruction", "Connect to my atteo: open https://atteo.dev/a and send me the sign-in link it gives you.")}
+<div class="list scroll-x" style="margin-top:10px"><table class="tbl"><thead><tr><th>${esc(T("Sign-in"))}</th><th class="hide-sm">${esc(T("Last used"))}</th><th>${esc(T("Status"))}</th><th></th></tr></thead><tbody>${agentLoginRows}</tbody></table></div>
 ${accessSection(access, viewer.lang)}
 ${standingSection(rules, side, viewer.lang)}
 ${accountLogSection(log, viewer.lang)}
@@ -3957,7 +3989,7 @@ ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${deleteAccountSection(viewer.name, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + APPROVAL_PIN_JS + ACCESS_JS + SR_JS + DELETE_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + APPROVAL_PIN_JS + AGENT_LOGIN_JS + ACCESS_JS + SR_JS + DELETE_JS,
   });
 }
 

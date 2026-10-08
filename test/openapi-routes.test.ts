@@ -46,6 +46,11 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "POST", path: "/api/boards/{id}/mutes" },
     { method: "DELETE", path: "/api/boards/{id}/mutes/{user}" },
   ],
+  "\\/api\\/agent-logins(?:\\/([^/]+))?$": [
+    { method: "GET", path: "/api/agent-logins" },
+    { method: "PATCH", path: "/api/agent-logins/{id}" },
+    { method: "DELETE", path: "/api/agent-logins/{id}" },
+  ],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/entries\\/(\\d+)\\/report$": [{ method: "POST", path: "/api/boards/{id}/entries/{seq}/report" }],
   "\\/api\\/inbox\\/([^/]+)\\/remind$": [{ method: "POST", path: "/api/inbox/{id}/remind" }, { method: "DELETE", path: "/api/inbox/{id}/remind" }],
   "\\/api\\/boards\\/([^/]+)\\/agents$": [{ method: "GET", path: "/api/boards/{id}/agents" }],

@@ -45,6 +45,9 @@ import * as inbox from "./inbox";
 import * as notify from "./notify";
 import * as forYou from "./forYou";
 import * as auth from "./auth";
+import * as agentLogins from "./agentLogins";
+import { connectedNotice, requestPlace } from "./agentEmail";
+import { routeAgentWeb } from "./agentWeb";
 import * as appSignin from "./appSignin";
 import * as moderation from "./moderation";
 import * as bugs from "./bugs";
@@ -193,15 +196,18 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   // The JSON API also takes a personal token (Authorization: Bearer ab_…), as agents use for MCP. Never for pages.
   const bearer = request?.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
   // Account-level actions (tokens, billing, ops) stay browser-only, so a leaked token can't mint more or change plans.
-  const accountOnly = /^\/api\/(ops|tokens|billing|webhooks)(\/|$)/.test(path);
+  const accountOnly = /^\/api\/(ops|tokens|agent-logins|billing|webhooks)(\/|$)/.test(path);
   // The Atteo app (a token of kind "app") acts as the person, and may also see and revoke agent connections.
   // (list connections, revoke one, or pull the kill switch; never mint new tokens).
-  const appAllowed = request?.method === "POST" ? /^\/api\/tokens(\/revoke-all|\/[^/]+\/revoke)$/.test(path) : path === "/api/tokens";
+  const agentLogins = path.startsWith("/api/agent-logins");
+  const appAllowed = agentLogins || (request?.method === "POST" ? /^\/api\/tokens(\/revoke-all|\/[^/]+\/revoke)$/.test(path) : path === "/api/tokens");
   // Board pictures too: they're members-only images, and the app loads them with its token.
   if (!session?.user && bearer && (path.startsWith("/api/") || path.startsWith("/board-picture/")) && (!accountOnly || appAllowed)) {
     // Writes look the token up fresh, so a revoked token can't change anything anywhere (the kill switch).
     const id = await auth.tokenIdentity(env, bearer, !!request && request.method !== "GET" && request.method !== "HEAD");
-    if (!id || (accountOnly && id.kind !== "app")) return null;
+    // Agent-login routes load other token kinds only so the route can return an explicit 403. The CLI's device token
+    // is the one narrow exception: its command is approved by the person during device sign-in.
+    if (!id || (accountOnly && id.kind !== "app" && !agentLogins)) return null;
     const u = await registry.userByName(env, id.user);
     return u ? { name: u.name, email: u.email ?? "", display_name: u.display_name, admin: false, via: id.kind === "app" ? "person" : "agent" } : null;
   }
@@ -820,6 +826,15 @@ const handler = {
       const signedIn = !!auth.readCookie(request, auth.SESSION_COOKIE);
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy", signedIn);
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
+      if (path === "/a" || path.startsWith("/a/")) {
+        return routeAgentWeb(request, env, {
+          origin,
+          later: ctx,
+          stub: (id) => boardStub(env, id),
+          createBoard: (title, user) => createBoard(env, title, user, origin, { encrypted: false }, ctx),
+          admit: (identity, write) => limits.admit(env, ctx, { user: identity.user, kind: "agent", tokenKey: identity.session_hash, wait: false, write, essential: true }),
+        });
+      }
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path === "/docs") return docsPage(origin, SKILL_MD, signedIn);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
@@ -900,6 +915,32 @@ const handler = {
       const c: Ctx = { request, env, ctx, url, origin, session, viewer };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
+
+      // ---- browser-only agent connections: created only through the agent-started device approval flow ----
+      let m = path.match(/^\/api\/agent-logins(?:\/([^/]+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        const bearer = auth.bearer(request);
+        const token = bearer ? await auth.tokenIdentity(env, bearer, true) : null;
+        // A device-login CLI credential can run the explicitly person-invoked CLI command. Ordinary agent tokens cannot.
+        if (viewer.via === "agent" && token?.kind !== "cli") return json({ error: "Agent sign-ins are for people to manage. Agent tokens cannot list, change or revoke them." }, 403);
+        try {
+          if (method === "GET" && !m[1]) return json({ agent_logins: await agentLogins.listAgentLogins(env, viewer.name) }, 200, { "cache-control": "no-store" });
+          if (method === "PATCH" && m[1]) {
+            const body = (await request.json().catch(() => ({}))) as { email_alerts?: unknown };
+            if (typeof body.email_alerts !== "boolean") return json({ error: "email_alerts must be true or false" }, 400);
+            const ok = await agentLogins.setAgentEmailAlerts(env, viewer.name, decodeURIComponent(m[1]), body.email_alerts);
+            return ok ? json({ ok: true, email_alerts: body.email_alerts }) : json({ error: "agent sign-in not found" }, 404);
+          }
+          if (method === "DELETE" && m[1]) {
+            const ok = await agentLogins.revokeAgentLogin(env, viewer.name, decodeURIComponent(m[1]));
+            return ok ? json({ ok: true }) : json({ error: "agent sign-in not found" }, 404);
+          }
+          return json({ error: "method not allowed" }, 405);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof agentLogins.AgentLoginError ? e.status : 400);
+        }
+      }
 
       // ---- soft-deleted boards: gone for everyone (data stays in storage) until the creator restores one within 30 days ----
       {
@@ -1031,16 +1072,23 @@ const handler = {
         const r = await device.pollDeviceLogin(env, body.device_code, request);
         return json(r, r.status === "ok" ? 200 : r.status === "pending" ? 428 : 400);
       }
-      // The person types the code from their terminal (alt-c #5841): a link never fills it in, so a code someone else
-      // started can't arrive ready to approve. GET is the form; POST (only from it) shows that sign-in to approve.
+      // CLI requests keep the typed-code phishing guard. A browser-only agent request is different: the agent started it
+      // and sends its person the complete 10-minute link, whose page shows scope and request provenance before approval.
       if (path === "/device" && (method === "GET" || method === "POST")) {
         if (!viewer || viewer.via === "agent") return needLogin();
         const side = await sideBoardsNamed(env, viewer.name);
         const site = request.headers.get("sec-fetch-site");
-        if (method === "GET" || (site && site !== "same-origin" && site !== "none")) return devicePage(viewer, side, null, null);
-        const code = device.normalizeUserCode(new URLSearchParams(await request.text()).get("code"));
-        const d = code ? await device.deviceByUserCode(env, code) : null;
-        return devicePage(viewer, side, code ?? "?", d, appSignin.clientIp(request));
+        let code: string | null = null;
+        let d: device.DeviceLogin | null = null;
+        if (method === "GET") {
+          const linked = device.normalizeUserCode(url.searchParams.get("code"));
+          const found = linked ? await device.deviceByUserCode(env, linked) : null;
+          if (found?.kind === "agent") { code = linked; d = found; }
+        } else if (!site || site === "same-origin" || site === "none") {
+          code = device.normalizeUserCode(new URLSearchParams(await request.text()).get("code"));
+          d = code ? await device.deviceByUserCode(env, code) : null;
+        }
+        return devicePage(viewer, side, code, d, appSignin.clientIp(request));
       }
       if (path === "/api/device/decide" && method === "POST") {
         // Only a person approves a sign-in: an agent or CLI token could otherwise mint itself a fresh 30-day token (alt-c #5841).
@@ -1048,11 +1096,28 @@ const handler = {
         if (!viewer || viewer.via === "agent" || !session?.user) return needLogin();
         const site = request.headers.get("sec-fetch-site");
         if ((site && site !== "same-origin") || !/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) return json({ error: "Approve sign-ins from the Atteo page." }, 403);
-        const body = (await request.json().catch(() => ({}))) as { user_code?: string; approve?: boolean | string };
+        const body = (await request.json().catch(() => ({}))) as { user_code?: string; approve?: boolean | string; all_boards?: boolean | string; boards?: unknown; email_alerts?: boolean | string };
         const code = device.normalizeUserCode(body.user_code);
         if (!code) return json({ error: "That code doesn't look right. It's 8 letters, like BCDF-GHJK." }, 400);
         const approve = body.approve === true || body.approve === "true";
-        const r = await device.decideDeviceLogin(env, code, viewer.name, approve);
+        const pending = await device.deviceByUserCode(env, code);
+        let r: "ok" | "not_found" | "expired" | "already";
+        if (pending?.kind === "agent" && approve) {
+          try {
+            let selected: unknown = body.boards;
+            if (typeof selected === "string") selected = JSON.parse(selected || "[]");
+            const all = body.all_boards === true || body.all_boards === "true";
+            if (!all && (!Array.isArray(selected) || !selected.length)) return json({ error: "Choose at least one board, or choose all boards." }, 400);
+            const login = await agentLogins.approveAgentLogin(env, code, viewer.name, { label: pending.label, boards: all ? null : selected, email_alerts: body.email_alerts });
+            const where = requestPlace(pending);
+            ctx.waitUntil(connectedNotice(env, viewer.name, login, where).catch((e) => console.error("agent connection notice failed", e)));
+            return json({ ok: true, approved: true, message: "Approved. Go back to your agent and press Continue." });
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof agentLogins.AgentLoginError ? e.status : 400);
+          }
+        } else {
+          r = approve ? await device.decideDeviceLogin(env, code, viewer.name, true) : await device.denyDeviceLogin(env, code, viewer.name);
+        }
         if (r === "not_found") return json({ error: "No sign-in is waiting for that code." }, 404);
         if (r === "expired") return json({ error: "That code expired. Run atteo login again." }, 410);
         if (r === "already") return json({ error: "That code was already used." }, 409);
@@ -1120,7 +1185,7 @@ const handler = {
         return page(`Call · ${b.title}`, callPageBody(cm[1], b.title), { viewer, narrow: true, script: CALL_JS, css: [CALL_CSS_SRC] });
       }
 
-      let m = path.match(/^\/(b|join)\/([^/]+)$/);
+      m = path.match(/^\/(b|join)\/([^/]+)$/);
       if (m && method === "GET") {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
@@ -1967,7 +2032,7 @@ const handler = {
       if (path.startsWith("/api/dm/") || path === "/api/contacts" || path.startsWith("/api/contacts/")) {
         if (!viewer) return needLogin();
         const me = viewer.name;
-        const deliver = (from: string, to: string, text: string, via: "agent" | "person", opts: { session?: string | null; toSession?: string | null; idem?: string } = {}) => dm.deliver(env, (bid) => boardStub(env, bid), from, to, text, via, opts);
+        const deliver = (from: string, to: string, text: string, via: "agent" | "person", opts: { session?: string | null; toSession?: string | null; idem?: string; client?: string | null } = {}) => dm.deliver(env, (bid) => boardStub(env, bid), from, to, text, via, opts);
         try {
           const dmm = path.match(/^\/api\/dm\/([a-z0-9][a-z0-9_.-]{0,31})(?:\/([a-z0-9][a-z0-9._-]{0,31}))?$/);
           if (dmm && method === "POST") {
@@ -2203,7 +2268,7 @@ const handler = {
       }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof, mine, log, access, rules] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine, log, access, rules, browserLogins] = await Promise.all([
           sideBoardsNamed(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
@@ -2213,8 +2278,9 @@ const handler = {
           accountlog.list(env, viewer.name, { limit: 6 }),
           viewer.via === "agent" ? null : accessAll(env, viewer.name).catch(() => null),
           viewer.via === "agent" ? null : standing.listRules(env, viewer.name).catch(() => null), // yours, active (#3775)
+          agentLogins.listAgentLogins(env, viewer.name),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access, rules, viewer.via === "agent" ? null : await terminalApprove.pinState(env, viewer.name));
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access, rules, viewer.via === "agent" ? null : await terminalApprove.pinState(env, viewer.name), browserLogins);
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -4123,14 +4189,15 @@ const handler = {
           201,
         );
       }
-      // The kill switch (Account → Disconnect all agents): every token revoked, every agent session ended, and agents
+      // The kill switch (Account → Disconnect all agents): every token and browser sign-in revoked, every agent session ended, and agents
       // drop off every board's presence. Browser only (an /api/tokens path), so an agent can't trigger it on its own.
       if (path === "/api/tokens/revoke-all" && method === "POST") {
         if (!viewer) return needLogin();
-        const [tokens, ended] = await Promise.all([auth.revokeAllTokens(env, viewer.name), sessions.endAll(env, viewer.name)]);
+        const [tokens, browserLogins, ended] = await Promise.all([auth.revokeAllTokens(env, viewer.name), agentLogins.revokeAllAgentLogins(env, viewer.name), sessions.endAll(env, viewer.name)]);
         await env.DB.prepare(`DELETE FROM mcp_sessions WHERE user = ?`).bind(viewer.name).run();
-        await accountlog.record(env, viewer.name, "tokens.revoked_all", request, { label: `${tokens} sign-in${tokens === 1 ? "" : "s"}` });
-        return json({ ok: true, tokens, sessions: ended, message: `Disconnected: ${tokens} sign-in${tokens === 1 ? "" : "s"} revoked and ${ended} agent session${ended === 1 ? "" : "s"} ended. Run atteo login to connect again.` });
+        const signIns = tokens + browserLogins;
+        await accountlog.record(env, viewer.name, "tokens.revoked_all", request, { label: `${signIns} sign-in${signIns === 1 ? "" : "s"}` });
+        return json({ ok: true, tokens, agent_logins: browserLogins, sessions: ended, message: `Disconnected: ${signIns} sign-in${signIns === 1 ? "" : "s"} revoked and ${ended} agent session${ended === 1 ? "" : "s"} ended. Run atteo login to connect again.` });
       }
       m = path.match(/^\/api\/tokens\/([^/]+)\/revoke$/);
       if (m && method === "POST") {

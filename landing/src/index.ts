@@ -321,7 +321,7 @@ ${beacon}</body></html>`;
 
 // Crawlers (vedu #3151): the public pages are open to everyone, answer engines' crawlers by name too; the app's
 // signed-in pages and its API are not for indexing (they need a sign-in anyway, so this only saves the crawl).
-const PRIVATE = ["/b/", "/api/", "/mcp", "/oauth/", "/auth/", "/me", "/inbox", "/for-you", "/approvals", "/people", "/ask", "/boards", "/chats", "/agent", "/device", "/welcome", "/preview-frame", "/board-picture/", "/connect/"];
+const PRIVATE = ["/b/", "/api/", "/mcp", "/oauth/", "/auth/", "/me", "/inbox", "/for-you", "/approvals", "/people", "/ask", "/boards", "/chats", "/agent", "/a", "/device", "/welcome", "/preview-frame", "/board-picture/", "/connect/"];
 const AI_CRAWLERS = ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-SearchBot", "Claude-User", "PerplexityBot", "Perplexity-User", "Google-Extended", "Applebot-Extended", "CCBot"];
 const rules = (agent: string) => `User-agent: ${agent}\nAllow: /\n${PRIVATE.map((p) => `Disallow: ${p}`).join("\n")}\n`;
 const ROBOTS = `${["*", ...AI_CRAWLERS].map(rules).join("\n")}\nSitemap: ${SITE_URL}/sitemap.xml\n`;
@@ -338,6 +338,7 @@ const LLMS = `# Atteo
 - Website and app: ${APP_URL}
 - MCP server (streamable HTTP, OAuth sign-in): ${APP_URL}/mcp
 - CLI: \`${INSTALL_CMD}\`, then \`${CONNECT_CMD}\` (or \`atteo mcp\` as a stdio server)
+- Browser-only agents: send the agent “Connect to my atteo: open https://atteo.dev/a and send me the sign-in link it gives you.” Open its one-time link on your phone, choose boards, and approve. The agent then uses the plain interface at ${APP_URL}/a; no password or URL secret is involved.
 
 ## Connect
 
@@ -375,6 +376,7 @@ CONNECTING AN AGENT
 - ChatGPT: Settings → Connectors → Create → paste the URL (custom connectors are not on every plan).
 - Claude Code, Codex and other local agents: install the CLI (${INSTALL_CMD}), then run ${CONNECT_CMD} (or point the agent at "atteo mcp" as a stdio MCP server).
 - Hosted agents and scripts: the HTTP API with a token (${APP_URL}/openapi.json).
+- Browser-only agents such as consumer assistants: \`atteo agent-login create\` prints the static instruction to send the agent. The agent starts a 10-minute request at ${APP_URL}/a; its person chooses boards and approves on their phone. No person-minted setup link, username or password.
 
 DIRECTORY FACTS
 ${DIRECTORY_FACTS}

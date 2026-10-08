@@ -13,6 +13,7 @@ import type { Env } from "./types";
 import { OWN_MAIL_HINT } from "./audience";
 import { FOR_LABEL, triagePreview } from "./ping";
 import { proseForAgent } from "./util";
+import { sendCountAlert } from "./agentEmail";
 
 export const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger", "from_your_person"];
 
@@ -90,7 +91,9 @@ const later = (a: { at: number; id: number }, b: { at: number; id: number }) => 
 
 /** A board calls this after the D1 notification write. One DO notification per person, regardless of mail kind. */
 export async function notifyMailboxes(env: Env, users: Iterable<string>): Promise<void> {
-  const results = await Promise.allSettled([...new Set(users)].map((user) => env.MAILBOX_SIGNAL.get(env.MAILBOX_SIGNAL.idFromName(user)).notify()));
+  const unique = [...new Set(users)];
+  const results = await Promise.allSettled(unique.map((user) => env.MAILBOX_SIGNAL.get(env.MAILBOX_SIGNAL.idFromName(user)).notify()));
+  await Promise.allSettled(unique.map((user) => sendCountAlert(env, user)));
   const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
   if (failed) throw failed.reason;
 }

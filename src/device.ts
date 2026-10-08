@@ -31,12 +31,23 @@ export interface DeviceLogin {
   status: "pending" | "approved" | "denied" | "issued";
   approved_by: string | null;
   ip: string | null; // where the sign-in was started (the approve page shows it)
+  kind: "cli" | "agent";
+  user_agent: string | null;
+  city: string | null;
+  country: string | null;
+  label: string | null;
 }
 
 /** Housekeeping in startDeviceLogin: forget logins that ended more than a day ago (shared with test/queryPlans.test.ts). */
 export const PRUNE_DEVICE_LOGINS_SQL = `DELETE FROM device_logins WHERE expires_at < ?`;
 
-export async function startDeviceLogin(env: Env, origin: string, client: string, ip: string | null = null) {
+export async function startDeviceLogin(
+  env: Env,
+  origin: string,
+  client: string,
+  ip: string | null = null,
+  options: { kind?: "cli" | "agent"; userAgent?: string | null; city?: string | null; country?: string | null; label?: string | null } = {},
+) {
   const now = Date.now();
   // Housekeeping: forget logins that ended more than a day ago.
   await env.DB.prepare(PRUNE_DEVICE_LOGINS_SQL).bind(now - 24 * 3600 * 1000).run();
@@ -47,8 +58,8 @@ export async function startDeviceLogin(env: Env, origin: string, client: string,
     if (!clash) break;
     userCode = newUserCode();
   }
-  await env.DB.prepare(`INSERT INTO device_logins (device_hash, user_code, client, created_at, expires_at, ip) VALUES (?, ?, ?, ?, ?, ?)`)
-    .bind(await sha256hex(deviceCode), userCode, client.slice(0, 120) || "Atteo CLI", now, now + DEVICE_TTL_MS, ip)
+  await env.DB.prepare(`INSERT INTO device_logins (device_hash, user_code, client, created_at, expires_at, ip, kind, user_agent, city, country, label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(await sha256hex(deviceCode), userCode, client.slice(0, 120) || "Atteo CLI", now, now + DEVICE_TTL_MS, ip, options.kind ?? "cli", options.userAgent?.slice(0, 240) ?? null, options.city?.slice(0, 100) ?? null, options.country?.slice(0, 100) ?? null, options.label?.slice(0, 80) ?? null)
     .run();
   return {
     device_code: deviceCode,
@@ -61,7 +72,7 @@ export async function startDeviceLogin(env: Env, origin: string, client: string,
 }
 
 export async function deviceByUserCode(env: Env, userCode: string): Promise<DeviceLogin | null> {
-  return env.DB.prepare(`SELECT user_code, client, created_at, expires_at, status, approved_by, ip FROM device_logins WHERE user_code = ?`)
+  return env.DB.prepare(`SELECT user_code, client, created_at, expires_at, status, approved_by, ip, kind, user_agent, city, country, label FROM device_logins WHERE user_code = ?`)
     .bind(userCode)
     .first<DeviceLogin>();
 }
@@ -70,12 +81,23 @@ export async function deviceByUserCode(env: Env, userCode: string): Promise<Devi
 export async function decideDeviceLogin(env: Env, userCode: string, user: string, approve: boolean): Promise<"ok" | "not_found" | "expired" | "already"> {
   const d = await deviceByUserCode(env, userCode);
   if (!d) return "not_found";
-  if (d.expires_at < Date.now()) return "expired";
+  if (d.kind !== "cli") return "not_found";
+  if (d.expires_at <= Date.now()) return "expired";
   if (d.status !== "pending") return "already";
   await env.DB.prepare(`UPDATE device_logins SET status = ?, approved_by = ? WHERE user_code = ? AND status = 'pending'`)
     .bind(approve ? "approved" : "denied", user, userCode)
     .run();
   return "ok";
+}
+
+/** Denial is shared by CLI and browser-agent requests; approval of an agent request also creates its scoped login. */
+export async function denyDeviceLogin(env: Env, userCode: string, user: string): Promise<"ok" | "not_found" | "expired" | "already"> {
+  const d = await deviceByUserCode(env, userCode);
+  if (!d) return "not_found";
+  if (d.expires_at <= Date.now()) return "expired";
+  if (d.status !== "pending") return "already";
+  const changed = await env.DB.prepare(`UPDATE device_logins SET status = 'denied', approved_by = ? WHERE user_code = ? AND status = 'pending'`).bind(user, userCode).run();
+  return (changed.meta?.changes ?? 0) === 1 ? "ok" : "already";
 }
 
 /** The CLI polls with its device code. An approved login issues a 30-day token exactly once. */
@@ -91,7 +113,7 @@ export async function pollDeviceLogin(
   if (!d) return { status: "expired" };
   if (d.status === "denied") return { status: "denied" };
   if (d.status === "issued") return { status: "used" };
-  if (d.status === "pending") return d.expires_at < Date.now() ? { status: "expired" } : { status: "pending" };
+  if (d.status === "pending") return d.expires_at <= Date.now() ? { status: "expired" } : { status: "pending" };
   // approved: claim it atomically so two polls can't both get a token
   const claimed = await env.DB.prepare(`UPDATE device_logins SET status = 'issued' WHERE device_hash = ? AND status = 'approved'`).bind(hash).run();
   if (!claimed.meta.changes) return { status: "used" };

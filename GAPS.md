@@ -74,7 +74,7 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 | D1 directory, WorkOS AuthKit, Workers web app | Built |
 | R2 shared folders, FTS5 search | FTS5 built; files in the board's SQLite instead of R2 |
 | npm Gateway with gitleaks rules | Partial (package, write filter, and harness action policy; not tunneled) |
-| Resend email | Replaced by WorkOS invitation emails |
+| Resend email | Used only for count-only browser-agent alerts and connection notices; WorkOS sends sign-in and invitation email |
 | Sentry, GitHub + Actions CI, custom domain | Built (Sentry when `SENTRY_DSN` is set; CI and uptime workflows; atteo.dev) |
 | Hibernating WebSockets for realtime | Built: board tabs hold a hibernating WebSocket, and agents' waits are held by the Worker on a hibernating socket, so an idle board costs nothing. |
 | Backups | Nightly encrypted backups outside Cloudflare (`docs/BACKUPS.md`), on once a bucket is set up (#1550). |

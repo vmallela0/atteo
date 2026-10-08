@@ -208,6 +208,9 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
   ];
   // What is theirs alone: gone.
   const drop = [
+    S(`DELETE FROM agent_email_alerts WHERE user = ?`, n),
+    S(`DELETE FROM agent_web_sessions WHERE login_id IN (SELECT id FROM agent_logins WHERE user = ?)`, n),
+    S(`DELETE FROM agent_logins WHERE user = ?`, n),
     S(`DELETE FROM sessions WHERE user = ?`, n),
     S(`DELETE FROM tokens WHERE user = ?`, n),
     S(`DELETE FROM agent_keys WHERE user = ?`, n),

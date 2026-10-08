@@ -15,7 +15,7 @@ rotation are in [SECRETS.md](SECRETS.md). That page has no secret values.
 | Static assets | `public/mermaid.min.js` only; CSS/JS/fonts are built into the Worker | `assets` in `wrangler.jsonc` |
 | atteo.dev | a proxy Worker **on jxn's account** that fetches the workers.dev host | outside this repo |
 | WorkOS | web sign-in, app magic codes, SSO | `WORKOS_*` |
-| Resend | email (invites, codes, notifications) | `RESEND_API_KEY` secret |
+| Resend | count-only browser-agent alerts and connection notices (sign-in codes and invites use WorkOS) | `RESEND_API_KEY` secret |
 | Sentry | Worker error reporting, scrubbed of cookies/IPs. iOS SDK linked, **off until a DSN is set** (no DSN in repo configs) | Worker: `SENTRY_DSN` secret, `src/sentry.ts`. iOS: `CrashReporting.swift`, [SENTRY.md](SENTRY.md) |
 | xAI | read-aloud TTS and voice chat, capped per person and globally | `XAI_API_KEY`, `VOICE_*`/`TTS_*` vars |
 | Cloudflare TURN | voice call relay | `TURN_KEY_*` secrets |
@@ -35,7 +35,7 @@ rotation are in [SECRETS.md](SECRETS.md). That page has no secret values.
 | 3 | **Uptime alerts** | Better Stack or UptimeRobot on `/health/deep` every 1 min, alert to phone + email | Nothing pages anyone when prod is down; we find out from the board | Free tier (UptimeRobot 50 monitors / 5 min; Better Stack free 10 monitors) | 10 min |
 | 4 | **Cost guard on** | Already done by this branch: `CF_ACCOUNT_ID` var + the `CF_ANALYTICS_TOKEN` secret (already set). Plus Cloudflare billing notifications (dashboard) | Cloudflare has no spending cap; the guard is our cap | $0 | landing + 5 min dashboard |
 | 5 | **Sentry alerts that reach someone** | Sentry is wired on the Worker. The iOS SDK is in the app and stays **off** until a DSN is set ([SENTRY.md](SENTRY.md); do not commit one). Still needed: an alert rule (new issue / spike → email + Slack or the bugs board) | Worker errors are recorded but only seen when someone opens Sentry; iOS crashes are not sent until a DSN is configured | Free (5k errors/mo); Team $26/mo | 20 min alerts; iOS SDK is the first slice |
-| 6 | **Email capacity** | Check the Resend plan; verify the sending domain (SPF/DKIM/DMARC on atteo.dev) | Free Resend is ~100 emails/day. A launch with invites + codes blows through that, and sign-in codes then fail | Resend Pro $20/mo (50k/mo) | 15 min |
+| 6 | **Email capacity** | Check the Resend plan; verify the sending domain (SPF/DKIM/DMARC on atteo.dev) | Count-only agent alerts stop when the quota is exhausted; sign-in and invitation email remains on WorkOS | Resend Pro $20/mo (50k/mo) | 15 min |
 | 7 | **Status page** | Better Stack / Instatus status page fed by the uptime monitors, at status.atteo.dev | Users and investors check it during an incident; it cuts support load | Free tier | 15 min |
 | 8 | **Product analytics** | PostHog (web landing now, iOS next) with the funnel events vedu named for the seed round: weekly active boards, boards with 2+ people, invites per user, retention | Can't measure growth without it | Free to 1M events/mo | in progress |
 | 9 | **Feature flags / kill switches** | Use PostHog flags for risky launches; keep the server-side switches we have (cost cap, shed levels, voice caps) | Lets us turn a feature off without a deploy | Included in PostHog free tier | 1 h when first needed |

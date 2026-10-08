@@ -29,6 +29,7 @@ export interface InboxItem {
   reminded?: boolean; // came back from Remind me later: it needs the person now (src/notify.ts)
   approval_id?: string; // kind approval: the request (GET /api/approvals/:id)
   join_id?: string; // kind repo_join: the owner's decision
+  url?: string; // server-authored off-board notice destination (never board content)
   push?: { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string; by?: string }; // ready for a phone notification
   board_kind?: string | null; // direct (a DM), agent ("Your agent"), or null
   broadcast?: boolean; // a mention that reached you only through @all / @humans
@@ -41,10 +42,11 @@ function withPush(r: InboxRow): InboxItem {
   const { data, ...item } = r;
   if (!data) return item;
   try {
-    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number; entry?: number; join?: string };
+    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number; entry?: number; join?: string; url?: string };
     // A report's row has a key of its own (src/moderation.ts); the entry it's about is data.entry, which links use as seq.
     const at = item.kind === "report" && Number.isSafeInteger(d.entry) ? { seq: d.entry! } : {};
-    const out: InboxItem = { ...item, ...at, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}), ...(item.kind === "repo_join" && d.join ? { join_id: d.join } : {}) };
+    const url = typeof d.url === "string" && /^\/[a-z0-9/_#?=&.-]*$/i.test(d.url) ? d.url : undefined;
+    const out: InboxItem = { ...item, ...at, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}), ...(item.kind === "repo_join" && d.join ? { join_id: d.join } : {}), ...(url ? { url } : {}) };
     return d.push ? { ...out, approval_id: d.push.approval, push: d.push } : out;
   } catch {
     return item;
@@ -198,7 +200,7 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
       const who = i.kind === "manual_unread" || i.kind === "slack_link" ? T("You") : owner ? agents[owner] || T("{name}'s agent", { name: owner }) : i.kind === "approval" ? T("Your agent") : i.actor;
       // A person by the name they chose (jxn #4369), their @handle on hover.
       const whoHtml = i.kind !== "manual_unread" && i.kind !== "slack_link" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : owner && agents[owner] ? `<bdi>${esc(who)} <span class="faint">· ${esc(owner)}'s agent</span></bdi>` : esc(who);
-      const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : i.kind === "repo_join" ? "/for-you" : i.kind === "slack_link" ? "/slack/accounts" : "/people";
+      const href = i.url ? esc(i.url) : i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : i.kind === "repo_join" ? "/for-you" : i.kind === "slack_link" ? "/slack/accounts" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${whoHtml}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(dmTitle(i.board_title ?? i.board_id))} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>

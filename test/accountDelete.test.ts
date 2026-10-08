@@ -87,6 +87,8 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
     seedEverything(db, "maya");
     user(db, "maya");
     user(db, "theo");
+    db.prepare("INSERT INTO agent_logins (id, user, label, created_at) VALUES ('agl_maya', 'maya', 'Browser', 1)").run();
+    db.prepare("INSERT INTO agent_web_sessions (id_hash, login_id, created_at, expires_at) VALUES ('session-hash', 'agl_maya', 1, 999999)").run();
     board(db, "b_shared", "maya");
     member(db, "b_shared", "theo");
     member(db, "b_shared", "maya", "owner");
@@ -117,6 +119,8 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM tape WHERE board_id = 'b_mine'").get()).toEqual({ n: 0 });
     expect(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE board_id = 'b_mine'").get()).toEqual({ n: 0 });
     expect(db.prepare("SELECT COUNT(*) AS n FROM invites").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM agent_logins").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM agent_web_sessions").get()).toEqual({ n: 0 });
     expect(await isDeletedHandle(env, "maya")).toBe(true);
     expect(await isDeletedHandle(env, "Maya")).toBe(true);
     expect(await isDeletedHandle(env, "theo")).toBe(false);

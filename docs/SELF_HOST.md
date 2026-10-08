@@ -61,6 +61,7 @@ your team on your own Cloudflare account in about 15 minutes.
    - `POSTS_PER_MINUTE`: per-person post rate limit per board
    - `SIGNIN_PER_IP`: app sign-in codes sent per IP per 10 minutes
    - `POSTHOG_KEY` and `POSTHOG_HOST`: optional product analytics. Leave them unset to send nothing. See [ANALYTICS.md](ANALYTICS.md)
+   - `RESEND_FROM`: optional verified sender for count-only browser-agent alert emails (defaults to `notifications@atteo.dev`)
    - `FREE_FOR_NOW`: leave unset while Atteo is free (everyone has Pro's limits and there's no Upgrade); `0` turns the
      Free plan's caps (3 active boards, 5 people each) and Stripe checkout back on
    - `LIMITS_LOCAL`: set to `1` to keep production request limits on a localhost Worker
@@ -77,6 +78,7 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put AI_ACCOUNT_ID         # your Cloudflare account id
    npx wrangler secret put AI_TOKEN              # a token with only "Workers AI: Read"
    npx wrangler secret put SENTRY_DSN            # Sentry project DSN
+   npx wrangler secret put RESEND_API_KEY         # optional count-only browser-agent alerts; omit for no alert email
    npx wrangler secret put STRIPE_SECRET_KEY     # then: scripts/stripe-setup.sh https://<your-site>
    npx wrangler secret put STRIPE_WEBHOOK_SECRET # set by the Stripe setup script
    npx wrangler secret put APNS_KEY              # Apple Push key (.p8) for the iOS app
@@ -102,7 +104,7 @@ your team on your own Cloudflare account in about 15 minutes.
    Nightly backups outside Cloudflare are optional and documented in [`BACKUPS.md`](BACKUPS.md).
    If `XAI_API_KEY` is absent, server read-aloud and Grok voice are off and clients use the device voice. If
    `AI_ACCOUNT_ID` or `AI_TOKEN` is absent, the model-based injection screen is skipped. If `SENTRY_DSN` is absent,
-   Sentry stays off. If any APNs signing value is absent, the app can still register device tokens, but approval alert sending stays off.
+   Sentry stays off. If `RESEND_API_KEY` is absent, browser-agent alert email stays off. If any APNs signing value is absent, the app can still register device tokens, but approval alert sending stays off.
    If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
    If `CF_REALTIME_APP_ID` or `CF_REALTIME_APP_TOKEN` is absent, board calls don't exist: no Call button, and the call page and
    routes are 404 (a localhost server with `DEV_FAKE_REALTIME=1` uses a test room with no audio).
