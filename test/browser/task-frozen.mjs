@@ -20,6 +20,13 @@ const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undef
 const ck = (await ops("sessions", { user: A })).cookie; const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } });
 const [k, ...v] = ck.split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
 const p = await ctx.newPage(); const errors = []; p.on("pageerror", (e) => errors.push(e.message));
+// A move re-renders the whole board several times (its own reload, then the socket's task and entry signals each reload
+// it). A drag that starts during one of those loses its card mid-drag and Chromium's drag sticks, so drags wait until
+// no task list is loading and the board has been quiet for 500 ms (under load the last reload can land seconds later).
+let loading = 0; const isList = (r) => r.method() === "GET" && /^\/api\/boards\/[^/]+\/tasks$/.test(new URL(r.url()).pathname);
+p.on("request", (r) => { if (isList(r)) loading++; }); for (const ev of ["requestfinished", "requestfailed"]) p.on(ev, (r) => { if (isList(r)) loading--; });
+const settled = async () => { await p.evaluate(() => { window.__kbAt = Date.now(); new MutationObserver(() => { window.__kbAt = Date.now(); }).observe(document.getElementById("kanban"), { childList: true, subtree: true }); });
+  for (let i = 0; i < 200; i++) { if (!loading && (await p.evaluate(() => Date.now() - window.__kbAt)) >= 500) return; await p.waitForTimeout(50); } };
 await p.goto(`${BASE}/b/${board}`); await p.locator("#board-tabs button").nth(3).click();
 const col = p.locator('#kanban .kcol[data-status="frozen"]');
 await col.waitFor({ timeout: 8000 }).catch(() => {});
@@ -39,10 +46,10 @@ await mcp("task", { action: "create", title: `Live update ${run}` });
 await p.locator("#kanban .kcard", { hasText: `Live update ${run}` }).waitFor({ timeout: 8000 }).catch(() => {});
 check((await col.locator(".kfz").getAttribute("aria-expanded")) === "true" && (await col.locator(`.kcard[data-seq="${later}"]`).isVisible()), "it stays open through a live update");
 const statusOf = async (seq, want) => { let s = ""; for (let i = 0; i < 40 && s !== want; i++) { s = /\[(\w+)\]/.exec(await mcp("task", { action: "get", seq }))?.[1] ?? ""; if (s !== want) await p.waitForTimeout(150); } return s; };
-await p.locator(`#kanban .kcard[data-seq="${live}"]`).dragTo(col);
+await settled(); await p.locator(`#kanban .kcard[data-seq="${live}"]`).dragTo(col);
 check((await statusOf(live, "frozen")) === "frozen", "dropping a card on Frozen freezes it");
 await col.locator(`.kcard[data-seq="${live}"]`).waitFor({ timeout: 8000 }).catch(() => {});
-await col.locator(`.kcard[data-seq="${live}"]`).dragTo(p.locator('#kanban .kcol[data-status="todo"]'));
+await settled(); await col.locator(`.kcard[data-seq="${live}"]`).dragTo(p.locator('#kanban .kcol[data-status="todo"]'));
 check((await statusOf(live, "todo")) === "todo", "dragging it back to To do unfreezes it");
 // A phone: the board scrolls sideways to it, and it still opens.
 const ph = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
