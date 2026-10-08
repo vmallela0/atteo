@@ -50,6 +50,8 @@ export const CALLBACK_PATH = "/api/integrations/notion/callback";
 const RICH_MAX = 2000; // Notion: characters in one rich text object
 const RICH_ITEMS = 100; // Notion: rich text objects in one array
 const CHUNK = 100; // Notion: blocks in one create or append
+/** A Notion block id (a UUID, dashes optional): checked before it goes into a request path. */
+const BLOCK_ID = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 
 export type NotionEnv = {
   NOTION_CLIENT_ID?: string;
@@ -742,7 +744,7 @@ async function updatePage(api: Api, id: string, title: string, blocks: Block[]):
   let cursor: string | null = null;
   do {
     const r: { results?: { id: string }[]; has_more?: boolean; next_cursor?: string | null } | null = await api.call("GET", `/blocks/${id}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`);
-    for (const b of r?.results ?? []) old.push(b.id);
+    for (const b of r?.results ?? []) if (typeof b?.id === "string" && BLOCK_ID.test(b.id)) old.push(b.id);
     cursor = r?.has_more && r.next_cursor ? r.next_cursor : null;
   } while (cursor && old.length <= MAX_CLEAR_BLOCKS);
   if (old.length > MAX_CLEAR_BLOCKS) {
@@ -818,7 +820,7 @@ async function fetchBlocks(api: Api, id: string, depth: number, budget: { blocks
     }
     cursor = r?.has_more && r.next_cursor ? r.next_cursor : null;
   } while (cursor);
-  if (depth < 2) for (const b of out) if (b.has_children && b.id && b.type !== "child_page" && b.type !== "child_database" && /^[0-9a-f-]{32,36}$/.test(b.id)) b.children = await fetchBlocks(api, b.id, depth + 1, budget);
+  if (depth < 2) for (const b of out) if (b.has_children && b.id && b.type !== "child_page" && b.type !== "child_database" && BLOCK_ID.test(b.id)) b.children = await fetchBlocks(api, b.id, depth + 1, budget);
   return out;
 }
 

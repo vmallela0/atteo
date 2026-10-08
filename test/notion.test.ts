@@ -4,6 +4,7 @@ vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 import * as N from "../src/notion";
 import type { RecapCore } from "../src/recap";
 import * as registry from "../src/registry";
+import { authorLabel as slackAuthorLabel } from "../src/slackCore";
 import { USER_ROW_DELETES } from "../src/testAccounts";
 import type { Env } from "../src/types";
 import type { Viewer } from "../src/ui";
@@ -94,7 +95,7 @@ function setup(env: N.NotionEnv = ENV) {
       const parent = body.parent.page_id as string;
       if (parent !== PARENT && parent !== SOURCE) return ans({ message: "Could not find page with ID" }, 404);
       const id = `00000000-0000-0000-0000-${String(++n).padStart(12, "0")}`;
-      pages.set(id, { title: body.properties.title.title[0].text.content, parent, blocks: body.children.map((b: any, i: number) => ({ ...b, id: `${id}-b${i}` })), in_trash: false, url: `https://www.notion.so/${id.replace(/-/g, "")}` });
+      pages.set(id, { title: body.properties.title.title[0].text.content, parent, blocks: body.children.map((b: any) => ({ ...b, id: crypto.randomUUID() })), in_trash: false, url: `https://www.notion.so/${id.replace(/-/g, "")}` });
       return ans({ object: "page", id, url: pages.get(id)!.url });
     }
     if ((m = path.match(/^\/pages\/([0-9a-f-]+)$/))) {
@@ -116,7 +117,7 @@ function setup(env: N.NotionEnv = ENV) {
         return ans({ object: "list", results, has_more: start + 100 < p.blocks.length, next_cursor: start + 100 < p.blocks.length ? String(start + 100) : null });
       }
       if (method === "PATCH") {
-        p.blocks.push(...body.children.map((b: any, i: number) => ({ ...b, id: `${m![1]}-a${p.blocks.length + i}` })));
+        p.blocks.push(...body.children.map((b: any) => ({ ...b, id: crypto.randomUUID() })));
         return ans({ object: "list", results: [] });
       }
     }
@@ -546,6 +547,14 @@ describe("Notion: a link lasts while its maker owns the board", () => {
     await N.dropLinks(s.n, { board: BOARD });
     spy.mockRestore();
     expect(logged.join("\n")).not.toMatch(/ntn_|Bearer|Basic/);
+  });
+});
+
+describe("Notion: imports are labelled as outside content wherever they're forwarded", () => {
+  it("a Slack forward says it's a Notion page, not the importer's own words", () => {
+    const e = { author: "vedu", via: "person" as const, client: null, origin: "notion" as const, data: { notion: { title: "Q4 <plan>", url: null, page: SOURCE } } };
+    expect(slackAuthorLabel(e).username).toBe('Notion page "Q4 plan" (external content, imported by vedu)');
+    expect(slackAuthorLabel(e).context).toBe('🔗 Notion page "Q4 &lt;plan&gt;" (external content, imported by vedu)');
   });
 });
 
