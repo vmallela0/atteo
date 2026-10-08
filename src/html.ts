@@ -1669,19 +1669,16 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove();if(thrOpen&&(t.dataset.root===String(thrOpen)||t.dataset.seq===String(thrOpen)))thrRender()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}} // an open thread shows the unsend at once
     last=Math.max(last,e.seq);return true}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
-// heard: when the socket last said anything (its pong included). A socket that went quiet without closing (a laptop
-// woke up, the Wi-Fi changed: no close event for minutes) is replaced, and the page catches up (vedu #6564).
+// A socket gone quiet without closing (sleep, Wi-Fi change) is replaced and the page catches up (#6564).
 let ws,retry=0,polling=false,pollAfter=0,heard=0;
 function revive(){const old=ws;if(!old)return;old.onopen=old.onmessage=old.onclose=null;clearInterval(old.pinger);try{old.close()}catch(e){}connect();tick(false)}
-// Back on the page (or online again): ask the socket for a pong, and replace it if none comes within 5s.
-function probe(){const sock=ws,t=Date.now();if(!sock||polling||sock.readyState!==1)return; // closed: its own reconnect is already on the way
-  try{sock.send('ping')}catch(e){}setTimeout(()=>{if(ws===sock&&heard<t)revive()},5000)}
+// Back on the tab or online: no pong in 5s, replace it.
+function probe(){const sock=ws,t=Date.now();if(!sock||polling||sock.readyState!==1)return;try{sock.send('ping')}catch(e){}setTimeout(()=>{if(ws===sock&&heard<t)revive()},5000)}
 // poll_after_ms: the server is shedding load and asks open tabs to pause between long-polls.
 function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true);if(pollAfter)await new Promise(r=>setTimeout(r,pollAfter))}})()}
 function connect(){
   try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/boards/'+BOARD+'/ws')}catch(e){return poll()}
-  const sock=ws;let ping;ws.onopen=()=>{retry=0;heard=Date.now();document.getElementById('conn').hidden=true;ping=sock.pinger=setInterval(()=>{if(!document.hidden&&Date.now()-heard>75000)return revive(); // a hidden tab's timers are throttled: probe() checks it on return
-    try{sock.send('ping')}catch(e){}},30000)};
+  const sock=ws;let ping;ws.onopen=()=>{retry=0;heard=Date.now();document.getElementById('conn').hidden=true;ping=sock.pinger=setInterval(()=>{if(!document.hidden&&Date.now()-heard>75000)return revive();try{sock.send('ping')}catch(e){}},30000)};
   ws.onmessage=(m)=>{heard=Date.now();if(m.data==='pong')return;let d;try{d=JSON.parse(m.data)}catch(e){return}
     if(d.type==='removed'||d.type==='deleted'){location.href='/';return}
     if(d.type==='renamed'){window.applyTitle(d.title);return}

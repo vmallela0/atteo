@@ -16,11 +16,14 @@
 //   node scripts/bench-messaging.mjs                       # own wrangler dev on :8640, fresh state, N=40 posts, M=3 listeners
 //   node scripts/bench-messaging.mjs --d1-ms 35 --do-ms 35 # the edge-shaped profile
 //   node scripts/bench-messaging.mjs --base http://localhost:8790   # a server you started (with DEV_HOPS=1 for hop counts)
+//   ADMIN_KEY=… node scripts/bench-messaging.mjs --base https://atteo-staging.vedu-mallela.workers.dev   # real Cloudflare
+//     (staging only, docs/STAGING.md; STAGING_BENCH=1 scripts/staging.sh runs this): light load, N=20 M=2 by default,
+//     no hop counts (staging doesn't meter), printed and never checked against the baseline
 //   node scripts/bench-messaging.mjs --update              # write this run's numbers as the profile's baseline
 // Options: --n --m --port --base --d1-ms --do-ms --no-browser --json <file> --update --no-check --keep (state dir and
 //   server log) --log-hops (the server log names every D1 query and Durable Object call, per request)
 // Env: GROW, SLACK, PW_CHROME, ADMIN_KEY (with --base; default ci-admin-key).
-// Local only: --base must be localhost. Never point this at production.
+// Local servers and staging only: --base must be localhost or the staging Worker. Never production.
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,13 +35,16 @@ const BASELINE = join(ROOT, "scripts", "bench-messaging-baseline.json");
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
 const opt = (n, d) => (argv.includes(`--${n}`) ? argv[argv.indexOf(`--${n}`) + 1] : d);
-const N = Number(opt("n", 40)), M = Number(opt("m", 3)), PORT = Number(opt("port", 8640));
+const STAGING_HOST = "atteo-staging.vedu-mallela.workers.dev";
+const remote = (() => { try { return new URL(opt("base", "http://localhost")).hostname === STAGING_HOST; } catch { return false; } })();
+const N = Number(opt("n", remote ? 20 : 40)), M = Number(opt("m", remote ? 2 : 3)), PORT = Number(opt("port", 8640));
 const D1_MS = Number(opt("d1-ms", 0)), DO_MS = Number(opt("do-ms", 0));
 const GROW = Number(process.env.GROW ?? 0.5), SLACK = Number(process.env.SLACK ?? 15);
-const PROFILE = `d1=${D1_MS},do=${DO_MS}`;
+const PROFILE = remote ? `staging` : `d1=${D1_MS},do=${DO_MS}`;
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 let BASE = (opt("base", "") || `http://localhost:${PORT}`).replace(/\/$/, "");
-if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(BASE).hostname)) { console.error("bench-messaging: local servers only (--base must be localhost)."); process.exit(2); }
+if (!remote && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(BASE).hostname)) { console.error(`bench-messaging: local servers and staging only (--base must be localhost or https://${STAGING_HOST}); never production.`); process.exit(2); }
+if (remote && !process.env.ADMIN_KEY) { console.error("bench-messaging: staging needs its ADMIN_KEY (docs/STAGING.md)."); process.exit(2); }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => performance.now();
@@ -67,21 +73,23 @@ if (!opt("base")) {
   process.on("exit", stop);
   if (flag("keep")) console.log(`state and server log: ${stateDir}`);
   process.on("SIGINT", () => process.exit(130));
+  process.on("SIGTERM", () => process.exit(143)); // verify.sh stopping the suite: the server goes too
   await up();
 }
 
 // ---- fixtures: a board with a poster (person + agent token), M listening people ----
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-5);
-const P = `e2e-bp${run}`, L = Array.from({ length: M }, (_, i) => `e2e-bl${i}${run}`);
-for (const u of [P, ...L]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+// P posts from the web; AG's token posts as an agent (its own per-minute post limit: staging keeps prod's 60 a person).
+const P = `e2e-bp${run}`, AG = `e2e-ba${run}`, L = Array.from({ length: M }, (_, i) => `e2e-bl${i}${run}`);
+for (const u of [P, AG, ...L]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
 const made = await ops("boards", { user: P, title: `Bench ${run}` });
 if (!made.board) throw new Error(`setup: ${JSON.stringify(made)} (users: ${JSON.stringify(await ops("users", { name: P, email: `${P}@example.com`, verified: "true" }))})`);
 const board = made.board.id;
-for (const u of L) await ops("members", { board, user: u });
+for (const u of [AG, ...L]) await ops("members", { board, user: u });
 const ck = {};
 for (const u of [P, ...L]) ck[u] = (await ops("sessions", { user: u })).cookie.split(";")[0];
-const token = (await ops("tokens", { user: P })).token;
+const token = (await ops("tokens", { user: AG })).token;
 
 // ---- samples ----
 const S = {}; // metric → { t: ms[], hops: string[] }
@@ -108,7 +116,7 @@ const seqOf = (kind, res) => {
   return JSON.parse(res.body).entry.seq;
 };
 
-for (let i = 0; i < 20; i++) await post("web", `seed ${i}: the build passed and the docs are up to date`); // a board with some history
+for (let i = 0; i < (remote ? 10 : 20); i++) await post("web", `seed ${i}: the build passed and the docs are up to date`); // a board with some history
 
 // Listeners: a board tab's live path. The socket's "entry" signal, then one /updates?after=last at a time (as tick()).
 // The board broadcasts before the post's response leaves, so a listener often hears of a seq before the poster knows it:
@@ -205,7 +213,7 @@ if (!flag("no-browser")) {
       return ctx.newPage();
     };
     const [ps, pr] = [await page(P), await page(L[0])];
-    for (let i = 0; i < Math.min(N, 15); i++) {
+    for (let i = 0; i < Math.min(N, remote ? 8 : 15); i++) {
       for (const p of [ps, pr]) { await p.goto(`${BASE}/b/${board}`); await p.locator("#composer-text").waitFor(); }
       const fcp = await pr.evaluate(() => performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? null);
       if (fcp != null) add("web: first contentful paint", fcp);
@@ -244,7 +252,7 @@ for (const [k, v] of Object.entries(S)) {
 }
 if (S["deliver: missed (5s)"]) out.metrics["deliver: missed (5s)"] = { n: S["deliver: missed (5s)"].t.length, p50: 0, p95: 0, p99: 0 };
 const pad = (s, n) => String(s).padEnd(n), lp = (s, n) => String(s).padStart(n);
-console.log(`\nmessaging bench · profile ${PROFILE} (ms added per D1 query, per Durable Object call) · N=${N} posts per kind · M=${M} listeners\n`);
+console.log(`\nmessaging bench · ${remote ? `staging (${BASE}, real Cloudflare; from this machine)` : `profile ${PROFILE} (ms added per D1 query, per Durable Object call)`} · N=${N} posts per kind · M=${M} listeners\n`);
 console.log(`${pad("metric", 36)}${lp("n", 5)}${lp("p50", 9)}${lp("p95", 9)}${lp("p99", 9)}${lp("D1", 5)}${lp("DO", 5)}`);
 for (const [k, v] of Object.entries(out.metrics)) console.log(`${pad(k, 36)}${lp(v.n, 5)}${lp(v.p50, 9)}${lp(v.p95, 9)}${lp(v.p99, 9)}${lp(v.d1 ?? "", 5)}${lp(v.do ?? "", 5)}`);
 const jsonOut = opt("json", "");
@@ -254,6 +262,7 @@ console.log("\n" + JSON.stringify(out));
 // ---- against the baseline ----
 let base = { note: "scripts/bench-messaging.mjs: p95 ms and hop counts per metric, per profile. --update rewrites this run's profile.", profiles: {} };
 try { base = JSON.parse(readFileSync(BASELINE, "utf8")); } catch {}
+if (remote) { console.log("\nstaging: not checked against the baseline (a network run)."); process.exit(out.metrics["deliver: missed (5s)"] ? 1 : 0); }
 if (flag("update")) {
   base.profiles[PROFILE] = Object.fromEntries(Object.entries(out.metrics).filter(([k]) => !k.startsWith("deliver: missed")).map(([k, v]) => [k, { p95: v.p95, ...(v.d1 != null ? { d1: v.d1, do: v.do } : {}) }]));
   writeFileSync(BASELINE, JSON.stringify(base, null, 1) + "\n");

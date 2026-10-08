@@ -8,6 +8,9 @@
 #   backup   own servers :PORT+4 and :PORT+6 (backup vars from --env-files: one writes to a fake S3 on :PORT+5, run by
 #            test/backup.mjs; the other to its local R2 binding, as production does)
 #   landing  the landing Worker :PORT+3 (its look check, its Core Web Vitals, then a dry-run build); only when SUITES names it
+#   bench    scripts/bench-messaging.mjs on its own server :PORT+8, edge profile (40 ms a D1 query or Durable Object call):
+#            fails when a request makes more round trips than bench-messaging-baseline.json says, or its p95 grows past
+#            the limit there. Only when SUITES names it (vedu #6566)
 # Each server has its own --persist-to state, so no suite loads another's server (sharing one made the slower suite
 # flake). Prints one summary and exits non-zero if any suite failed. Logs: $VERIFY_DIR/<suite>.log.
 #
@@ -158,6 +161,7 @@ want e2e && run e2e env -u ADMIN_KEY BASE="http://localhost:$E2E_PORT" DEV_LOG="
 want cli && run cli env -u ADMIN_KEY BASE="http://localhost:$CLI_PORT" node test/cli.mjs
 want browser && run browser env PERSIST="$OUT/state-browser" ADMIN_KEY=ci-admin-key BASE="http://localhost:$BR_PORT" SHOTS_DIR="$OUT/browser-shots" node test/browser/run.mjs ${browser_args[@]+"${browser_args[@]}"}
 want landing && run landing landing_suite
+want bench && run bench node scripts/bench-messaging.mjs --port $((PORT + 8)) --d1-ms 40 --do-ms 40 --n 15 --m 2 --no-browser
 backup_suite() {
   env BASE="http://localhost:$BK_PORT" ADMIN_KEY=ci-admin-key BK_S3_PORT="$BK_S3_PORT" BK_KEY_FILE="$OUT/backup-key.json" node test/backup.mjs || return 1
   env BASE="http://localhost:$BK_R2_PORT" ADMIN_KEY=ci-admin-key BK_MODE=r2 BK_R2_LOCAL="$OUT/state-backupr2" BK_KEY_FILE="$OUT/backup-key.json" node test/backup.mjs
@@ -168,7 +172,7 @@ for p in ${suite_pids[@]+"${suite_pids[@]}"}; do wait "$p"; done
 # 3. One summary.
 status=0
 echo
-for name in vitest e2e cli browser backup landing; do
+for name in vitest e2e cli browser backup landing bench; do
   want "$name" || continue
   rc=$(cat "$OUT/$name.rc" 2>/dev/null || echo 1); t=$(cat "$OUT/$name.secs" 2>/dev/null || echo "?")
   case $name in
@@ -176,6 +180,7 @@ for name in vitest e2e cli browser backup landing; do
     browser) res=$(grep -E "browser checks passed" "$OUT/$name.log" | tail -1) ;;
     landing) res=$(grep -E "landing look|FAILED" "$OUT/$name.log" | tail -1) ;;
     backup) res=$(grep -E "passed, [0-9]+ failed" "$OUT/$name.log" | tail -1) ;;
+    bench) res=$(grep -E "^bench-messaging:" "$OUT/$name.log" | tail -1) ;;
     *) res=$(grep -E "passed, [0-9]+ failed" "$OUT/$name.log" | tail -1) ;;
   esac
   [ "$rc" = 0 ] && mark="ok  " || { mark="FAIL"; status=1; }
@@ -185,6 +190,7 @@ for name in vitest e2e cli browser backup landing; do
       e2e|cli) grep -A2 "✗" "$OUT/$name.log" | head -20 ;;
       browser) grep -E "^FAILED|^  [a-z0-9-]+: " "$OUT/$name.log" | head -20 ;;
       landing) grep -E "✗|rror" "$OUT/$name.log" | head -20 ;;
+      bench) grep -E "✗|rror" "$OUT/$name.log" | head -20 ;;
       vitest) grep -E "FAIL|×" "$OUT/$name.log" | head -20 ;;
     esac
   fi
