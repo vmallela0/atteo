@@ -13,7 +13,7 @@
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 // Where the agent site lives (vedu's agent picks the final path; GET /agent was already the person's own agent chat).
-const AGENT = process.env.AGENT_PATH || "/agent";
+const AGENT = process.env.AGENT_PATH || "/a";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-5), U = `inst${run}`, F = `frnd${run}`;
 for (const n of [U, F]) await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
