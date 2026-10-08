@@ -33,8 +33,8 @@ import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
 import { similarOpen, taskTitleKey } from "./taskTitles";
 import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 import { withinEditWindow } from "./editMessage";
-import { backupConfig, blobPartKey, objectKey, rowPartKey, uploadPart, type PartResult } from "./backup";
-import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
+import { backupConfig, blobPartKey, boardPartSizes, objectKey, rowPartKey, uploadPart, uploadText, type BackupConfig, type BoardBackupStep, type PartResult } from "./backup";
+import { decodeValue, encodeValue, tablePartText, utf8Length, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
 import { onApprovalDecided as slackOnApproval, onEntry as slackOnEntry } from "./slack";
@@ -381,6 +381,23 @@ const peopleOk = (v: Viewer | null | undefined, alias = ""): { sql: string; args
 
 /** An agent reading as `user` (its person): everyone's entries, and its person's own lane. */
 const asAgent = (user: string): Viewer => ({ user, person: false });
+
+/** Where tonight's backup of a board is (Board.backupStep), kept in the object's own storage (its `_cf_KV` table,
+ *  which no dump includes) after every part, and deleted once the main part is written. */
+const BACKUP_PLACE = "backup:place";
+interface BackupPlace {
+  day: string;
+  filesDone: boolean;
+  fileAfter: [string, number] | null; // the last file (name, version) in a written part
+  fileK: number;
+  tablesDone: string[];
+  table: string | null; // the table being written, `after` its last rowid in a written part, `k` its next part
+  after: number;
+  k: number;
+  extra: Omit<PartResult, "extra">[]; // every part written so far, in order
+  fileParts: string[];
+  rowParts: string[];
+}
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -5031,16 +5048,22 @@ export class Board extends DurableObject<Env> {
     this.cache = null;
   }
 
-  // ---- backups outside Cloudflare (#1550, src/backup.ts) ----
+  // ---- backups (#1550, src/backup.ts) ----
 
-  /** Columns for every table and the small meta table's rows. File and other table rows are uploaded in parts.
-   *  The search index is dumped as its rows, not FTS5's internal tables. */
-  dumpTables(): DumpTables {
+  private backupRunning = false;
+
+  /** The tables a backup covers, by name: FTS5 shadow tables are left out (the search index is dumped as its rows and
+   *  rebuilt on restore). */
+  private backupTableNames(): string[] {
     const all = this.sql.exec("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").toArray() as { name: string; sql: string | null }[];
     const virtual = all.filter((t) => /^create virtual table/i.test(t.sql ?? "")).map((t) => t.name);
+    return all.map((t) => t.name).filter((name) => !virtual.some((v) => name.startsWith(`${v}_`)));
+  }
+
+  /** Columns for every table and the small meta table's rows. File and other table rows are uploaded in parts. */
+  dumpTables(): DumpTables {
     const out: DumpTables = {};
-    for (const { name } of all) {
-      if (virtual.some((v) => name.startsWith(`${v}_`))) continue; // FTS5 shadow tables: rebuilt from the rows
+    for (const name of this.backupTableNames()) {
       const cur = this.sql.exec(`SELECT * FROM "${name.replace(/"/g, '""')}"${name === "meta" ? "" : " LIMIT 0"}`);
       const rows = [...cur.raw()].map((r) => r.map(encodeValue));
       out[name] = { columns: cur.columnNames, rows };
@@ -5048,67 +5071,115 @@ export class Board extends DurableObject<Env> {
     return out;
   }
 
-  /** Upload files and bounded ranges of each other table before the small main part that names them. */
-  async backup(day: string): Promise<PartResult> {
+  /** One call's share of tonight's backup of this board; src/backup.ts driveBoardBackup calls it until it's done. The
+   *  files go first, then every other table in rowid order, one part at a time: each part's rows are read, turned into
+   *  JSON, gzipped, sealed and uploaded on their own (a few MB: BACKUP_BLOB_PART_BYTES, BACKUP_ROWS_PART_BYTES), and
+   *  the place after it is saved, so a big board never holds more than one part in memory and an object reset (out of
+   *  memory, a deploy) or a failed attempt carries on after the last part instead of starting the night over. A call
+   *  returns after about BACKUP_STEP_BYTES. Last comes the small main part that names every other part, in order. */
+  async backupStep(day: string): Promise<BoardBackupStep> {
     const cfg = backupConfig(this.env);
     const id = this.meta("id");
     if (!cfg || !id) throw new BoardError(cfg ? "board has no id" : "backups are not configured");
-    const cap = Math.max(1, Number(this.env.BACKUP_BLOB_PART_BYTES) || 8_000_000);
-    const chunks: { name: string; version: number }[][] = [];
-    let size = cap;
-    for (const r of this.sql.exec("SELECT name, version, length(bytes) AS n FROM blobs ORDER BY name, version").toArray() as { name: string; version: number; n: number }[]) {
-      if (size + r.n > cap) (chunks.push([]), (size = 0));
-      chunks[chunks.length - 1].push({ name: r.name, version: r.version });
-      size += r.n;
+    if (this.backupRunning) throw new BoardError("this board's backup is already running");
+    this.backupRunning = true;
+    try {
+      return await this.backupSomeParts(cfg, id, day);
+    } finally {
+      this.backupRunning = false;
     }
-    const extra: Omit<PartResult, "extra">[] = [];
-    for (let k = 0; k < chunks.length; k++) {
-      const [first, last] = [chunks[k][0], chunks[k][chunks[k].length - 1]]; // a range: 4 parameters however many files
-      const cur = this.sql.exec("SELECT * FROM blobs WHERE (name, version) >= (?, ?) AND (name, version) <= (?, ?) ORDER BY name, version", first.name, first.version, last.name, last.version);
-      const rows = [...cur.raw()].map((r) => r.map(encodeValue));
-      extra.push(await uploadPart(cfg, blobPartKey(cfg, day, id, k), { kind: "board-files", board: id, day, part: k, tables: { blobs: { columns: cur.columnNames, rows } } }));
-    }
-    const fileParts = extra.map((e) => e.object_key.slice(e.object_key.lastIndexOf("/") + 1));
-    const tables = this.dumpTables();
-    const rowParts: string[] = [];
-    const configuredRowCap = Number(this.env.BACKUP_ROWS_PART_BYTES);
-    const rowCap = Number.isFinite(configuredRowCap) && configuredRowCap > 0 ? configuredRowCap : 8_000_000;
-    const encoder = new TextEncoder();
-    // LIMIT bounds each SQLite read too. The cap is estimated from the JSON representation; a single row larger
-    // than the cap gets its own part, just as a single file larger than BACKUP_BLOB_PART_BYTES does.
-    for (const [name, table] of Object.entries(tables)) {
-      if (name === "meta" || name === "blobs") continue;
-      const q = `"${name.replace(/"/g, '""')}"`;
-      const pageSize = name === "sealed_files" ? 2 : 16; // each encrypted file can be 1.5 MB before base64 encoding
-      let after = Number.MIN_SAFE_INTEGER;
-      let rows: DumpTables[string]["rows"] = [];
+  }
+
+  private async backupSomeParts(cfg: BackupConfig, id: string, day: string): Promise<BoardBackupStep> {
+    const sizes = boardPartSizes(this.env);
+    const saved = await this.ctx.storage.get<BackupPlace>(BACKUP_PLACE);
+    const p: BackupPlace = saved?.day === day ? structuredClone(saved) : { day, filesDone: false, fileAfter: null, fileK: 0, tablesDone: [], table: null, after: Number.MIN_SAFE_INTEGER, k: 0, extra: [], fileParts: [], rowParts: [] };
+    const t0 = Date.now();
+    let read = 0;
+    const more = () => read < sizes.step && Date.now() - t0 < 10_000;
+    const sent = async (part: PartResult, list: string[], bytes: number) => {
+      p.extra.push(part);
+      list.push(part.object_key.slice(part.object_key.lastIndexOf("/") + 1));
+      read += bytes;
+      await this.ctx.storage.put(BACKUP_PLACE, p);
+    };
+
+    // Files: walk (name, version) by their sizes, then read each chosen file on its own.
+    while (!p.filesDone && more()) {
+      const rows: string[] = [];
+      let columns: string[] = [];
       let size = 0;
-      let k = 0;
-      const flush = async () => {
-        if (!rows.length) return;
-        const part = await uploadPart(cfg, rowPartKey(cfg, day, id, name, k), { kind: "board-rows", board: id, day, table: name, part: k, tables: { [name]: { columns: table.columns, rows } } });
-        extra.push(part);
-        rowParts.push(part.object_key.slice(part.object_key.lastIndexOf("/") + 1));
-        k++;
-        rows = [];
-        size = 0;
-      };
-      for (;;) {
-        const page = [...this.sql.exec(`SELECT rowid, * FROM ${q} WHERE rowid > ? ORDER BY rowid LIMIT ${pageSize}`, after).raw()];
-        for (const raw of page) {
-          after = raw[0] as number;
-          const row = raw.slice(1).map(encodeValue);
-          const bytes = encoder.encode(JSON.stringify(row)).length + 1;
-          if (rows.length && size + bytes > rowCap) await flush();
-          rows.push(row);
-          size += bytes;
+      let full = false;
+      while (!full) {
+        const after = p.fileAfter;
+        const page = this.sql.exec(`SELECT name, version, length(bytes) AS n FROM blobs${after ? " WHERE (name, version) > (?, ?)" : ""} ORDER BY name, version LIMIT 64`, ...(after ?? [])).toArray() as { name: string; version: number; n: number }[];
+        for (const f of page) {
+          if (rows.length && size + f.n > sizes.blob) {
+            full = true;
+            break;
+          }
+          const cur = this.sql.exec("SELECT * FROM blobs WHERE name = ? AND version = ?", f.name, f.version);
+          columns = cur.columnNames;
+          for (const r of cur.raw()) rows.push(JSON.stringify(r.map(encodeValue)));
+          size += f.n;
+          p.fileAfter = [f.name, f.version];
         }
-        if (page.length < pageSize) break;
+        if (!full && page.length < 64) {
+          p.filesDone = true;
+          break;
+        }
       }
-      await flush();
+      if (rows.length) {
+        const k = p.fileK++;
+        await sent(await uploadText(cfg, blobPartKey(cfg, day, id, k), tablePartText({ kind: "board-files", board: id, day, part: k }, "blobs", columns, rows)), p.fileParts, size);
+      } else await this.ctx.storage.put(BACKUP_PLACE, p);
     }
-    const main = await uploadPart(cfg, objectKey(cfg, day, `board:${id}`), { kind: "board", board: id, day, created_at: Date.now(), tables, file_parts: fileParts, row_parts: rowParts });
-    return { ...main, extra };
+
+    // Every other table but meta (in the main part), in rowid order, at most BACKUP_ROWS_PART_BYTES of JSON per part.
+    if (p.filesDone) {
+      const tables = this.backupTableNames().filter((t) => t !== "meta" && t !== "blobs");
+      while (more()) {
+        const name = tables.find((t) => !p.tablesDone.includes(t));
+        if (!name) break;
+        if (p.table !== name) Object.assign(p, { table: name, after: Number.MIN_SAFE_INTEGER, k: 0 });
+        const q = `"${name.replace(/"/g, '""')}"`;
+        const pageSize = name === "sealed_files" ? 2 : 16; // each encrypted file can be 1.5 MB before base64
+        const rows: string[] = [];
+        let columns: string[] = [];
+        let size = 0;
+        let full = false;
+        let last = p.after;
+        for (;;) {
+          const cur = this.sql.exec(`SELECT rowid, * FROM ${q} WHERE rowid > ? ORDER BY rowid LIMIT ${pageSize}`, last);
+          columns = cur.columnNames.slice(1);
+          const page = [...cur.raw()];
+          for (const raw of page) {
+            const json = JSON.stringify(raw.slice(1).map(encodeValue));
+            const bytes = utf8Length(json) + 1;
+            if (rows.length && size + bytes > sizes.rows) {
+              full = true; // a single row larger than the cap gets a part of its own
+              break;
+            }
+            rows.push(json);
+            size += bytes;
+            last = raw[0] as number;
+          }
+          if (full || page.length < pageSize) break;
+        }
+        if (full) p.after = last;
+        else p.tablesDone.push(name);
+        if (rows.length) {
+          const k = p.k++;
+          await sent(await uploadText(cfg, rowPartKey(cfg, day, id, name, k), tablePartText({ kind: "board-rows", board: id, day, table: name, part: k }, name, columns, rows)), p.rowParts, size);
+        } else await this.ctx.storage.put(BACKUP_PLACE, p);
+      }
+      if (tables.every((t) => p.tablesDone.includes(t))) {
+        const main = await uploadPart(cfg, objectKey(cfg, day, `board:${id}`), { kind: "board", board: id, day, created_at: Date.now(), tables: this.dumpTables(), file_parts: p.fileParts, row_parts: p.rowParts });
+        await this.ctx.storage.delete(BACKUP_PLACE);
+        return { done: true, result: { ...main, extra: p.extra } };
+      }
+    }
+    return { done: false, parts: p.extra.length };
   }
 
   /** Restore drill / disaster recovery: replaces every table in `tables` with the backup's rows (columns this schema

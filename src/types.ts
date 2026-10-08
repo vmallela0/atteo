@@ -246,8 +246,9 @@ export interface Env {
   BACKUP_S3_SECRET?: string; // secret
   BACKUP_HOUR?: string; // var: UTC hour the night's backup starts (default 3)
   BACKUP_BATCH?: string; // var: boards per 5-minute cron run (default 20)
-  BACKUP_BLOB_PART_BYTES?: string; // var: a board's files are backed up in parts of about this many bytes (default 8,000,000)
-  BACKUP_ROWS_PART_BYTES?: string; // var: a board's non-file table rows are backed up in parts of about this many JSON bytes (default 8,000,000)
+  BACKUP_BLOB_PART_BYTES?: string; // var: a board's files are backed up in parts of about this many bytes (default 2,000,000)
+  BACKUP_ROWS_PART_BYTES?: string; // var: a board's non-file table rows are backed up in parts of about this many JSON bytes (default 2,000,000)
+  BACKUP_STEP_BYTES?: string; // var: about this many bytes of a board's parts per call to the board object, which then saves its place (default 8,000,000)
   BACKUP_ALERT_HOURS?: string; // var: hours after the start with no manifest before it's reported (default 6)
   BACKUP_RESTORE?: string; // "1" allows POST /api/ops/restore-board off localhost (disaster recovery only)
   // The Slack bridge (src/slack.ts, docs/SLACK.md): off until SLACK_CLIENT_ID and the three secrets are all set.

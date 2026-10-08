@@ -1,9 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
-import { backupConfig, objectKey, rowPartKey, uploadPart } from "../src/backup";
-import { b64, unpackPart } from "../src/backupcore";
+import { backupConfig, driveBoardBackup, objectKey, rowPartKey, uploadPart, type BoardBackupStep, type PartResult } from "../src/backup";
+import { b64, sha256Hex, unpackPart, type DumpTables } from "../src/backupcore";
 import { Board } from "../src/board";
 import type { Env } from "../src/types";
+
+// node:sqlite, typed only as far as these tests use it (the project has no Node types).
+interface Stmt {
+  columns(): { name: string }[];
+  setReturnArrays(on: boolean): void;
+  all(...args: unknown[]): unknown[];
+  get(...args: unknown[]): unknown;
+  run(...args: unknown[]): unknown;
+}
+interface DatabaseSync {
+  exec(sql: string): void;
+  prepare(sql: string): Stmt;
+}
+const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => DatabaseSync };
 
 // Where nightly backups go (vedu #5342): R2 in our account through the BACKUP_R2 binding, unless every BACKUP_S3_* setting
 // is set (an outside bucket someone chose on purpose). The full night against a local R2 is test/backup.mjs BK_MODE=r2.
@@ -80,39 +94,205 @@ describe("uploadPart to R2", () => {
   });
 });
 
-describe("board row parts", () => {
-  it("uploads growing table rows in bounded rowid order and keeps the main part small", async () => {
+
+// A board object over a real SQLite (node:sqlite), enough of DurableObject's sql and storage for backupStep and
+// restoreTables. `fresh()` is the same board after a reset: the same database and storage, nothing in memory.
+function sqlOver(db: DatabaseSync) {
+  return {
+    exec(query: string, ...args: unknown[]) {
+      const st = db.prepare(query);
+      const columnNames = st.columns().map((c) => c.name);
+      st.setReturnArrays(true);
+      const rows = st.all(...(args.map((a) => (a instanceof ArrayBuffer ? new Uint8Array(a) : a)) )) as unknown[][];
+      return { columnNames, raw: () => rows[Symbol.iterator](), toArray: () => rows.map((r) => Object.fromEntries(columnNames.map((c, i) => [c, r[i]]))) };
+    },
+  };
+}
+function boardOver(db: DatabaseSync, env: Env, storage = new Map<string, unknown>()) {
+  const fresh = () =>
+    Object.assign(Object.create(Board.prototype), {
+      env,
+      sql: sqlOver(db),
+      meta: (k: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(k) as { value: string } | undefined)?.value ?? null,
+      metaCache: new Map(),
+      ctx: {
+        storage: {
+          get: async (k: string) => (storage.has(k) ? structuredClone(storage.get(k)) : undefined),
+          put: async (k: string, v: unknown) => void storage.set(k, structuredClone(v)),
+          delete: async (k: string) => storage.delete(k),
+          transactionSync: (fn: () => unknown) => fn(),
+        },
+      },
+    }) as Board;
+  return { fresh, storage };
+}
+
+const SCHEMA = `
+  CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE entries (seq INTEGER PRIMARY KEY, text TEXT NOT NULL, artifact_content TEXT);
+  CREATE TABLE doc_versions (name TEXT NOT NULL, version INTEGER NOT NULL, content TEXT NOT NULL, PRIMARY KEY (name, version));
+  CREATE TABLE blobs (name TEXT NOT NULL, version INTEGER NOT NULL, mime TEXT NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (name, version));
+  CREATE TABLE sealed_files (id TEXT PRIMARY KEY, size INTEGER NOT NULL, bytes BLOB NOT NULL);
+  CREATE TABLE reactions (seq INTEGER NOT NULL, emoji TEXT NOT NULL);
+  CREATE VIRTUAL TABLE search_idx USING fts5(body, ref UNINDEXED);
+`;
+
+/** A board too big for one part at these sizes: 600 entries (some long, some not ASCII), 40 versions of a document,
+ *  30 files, 4 sealed files, the search index, and a table with no rows. */
+function bigBoard(): DatabaseSync {
+  const db = new DatabaseSync(":memory:");
+  db.exec(SCHEMA);
+  db.prepare("INSERT INTO meta VALUES ('id', 'b_big'), ('title', 'big')").run();
+  const e = db.prepare("INSERT INTO entries (seq, text, artifact_content) VALUES (?, ?, ?)");
+  const s = db.prepare("INSERT INTO search_idx (body, ref) VALUES (?, ?)");
+  for (let i = 1; i <= 600; i++) {
+    const text = `entry ${i} ${i % 7 ? "plain words" : "→ 🟦 ünïcödé"} ${"x".repeat(i % 50)}`;
+    e.run(i, text, i % 100 === 0 ? "long artifact\n".repeat(400) : null);
+    s.run(text, String(i));
+  }
+  for (let v = 1; v <= 40; v++) db.prepare("INSERT INTO doc_versions VALUES ('plan.md', ?, ?)").run(v, `# Plan v${v}\n${"step\n".repeat(v * 10)}`);
+  for (let i = 0; i < 30; i++) db.prepare("INSERT INTO blobs VALUES (?, 1, 'image/png', ?)").run(`f${String(i).padStart(2, "0")}.png`, new Uint8Array(3000).map((_, j) => (i * 31 + j) % 256));
+  db.prepare("INSERT INTO blobs VALUES ('f05.png', 2, 'image/png', ?)").run(new Uint8Array(12_000).fill(7)); // larger than a file part: one of its own
+  for (let i = 0; i < 4; i++) db.prepare("INSERT INTO sealed_files VALUES (?, 5000, ?)").run(`s${i}`, new Uint8Array(5000).fill(i));
+  return db;
+}
+
+const DAY = "2026-10-08";
+type Main = { kind: string; tables: DumpTables; row_parts: string[]; file_parts: string[] };
+
+/** Reads the night back the way scripts/backup.mjs restore-board does: the main part, then row parts, then file parts. */
+async function restoreInto(priv: CryptoKey, objects: Map<string, Uint8Array>, result: PartResult): Promise<DatabaseSync> {
+  const db = new DatabaseSync(":memory:");
+  db.exec(SCHEMA);
+  const board = boardOver(db, {} as Env).fresh();
+  const main = await unpackPart<Main>(priv, objects.get(result.object_key)!);
+  await board.restoreTables(main.tables, false);
+  for (const name of [...main.row_parts, ...main.file_parts]) await board.restoreTables((await unpackPart<{ tables: DumpTables }>(priv, objects.get(`atteo/${DAY}/boards/${name}`)!)).tables, true);
+  return db;
+}
+
+const tableRows = (db: DatabaseSync, t: string) => db.prepare(`SELECT * FROM ${t}`).all().map((r) => JSON.stringify(Object.values(r as object).map((v) => (v instanceof Uint8Array ? b64(v) : v)))).sort(); // restored rows can take other rowids
+const sameBoard = (a: DatabaseSync, b: DatabaseSync) => {
+  for (const t of ["meta", "entries", "doc_versions", "blobs", "sealed_files", "reactions", "search_idx"]) expect(tableRows(b, t), t).toEqual(tableRows(a, t));
+};
+
+describe("a big board's backup", () => {
+  const sizes = { BACKUP_BLOB_PART_BYTES: "10000", BACKUP_ROWS_PART_BYTES: "4000", BACKUP_STEP_BYTES: "20000" };
+
+  it("goes up in bounded parts over several calls, and restores to the same board", async () => {
     const { pub, priv } = await keypair();
     const r2 = fakeR2();
-    const env = { BACKUP_PUBLIC_KEY: pub, BACKUP_R2: r2.bucket, BACKUP_ROWS_PART_BYTES: "400" } as unknown as Env;
-    const entries = Array.from({ length: 20 }, (_, i) => [i + 1, `entry ${i} ${"x".repeat(80)}`]);
-    const sql = {
-      exec(query: string, ...args: unknown[]) {
-        if (query.includes("FROM blobs ORDER BY")) return { toArray: () => [] };
-        if (query.includes("FROM sqlite_master")) return { toArray: () => [{ name: "entries", sql: "CREATE TABLE entries" }, { name: "meta", sql: "CREATE TABLE meta" }] };
-        if (query.includes('FROM "entries" LIMIT 0')) return { columnNames: ["seq", "text"], raw: () => [] };
-        if (query.includes('FROM "meta"')) return { columnNames: ["key", "value"], raw: () => [["id", "b_test"]] };
-        if (query.includes('FROM "entries" WHERE rowid >')) {
-          const page = entries.filter((r) => (r[0] as number) > (args[0] as number)).slice(0, 16).map((r) => [r[0], ...r]);
-          return { raw: () => page };
-        }
-        throw new Error(`unexpected SQL: ${query}`);
-      },
-    };
-    const board = Object.assign(Object.create(Board.prototype), { env, sql, meta: () => "b_test" }) as Board;
-    const result = await board.backup("2026-10-07");
-    const main = await unpackPart<{ tables: Record<string, { rows: unknown[][] }>; row_parts: string[]; file_parts: string[] }>(priv, r2.objects.get(result.object_key)!);
+    const db = bigBoard();
+    const env = { BACKUP_PUBLIC_KEY: pub, BACKUP_R2: r2.bucket, ...sizes } as unknown as Env;
+    const { fresh, storage } = boardOver(db, env);
+    let steps = 0;
+    const perStep: number[] = [];
+    const result = await driveBoardBackup(async () => {
+      steps++;
+      const before = r2.objects.size;
+      const r = await fresh().backupStep(DAY);
+      perStep.push(r2.objects.size - before);
+      return r;
+    });
+    expect(steps).toBeGreaterThan(5);
+    expect(Math.max(...perStep)).toBeLessThanOrEqual(8); // ~20 KB a call at ≤10 KB / ≤4 KB a part (plus the main part)
+    expect(storage.size).toBe(0); // the place is forgotten once the board is done
+
+    const main = await unpackPart<Main>(priv, r2.objects.get(result.object_key)!);
+    expect(main.kind).toBe("board");
     expect(main.tables.entries.rows).toEqual([]);
-    expect(main.tables.meta.rows).toEqual([["id", "b_test"]]);
-    expect(main.file_parts).toEqual([]);
-    expect(main.row_parts.length).toBeGreaterThan(2);
-    expect(result.extra?.length).toBe(main.row_parts.length);
-    const restored: unknown[][] = [];
-    for (const [k, name] of main.row_parts.entries()) {
-      expect(name).toBe(rowPartKey(backupConfig(env)!, "2026-10-07", "b_test", "entries", k).split("/").at(-1));
-      const part = await unpackPart<{ tables: { entries: { rows: unknown[][] } } }>(priv, r2.objects.get(`atteo/2026-10-07/boards/${name}`)!);
-      restored.push(...part.tables.entries.rows);
+    expect(main.tables.entries.columns).toEqual(["seq", "text", "artifact_content"]);
+    expect(main.tables.meta.rows).toEqual([["id", "b_big"], ["title", "big"]]);
+    expect(Object.keys(main.tables)).not.toContain("search_idx_data");
+    expect(main.file_parts.length).toBeGreaterThan(5);
+    for (const t of ["entries", "doc_versions", "search_idx", "sealed_files"]) expect(main.row_parts.filter((n) => n.includes(`.rows-${t}-`)).length, t).toBeGreaterThan(2);
+    expect(main.row_parts.some((n) => n.includes(".rows-reactions-"))).toBe(false); // no rows, no part
+    // Parts are numbered in order per table, and the result lists every one with its size and hash.
+    expect(main.row_parts.filter((n) => n.includes(".rows-entries-"))).toEqual(main.row_parts.filter((n) => n.includes(".rows-entries-")).map((_, k) => rowPartKey(backupConfig(env)!, DAY, "b_big", "entries", k).split("/").at(-1)));
+    expect(result.extra!.map((e) => e.object_key.split("/").at(-1))).toEqual([...main.file_parts, ...main.row_parts]);
+    for (const e of result.extra!) {
+      const body = r2.objects.get(e.object_key)!;
+      expect(body.length).toBe(e.bytes);
+      expect(e.sha256).toBe(await sha256Hex(body));
     }
-    expect(restored).toEqual(entries);
+    // Each part is bounded: a few KB of JSON at most (one row larger than the cap rides alone).
+    for (const name of main.row_parts) {
+      const part = await unpackPart<{ kind: string; table: string; tables: DumpTables }>(priv, r2.objects.get(`atteo/${DAY}/boards/${name}`)!);
+      expect(part.kind).toBe("board-rows");
+      const rows = part.tables[part.table].rows;
+      if (rows.length > 1) expect(JSON.stringify(rows).length).toBeLessThan(4000 + 200);
+    }
+    sameBoard(db, await restoreInto(priv, r2.objects, result));
+  });
+
+  it("carries on after the last saved part when the object resets mid-call, writing each part once", async () => {
+    const { pub, priv } = await keypair();
+    const r2 = fakeR2();
+    const puts: string[] = [];
+    let n = 0;
+    const put = r2.bucket.put.bind(r2.bucket);
+    (r2.bucket as unknown as { put: unknown }).put = async (key: string, v: Uint8Array) => {
+      if (++n % 9 === 0) throw new Error("Network connection lost."); // every ninth upload dies with the object
+      puts.push(key);
+      return put(key, v);
+    };
+    const db = bigBoard();
+    const { fresh } = boardOver(db, { BACKUP_PUBLIC_KEY: pub, BACKUP_R2: r2.bucket, ...sizes } as unknown as Env);
+    const result = await driveBoardBackup(() => fresh().backupStep(DAY));
+    expect(n).toBeGreaterThan(18);
+    expect(new Set(puts).size).toBe(puts.length); // nothing written twice: each retry started after the last saved part
+    expect(puts.length).toBe(result.extra!.length + 1);
+    sameBoard(db, await restoreInto(priv, r2.objects, result));
+  });
+
+  it("a failed attempt picks up where it stopped on the next attempt (backupTick's retry)", async () => {
+    const { pub, priv } = await keypair();
+    const r2 = fakeR2();
+    const db = bigBoard();
+    const { fresh, storage } = boardOver(db, { BACKUP_PUBLIC_KEY: pub, BACKUP_R2: r2.bucket, ...sizes } as unknown as Env);
+    let calls = 0;
+    await expect(
+      driveBoardBackup(async () => {
+        if (++calls === 4) throw new Error("S3 PUT x: 503 SlowDown"); // not a reset: the attempt fails
+        return fresh().backupStep(DAY);
+      }),
+    ).rejects.toThrow(/503/);
+    const first = r2.objects.size;
+    expect(first).toBeGreaterThan(5);
+    expect(storage.size).toBe(1);
+    const result = await driveBoardBackup(() => fresh().backupStep(DAY));
+    expect(r2.objects.size).toBe(result.extra!.length + 1);
+    expect(result.extra!.slice(0, first).map((e) => e.object_key)).toEqual([...r2.objects.keys()].slice(0, first));
+    sameBoard(db, await restoreInto(priv, r2.objects, result));
+  });
+
+  it("a saved place from another night is ignored", async () => {
+    const { pub, priv } = await keypair();
+    const r2 = fakeR2();
+    const db = bigBoard();
+    const { fresh, storage } = boardOver(db, { BACKUP_PUBLIC_KEY: pub, BACKUP_R2: r2.bucket, ...sizes } as unknown as Env);
+    expect((await fresh().backupStep("2026-10-07")).done).toBe(false);
+    expect(storage.size).toBe(1);
+    const result = await driveBoardBackup(() => fresh().backupStep(DAY));
+    expect(result.extra!.every((e) => e.object_key.startsWith(`atteo/${DAY}/`))).toBe(true);
+    sameBoard(db, await restoreInto(priv, r2.objects, result));
+  });
+});
+
+describe("driveBoardBackup", () => {
+  const done: BoardBackupStep = { done: true, result: { object_key: "k", bytes: 1, sha256: "x" } };
+  it("tries a step again after a reset, at most `retries` times in a row", async () => {
+    const lost = Object.assign(new Error("Durable Object reset because its code was updated."), { retryable: true });
+    let i = 0;
+    const seq = [lost, { done: false, parts: 1 }, lost, lost, done];
+    await expect(driveBoardBackup(async () => { const s = seq[i++]; if (s instanceof Error) throw s; return s as BoardBackupStep; })).resolves.toEqual(done.result);
+    i = 0;
+    const three = [lost, lost, lost, done];
+    await expect(driveBoardBackup(async () => { const s = three[i++]; if (s instanceof Error) throw s; return s as BoardBackupStep; })).rejects.toThrow(/reset/);
+  });
+  it("fails at once on anything else", async () => {
+    let calls = 0;
+    await expect(driveBoardBackup(async () => (calls++, Promise.reject(new Error("backups are not configured"))))).rejects.toThrow(/not configured/);
+    expect(calls).toBe(1);
   });
 });

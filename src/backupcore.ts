@@ -71,11 +71,50 @@ export function tableToSql(name: string, t: DumpTable): string {
 
 // ---- compression ----
 
-async function pipe(data: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
-  return new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(stream)).arrayBuffer());
+/** Runs pieces through a (de)compression stream, read as it's written: the input is never copied into one more buffer. */
+async function pipe(pieces: Iterable<Uint8Array>, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
+  const out = new Response(stream.readable).arrayBuffer();
+  const w = stream.writable.getWriter();
+  try {
+    for (const p of pieces) await w.write(p);
+    await w.close();
+  } catch (e) {
+    await out; // the stream's own error (bad gzip) says more than the writer's
+    throw e;
+  }
+  return new Uint8Array(await out);
 }
-export const gzip = (data: Uint8Array) => pipe(data, new CompressionStream("gzip"));
-export const gunzip = (data: Uint8Array) => pipe(data, new DecompressionStream("gzip"));
+export const gzip = (data: Uint8Array) => pipe([data], new CompressionStream("gzip"));
+export const gunzip = (data: Uint8Array) => pipe([data], new DecompressionStream("gzip"));
+
+/** Text pieces → gzip, encoded about 64 KB at a time, so a part's JSON never exists as one string or one byte array. */
+export function gzipText(pieces: Iterable<string>): Promise<Uint8Array> {
+  function* bytes() {
+    let buf = "";
+    for (const p of pieces) {
+      buf += p;
+      if (buf.length >= 65_536) {
+        yield enc.encode(buf);
+        buf = "";
+      }
+    }
+    if (buf) yield enc.encode(buf);
+  }
+  return pipe(bytes(), new CompressionStream("gzip"));
+}
+
+/** A string's UTF-8 length without encoding it. */
+export function utf8Length(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) (n += 4), i++; // a surrogate pair
+    else n += 3;
+  }
+  return n;
+}
 
 // ---- sealing: X25519 → HKDF-SHA256 → AES-256-GCM ----
 
@@ -131,6 +170,17 @@ export async function open(privateKey: CryptoKey, data: Uint8Array): Promise<Uin
 /** JSON → gzip → sealed bytes, and back. */
 export async function packPart(publicKeyB64: string, value: unknown): Promise<Uint8Array> {
   return seal(publicKeyB64, await gzip(enc.encode(JSON.stringify(value))));
+}
+/** The same sealed format from JSON text already in pieces (a board's table parts: one piece per row). */
+export async function packText(publicKeyB64: string, pieces: Iterable<string>): Promise<Uint8Array> {
+  return seal(publicKeyB64, await gzipText(pieces));
+}
+/** A table part's JSON in pieces, the same as JSON.stringify({...head, tables: {[table]: {columns, rows}}}) with each
+ *  row already JSON. */
+export function* tablePartText(head: Record<string, unknown>, table: string, columns: string[], rowsJson: string[]): Generator<string> {
+  yield `${JSON.stringify(head).slice(0, -1)},"tables":{${JSON.stringify(table)}:{"columns":${JSON.stringify(columns)},"rows":[`;
+  for (let i = 0; i < rowsJson.length; i++) yield i ? `,${rowsJson[i]}` : rowsJson[i];
+  yield "]}}}";
 }
 export async function unpackPart<T = unknown>(privateKey: CryptoKey, data: Uint8Array): Promise<T> {
   return JSON.parse(dec.decode(await gunzip(await open(privateKey, data)))) as T;

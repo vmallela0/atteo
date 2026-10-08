@@ -714,7 +714,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   // Tonight's encrypted backup (src/backup.ts, R2 or an S3 bucket): a batch of parts per run; it waits only at the worst shed level.
   const nightly =
     shed.level < 2
-      ? await backup.backupTick(env, now, (id, day) => boardStub(env, id).backup(day)).catch((e) => (console.error("backup run failed", e), undefined))
+      ? await backup.backupTick(env, now, (id, day) => backup.driveBoardBackup(() => boardStub(env, id).backupStep(day))).catch((e) => (console.error("backup run failed", e), undefined))
       : undefined;
   return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, oauth_clients_pruned, shed, ...(nightly ? { backup: nightly } : {}) };
 }
@@ -4417,7 +4417,7 @@ const handler = {
         if (path === "/api/ops/backups" && method === "GET") return json(await backup.backupStatus(env));
         if (path === "/api/ops/backup" && method === "POST") {
           const at = Number((body as { now?: unknown }).now);
-          return json({ ok: true, ...(await backup.backupTick(env, Number.isFinite(at) && at > 0 ? at : Date.now(), (id, day) => boardStub(env, id).backup(day))) });
+          return json({ ok: true, ...(await backup.backupTick(env, Number.isFinite(at) && at > 0 ? at : Date.now(), (id, day) => backup.driveBoardBackup(() => boardStub(env, id).backupStep(day)))) });
         }
         if (path === "/api/ops/restore-board" && method === "POST") {
           if (env.BACKUP_RESTORE !== "1" && !isLocalHost(url.hostname)) return json({ error: "restore-board runs on localhost, or with BACKUP_RESTORE=1" }, 400);

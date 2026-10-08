@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { b64, decodeValue, encodeValue, keyId, packPart, seal, sealedHeader, signS3, tableToSql, unpackPart, open, type S3Config } from "../src/backupcore";
+import { b64, decodeValue, encodeValue, gunzip, gzipText, keyId, packPart, packText, seal, sealedHeader, signS3, tablePartText, tableToSql, unpackPart, open, utf8Length, type S3Config } from "../src/backupcore";
 
 // AWS's worked examples for Signature Version 4 (docs: "Examples: Signature calculations in AWS Signature Version 4").
 const AWS: S3Config = { endpoint: "https://s3.amazonaws.com", bucket: "examplebucket", region: "us-east-1", keyId: "AKIAIOSFODNN7EXAMPLE", secret: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", prefix: "", virtualHost: true };
@@ -64,5 +64,25 @@ describe("dump values", () => {
     expect(v).toEqual({ $b64: "AAH+/w==" });
     expect(new Uint8Array(decodeValue(JSON.parse(JSON.stringify(v))) as ArrayBuffer)).toEqual(new Uint8Array([0, 1, 254, 255]));
     expect(tableToSql("blobs", { columns: ["name", "bytes", "n", "x"], rows: [["it's", v, 3, null]] })).toBe(`INSERT INTO "blobs" ("name", "bytes", "n", "x") VALUES ('it''s', X'0001feff', 3, NULL);\n`);
+  });
+});
+
+describe("parts from JSON in pieces (a board's table parts)", () => {
+  it("tablePartText is JSON.stringify of the same part, and packText opens like packPart", async () => {
+    const { pub, priv } = await keypair();
+    const rows = [[1, "héllo ✓ 🟦"], [2, { $b64: "AAH+/w==" }], [3, "x".repeat(100_000)], [4, null]];
+    const head = { kind: "board-rows", board: "b_x", day: "2026-10-08", table: "entries", part: 3 };
+    const value = { ...head, tables: { entries: { columns: ["seq", "text"], rows } } };
+    const text = () => tablePartText(head, "entries", ["seq", "text"], rows.map((r) => JSON.stringify(r)));
+    expect([...text()].join("")).toBe(JSON.stringify(value));
+    expect(await unpackPart(priv, await packText(pub, text()))).toEqual(value);
+    expect(await unpackPart(priv, await packText(pub, tablePartText(head, "entries", ["seq", "text"], [])))).toEqual({ ...head, tables: { entries: { columns: ["seq", "text"], rows: [] } } });
+  });
+  it("gzipText of many pieces gunzips to their concatenation", async () => {
+    const pieces = Array.from({ length: 5000 }, (_, i) => `piece ${i} ${"é".repeat(i % 40)};`);
+    expect(new TextDecoder().decode(await gunzip(await gzipText(pieces)))).toBe(pieces.join(""));
+  });
+  it("utf8Length matches TextEncoder", () => {
+    for (const s of ["", "abc", "héllo", "→ ✓", "🟦🟦", "a\ud800b", "\udc00", "end\ud83d"]) expect(utf8Length(s), JSON.stringify(s)).toBe(new TextEncoder().encode(s).length);
   });
 });

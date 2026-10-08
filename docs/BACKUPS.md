@@ -15,11 +15,19 @@ What it writes, from the 5-minute cron, a few boards per run (so no run is long)
 
 ```
 atteo-backups/atteo/<day>/d1.json.gz.enc             every D1 table (users, sessions, boards, members, …)
-atteo-backups/atteo/<day>/boards/<id>.json.gz.enc   every table of one board's Durable Object (the board uploads it itself)…
-atteo-backups/atteo/<day>/boards/<id>.files-<k>…     …except its files and pictures, about 8 MB per part, so a board with
-                                                     many never builds one huge object in its 128 MB
+atteo-backups/atteo/<day>/boards/<id>.json.gz.enc   one board's Durable Object: its tables' columns, meta, and its parts…
+atteo-backups/atteo/<day>/boards/<id>.files-<k>…     …its files and pictures, about 2 MB per part
+atteo-backups/atteo/<day>/boards/<id>.rows-<t>-<k>…  …every other table's rows in rowid order, about 2 MB of JSON per part
 atteo-backups/atteo/<day>/manifest.json.gz.enc       written last: every part, its size and SHA-256, and any that failed
 ```
+
+A board uploads its own parts (nothing big crosses from the board to the Worker), a few per call: the cron calls
+`Board.backupStep` until the board says it's done. Each part is read, turned into JSON, gzipped, sealed and uploaded on
+its own, and the board saves its place after each one (in its own storage, which no dump includes), so a big board never
+holds more than one part in memory, and a call that dies (the object reset: out of memory, a deploy) is called again and
+carries on after the last part written. A failed attempt resumes the same way on the next run. The main part goes last.
+(Oct 6–8 2026 the busiest board, b_skyvcqtm7fei, failed every night with "Network connection lost." within seconds: one
+call built ~8 MB parts several copies over, on top of what the live board holds in its 128 MB, and every retry started over.)
 
 Each part is JSON → gzip → X25519 → HKDF-SHA256 → AES-256-GCM (a fresh ephemeral key per part; the format is in
 `src/backupcore.ts`). The Worker holds only the backup **public** key, so it can write backups but never read one. A part
@@ -41,9 +49,10 @@ objects (30 days) *and* the private key both exist.
    `wrangler.jsonc` var only so that local and test servers, which share `wrangler.jsonc`, don't back up on every cron
    call; it isn't sensitive. Backups are **off** until it's set.
 5. **Optional** `wrangler.jsonc` vars: `BACKUP_HOUR` (UTC, default 3), `BACKUP_BATCH` (boards per cron run, default 20),
-   `BACKUP_ALERT_HOURS` (default 6), `BACKUP_BLOB_PART_BYTES` (a board's files per part, default 8,000,000),
-   `BACKUP_ROWS_PART_BYTES` (a board's table rows per part, estimated JSON bytes, default 8,000,000),
-   `BACKUP_S3_PREFIX` (default `atteo/`).
+   `BACKUP_ALERT_HOURS` (default 6), `BACKUP_BLOB_PART_BYTES` (a board's files per part, default 2,000,000),
+   `BACKUP_ROWS_PART_BYTES` (a board's table rows per part, estimated JSON bytes, default 2,000,000),
+   `BACKUP_STEP_BYTES` (about how much of a board one call writes before it saves its place and returns, default
+   8,000,000), `BACKUP_S3_PREFIX` (default `atteo/`).
 6. **Verify the next day**: `GET /api/ops/backups` (operator) shows `configured: true`, `target: "r2"` and the nights.
    The first good night ends with a manifest and `last_complete` set.
    `node scripts/backup.mjs list <day> --r2 atteo-backups --key ~/.atteo-backup/backup-key.json` lists its objects.
@@ -97,9 +106,9 @@ stays. The board half goes through `POST /api/ops/restore-board`, which works on
 | --- | --- |
 | `src/backupcore.ts` | sealing, gzip, dump values, S3 SigV4 (imports nothing, so the script and Node run it as is) |
 | `src/backup.ts` | where nights go (R2 binding, or S3 when fully set), the nightly tick: D1 dump, board batches, the manifest, the alert; `GET /api/ops/backups` |
-| `src/board.ts` (`backup`/`restoreTables`) | each board uploads its own dump; the drill replaces a board's tables |
+| `src/board.ts` (`backupStep`/`restoreTables`) | each board uploads its own parts, a few per call, resuming after the last; the drill replaces a board's tables |
 | `migrations/0059_backup_parts.sql` | one row per part per night (retries, bookkeeping) |
 | `scripts/backup.mjs` | keygen, list, decrypt, the drill (`--r2` through wrangler, or an S3 bucket) |
 | `test/backup.mjs` (verify.sh suite `backup`) | the drill as a test, twice: a local Worker writing to its local R2 binding (read back with `--r2-local`), and one writing to a fake S3; write → decrypt → restore D1 and a board → (S3) retries and the alert |
-| `test/backupR2.test.ts` | which bucket a night goes to, and a part sealed into R2 |
+| `test/backupR2.test.ts` | which bucket a night goes to, a part sealed into R2, and a big board (node:sqlite) backed up over many calls, through resets and a failed attempt, then restored exactly |
 | `test/backupcore.test.ts` | SigV4 against AWS's published examples, sealing, dump values |

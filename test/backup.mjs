@@ -42,13 +42,15 @@ function assert(cond, msg) {
 // The fake bucket: S3 enough for the backup (PUT, GET, ListObjectsV2). It checks the request is signed (the signature
 // math itself is test/backupcore.test.ts against AWS's examples), and stores the bytes.
 const objects = new Map();
+const putCounts = new Map(); // key → PUTs stored: a resumed board writes each of its parts once
 let refusePuts = false; // a bucket that's down, for the retry and alert step
+let failPutIn = 0; // >0: that many PUTs from now, one fails (the big board's resume step)
 const fake = (await import("node:http")).createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${S3PORT}`);
   const key = url.pathname.replace(/^\/atteo-test\//, "");
   if (!/^AWS4-HMAC-SHA256 /.test(req.headers.authorization ?? "")) {
     res.writeHead(403).end("unsigned");
-  } else if (req.method === "PUT" && refusePuts) {
+  } else if (req.method === "PUT" && (refusePuts || (failPutIn > 0 && --failPutIn === 0))) {
     req.resume();
     res.writeHead(503).end("SlowDown");
   } else if (req.method === "PUT") {
@@ -56,6 +58,7 @@ const fake = (await import("node:http")).createServer((req, res) => {
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
       objects.set(key, Buffer.concat(chunks));
+      putCounts.set(key, (putCounts.get(key) ?? 0) + 1);
       res.writeHead(200).end();
     });
   } else if (req.method === "GET" && url.searchParams.get("list-type") === "2") {
@@ -263,7 +266,70 @@ const steps = [
     assert(st.days[0].alert && st.failures.some((f) => f.part === "d1" && f.attempts === 3 && /503/.test(f.error)), `ops/backups shows the night's failures: ${JSON.stringify(st).slice(0, 500)}`);
     assert(st.last_complete === day, "the last good night is still the first one");
   }],
+  ["a big board: about 200 parts over many calls, a failed attempt resumes, restore-board brings it back exactly", async () => {
+    if (MODE === "r2") return; // the fake S3 counts PUTs and fails one; restoring hundreds of parts through wrangler is slow
+    const b = await ops("boards", { user: "bk-user", title: "bk big board" });
+    assert(b.status === 201, `big board created: ${JSON.stringify(b.body)}`);
+    const big = b.body.board.id;
+    const s = await ops("seed", { user: "bk-user", board: big, count: 150, prefix: "bk-big" });
+    assert(s.status === 200 && s.body.count === 150, "150 entries seeded");
+    const bigFiles = ["big-1.png", "big-2.png", "big-3.png", "big-4.png", "big-5.png"];
+    const fd = new FormData();
+    for (const name of bigFiles) (fd.append("file", new Blob([png(name)], { type: "image/png" }), name), fd.append("w", "10"), fd.append("h", "10"));
+    fd.append("text", "bk-big-files");
+    const up = await fetch(`${BASE}/api/boards/${big}/upload`, { method: "POST", headers: { authorization: `Bearer ${globalThis.__token}` }, body: fd });
+    assert(up.status === 201, `big files uploaded: ${up.status}`);
+    const before = await allEntries(big);
+    assert(before.length === 151, `151 entries before the night: ${before.length}`);
+
+    // Two nights on: the first run's attempt dies partway (one PUT refused), the next run finishes from where it stopped.
+    const night2 = new Date(at(4) + 2 * 86_400_000).toISOString().slice(0, 10);
+    failPutIn = 60;
+    const r1 = (await ops("backup", { now: at(4) + 2 * 86_400_000 })).body;
+    assert(failPutIn === 0 && r1.failed >= 1 && !r1.manifest, `the first run fails a board partway: ${JSON.stringify(r1)}`);
+    const r2 = (await ops("backup", { now: at(4, 5) + 2 * 86_400_000 })).body;
+    assert(!r2.failed && r2.manifest === true, `the next run finishes the night: ${JSON.stringify(r2)}`);
+    const mine = [...putCounts.entries()].filter(([k]) => k.startsWith(`${night2}/boards/`));
+    assert(mine.length > 150 && mine.every(([, n]) => n === 1), `each part written once, the retry picking up after the last one written: ${mine.filter(([, n]) => n !== 1).map(([k]) => k).join(", ") || mine.length}`);
+
+    const main = await unseal(`${night2}/boards/${big}.json.gz.enc`);
+    const count = (t) => main.row_parts.filter((n) => n.includes(`.rows-${t}-`)).length;
+    assert(count("entries") >= 100 && count("search_idx") >= 5 && main.file_parts.length === 5, `entries, search index and files across many parts: ${count("entries")}, ${count("search_idx")}, ${main.file_parts.length}`);
+    const m = await unseal(`${night2}/manifest.json.gz.enc`);
+    const bp = m.parts.find((p) => p.part === `board:${big}`);
+    const keys = bp.extra.map((e) => e.object_key);
+    assert(new Set(keys).size === keys.length && keys.length === main.row_parts.length + main.file_parts.length, "the manifest lists every part once");
+    for (const e of bp.extra) assert(objects.get(e.object_key)?.length === e.bytes && (await bc.sha256Hex(new Uint8Array(objects.get(e.object_key)))) === e.sha256, `size and hash of ${e.object_key}`);
+
+    await ops("seed", { user: "bk-user", board: big, count: 4, prefix: "bk-big-after" });
+    const { stdout } = await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "restore-board", night2, big, "--key", KEY_FILE, "--base", BASE, "--admin-key", ADMIN_KEY, ...scriptArgs()], { env: scriptEnv() }).catch((e) => {
+      throw new Error(`restore-board failed: ${e.stderr || e.message}`);
+    });
+    assert(new RegExp(`from ${main.row_parts.length} row parts, 5 files from 5 file parts`).test(stdout), `the script's report: ${stdout}`);
+    const after = await allEntries(big);
+    assert(JSON.stringify(after) === JSON.stringify(before), `every entry back exactly, none after the night (${after.length})`);
+    for (const name of bigFiles) {
+      const r = await fetch(`${BASE}/api/boards/${big}/image?name=${name}`, { headers: { authorization: `Bearer ${globalThis.__token}` } });
+      assert(r.status === 200 && Buffer.from(await r.arrayBuffer()).equals(png(name)), `${name} back byte for byte (${r.status})`);
+    }
+    const hit = await fetch(`${BASE}/api/boards/${big}/search?q=bk-big`, { headers: { authorization: `Bearer ${globalThis.__token}` } });
+    const found = hit.status === 200 ? (await hit.json()).entries : [];
+    assert(found.length > 0 && !JSON.stringify(found).includes("bk-big-after"), `the search index comes back with the rows: ${hit.status} ${found.length}`);
+  }],
 ];
+
+/** Every entry of a board, a page at a time. */
+const allEntries = async (board) => {
+  const out = [];
+  for (let after = 0; ; ) {
+    const r = await fetch(`${BASE}/api/boards/${board}/entries?after=${after}&limit=100`, { headers: { authorization: `Bearer ${globalThis.__token}` } });
+    assert(r.status === 200, `entries read: ${r.status}`);
+    const page = (await r.json()).entries;
+    out.push(...page);
+    if (!page.length) return out;
+    after = page[page.length - 1].seq;
+  }
+};
 
 // One board, seeded before the night (the local Worker is fresh, so the boards table has only ours).
 const setup = [

@@ -5,6 +5,8 @@
 //   <prefix><day>/boards/<id>.files-<k>…    files and pictures, a few MB per part (BACKUP_BLOB_PART_BYTES)
 //   <prefix><day>/boards/<id>.rows-<table>-<k>…  other table rows, about BACKUP_ROWS_PART_BYTES per part
 //   <prefix><day>/manifest.json.gz.enc      written last: every part with its size and SHA-256, and any that failed
+// A board writes its own parts (Board.backupStep), a few per call, saving its place after each, so a big board never
+// holds more than one part in memory and a reset object (memory, a deploy) loses one part, not the night.
 // A part that fails is retried on later runs (3 tries). If the manifest isn't written BACKUP_ALERT_HOURS after the start,
 // or a part gave up, the cron reports it once that day (Sentry, the ops errors list, the log). Retention (30 days) is the
 // bucket's lifecycle rule. scripts/backup.mjs makes the key pair, decrypts, and restores into local wrangler dev.
@@ -13,7 +15,7 @@
 // BACKUP_PUBLIC_KEY is set too; docs/BACKUPS.md has the setup and the drill.
 
 import * as Sentry from "@sentry/cloudflare";
-import { encodeValue, keyId, packPart, putObject, sha256Hex, unb64, type DumpTables, type S3Config } from "./backupcore";
+import { encodeValue, keyId, packPart, packText, putObject, sha256Hex, unb64, type DumpTables, type S3Config } from "./backupcore";
 import type { Env } from "./types";
 import { recordError } from "./usage";
 
@@ -62,13 +64,54 @@ export const blobPartKey = (cfg: BackupConfig, day: string, board: string, k: nu
 export const rowPartKey = (cfg: BackupConfig, day: string, board: string, table: string, k: number) =>
   `${cfg.prefix}${day}/boards/${board}.rows-${encodeURIComponent(table)}-${k}.json.gz.enc`;
 
-/** Packs, seals and uploads one part. */
-export async function uploadPart(cfg: BackupConfig, key: string, value: unknown): Promise<PartResult> {
-  const body = await packPart(cfg.publicKey, value);
+/** A board's part sizes. Each part is built, gzipped and sealed in the board object's memory (128 MB, shared with
+ *  everything the board holds for its live clients), so they stay a few MB. `step`: about how many bytes of parts one
+ *  call to Board.backupStep uploads before it saves its place and returns, so no one call runs long. */
+export function boardPartSizes(env: Env): { blob: number; rows: number; step: number } {
+  const pos = (v: string | undefined, d: number) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  return { blob: pos(env.BACKUP_BLOB_PART_BYTES, 2_000_000), rows: pos(env.BACKUP_ROWS_PART_BYTES, 2_000_000), step: pos(env.BACKUP_STEP_BYTES, 8_000_000) };
+}
+
+/** One call's worth of a board's backup: more to do, or the board's finished part (its main part, extra = the rest). */
+export type BoardBackupStep = { done: false; parts: number } | { done: true; result: PartResult };
+
+/** Drives a board's backup a step at a time (each step a fresh call to the board object, which saves its place after
+ *  every part). A step that dies with the object (reset: out of memory, a deploy) is tried again with a new stub and
+ *  picks up after the last part it saved, at most `retries` times in a row; anything else fails the attempt, which
+ *  backupTick retries on a later run, again from the saved place. */
+export async function driveBoardBackup(step: () => Promise<BoardBackupStep>, retries = 2): Promise<PartResult> {
+  let lost = 0;
+  for (;;) {
+    let r: BoardBackupStep;
+    try {
+      r = await step();
+    } catch (e) {
+      const err = e as { retryable?: boolean; message?: string } | undefined;
+      const reset = err?.retryable === true || /network connection lost|reset|exceeded its memory|exceeded .*cpu/i.test(err?.message ?? "");
+      if (!reset || ++lost > retries) throw e;
+      continue;
+    }
+    if (r.done) return r.result;
+    lost = 0;
+  }
+}
+
+/** Uploads one sealed part (packPart / packText). */
+async function putPart(cfg: BackupConfig, key: string, body: Uint8Array): Promise<PartResult> {
   if (cfg.s3) await putObject(cfg.s3, key, body);
   else if (cfg.r2) await cfg.r2.put(key, body, { httpMetadata: { contentType: "application/octet-stream" } });
   else throw new Error("backups have no bucket");
   return { object_key: key, bytes: body.length, sha256: await sha256Hex(body) };
+}
+
+/** Packs, seals and uploads one part. */
+export async function uploadPart(cfg: BackupConfig, key: string, value: unknown): Promise<PartResult> {
+  return putPart(cfg, key, await packPart(cfg.publicKey, value));
+}
+
+/** The same from JSON text in pieces (tablePartText), never joined into one string. */
+export async function uploadText(cfg: BackupConfig, key: string, pieces: Iterable<string>): Promise<PartResult> {
+  return putPart(cfg, key, await packText(cfg.publicKey, pieces));
 }
 
 /** Every D1 table (sqlite_master order), paged by rowid so each row is read once. */
