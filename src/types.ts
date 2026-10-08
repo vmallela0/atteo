@@ -221,6 +221,7 @@ export interface Env {
   // default; needs read replication enabled on the database to make any difference. Staging only until reviewed.
   D1_REPLICAS?: string;
   DB_REPLICA?: D1Database; // set per request by src/replicas.ts (hot GETs only); read it only through presentational(env)
+  D1_DEBUG_HEADERS?: string; // "1": hot GETs carry x-d1-bookmark and x-d1-served (region/colo). Staging and local only, never prod
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
   // Free-plan guardrails (src/limits.ts; INFRA-ASSESSMENT §4i). All optional vars; the defaults are in limits().
   RATE_AGENT_PER_MIN?: string; // var: requests per minute per agent token (default 600; per isolate)
@@ -291,3 +292,9 @@ export interface Env {
   TEAMS_APP_PASSWORD?: string; // secret: that app registration's client secret: the bot's outbound tokens, and the link-code HMAC key
   TEAMS_TENANT_ID?: string; // optional secret: set for a single-tenant bot (tokens from that tenant; activities only from it)
 }
+
+// src/replicas.ts: the env whose DB may be a D1 replica is branded, and every read that decides access or visibility
+// takes a PrimaryEnv, so handing it the replica env is a compile error. A plain Env is a PrimaryEnv.
+declare const replica: unique symbol;
+export type ReplicaEnv = Env & { readonly [replica]: true };
+export type PrimaryEnv = Env & { readonly [replica]?: never };

@@ -70,7 +70,7 @@ if (!opt("base")) {
   try { await fetch(`${BASE}/health`); console.error(`bench-messaging: port ${PORT} is busy; stop that server or pass --port`); process.exit(2); } catch {}
   stateDir = mkdtempSync(join(tmpdir(), "atteo-bench-"));
   const env = join(stateDir, "bench.env");
-  writeFileSync(env, [`WORKOS_API_KEY=sk_test_ci_placeholder`, `ADMIN_KEY=${KEY}`, `POSTS_PER_MINUTE=100000`, `PUBLIC_URL=${BASE}`, `DEV_HOPS=1`, `DEV_D1_MS=${D1_MS}`, `DEV_DO_MS=${DO_MS}`, `DEV_HOPS_LOG=${flag("log-hops") ? 1 : 0}`, ...(REPLICA_MS == null ? [] : [`D1_REPLICAS=1`, `DEV_D1_REPLICA_MS=${REPLICA_MS}`]), ""].join("\n"));
+  writeFileSync(env, [`WORKOS_API_KEY=sk_test_ci_placeholder`, `ADMIN_KEY=${KEY}`, `POSTS_PER_MINUTE=100000`, `PUBLIC_URL=${BASE}`, `DEV_HOPS=1`, `DEV_D1_MS=${D1_MS}`, `DEV_DO_MS=${DO_MS}`, `DEV_HOPS_LOG=${flag("log-hops") ? 1 : 0}`, ...(REPLICA_MS == null ? [] : [`D1_REPLICAS=1`, `D1_DEBUG_HEADERS=1`, `DEV_D1_REPLICA_MS=${REPLICA_MS}`]), ""].join("\n"));
   execFileSync("npx", ["wrangler", "d1", "migrations", "apply", "agent-board", "--local", "--persist-to", join(stateDir, "state")], { cwd: ROOT, env: { ...process.env, CI: "1" }, stdio: "ignore" });
   const { openSync } = await import("node:fs");
   const log = openSync(join(stateDir, "server.log"), "w");

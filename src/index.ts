@@ -122,7 +122,7 @@ import {
   PREVIEW_FRAME_CSP,
   PREVIEW_FRAME_HTML,
 } from "./html";
-import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer } from "./types";
+import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type PrimaryEnv, type Viewer as Seer } from "./types";
 import { signedOutPage as signedOut } from "./e2eweb";
 import { APP_CSS, APP_JS, PAGE_CSS, directPeer, pageSecurity, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_DIALOG, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
@@ -211,7 +211,7 @@ interface Ctx {
 /** The board's access row for this request's viewer, read once per request (registry.boardAccess) and shared by the
  *  soft-delete guard, the viewer-role guard and canSee. Never kept past the request: a membership change or a deleted
  *  board applies to the very next one. */
-function accessOf(c: Pick<Ctx, "env" | "viewer" | "access">, boardId: string): Promise<registry.BoardAccess> {
+function accessOf(c: Pick<Ctx, "viewer" | "access"> & { env: PrimaryEnv }, boardId: string): Promise<registry.BoardAccess> {
   const key = `${boardId}\n${c.viewer?.name ?? ""}`;
   let p = c.access.get(key);
   if (!p) {
@@ -222,7 +222,7 @@ function accessOf(c: Pick<Ctx, "env" | "viewer" | "access">, boardId: string): P
   return p;
 }
 
-async function loadViewer(env: Env, session: auth.Session | null, request?: Request, path = "", ctx?: ExecutionContext): Promise<Viewer | null> {
+async function loadViewer(env: PrimaryEnv, session: auth.Session | null, request?: Request, path = "", ctx?: ExecutionContext): Promise<Viewer | null> {
   // The JSON API also takes a personal token (Authorization: Bearer ab_…), as agents use for MCP. Never for pages.
   const bearer = request?.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
   // Account-level actions (tokens, billing, ops) stay browser-only, so a leaked token can't mint more or change plans.
@@ -764,7 +764,7 @@ const handler = {
     const rs = replicas.begin(base, request);
     const env = rs ? { ...base, DB_REPLICA: retryingReads(rs.db) } : base;
     let res = await handler.serve(request, env, ctx);
-    if (rs) res = replicas.stamp(res, rs);
+    if (rs) res = replicas.stamp(res, rs, base);
     return metered ? devHops.stamp(res, metered.hops) : res;
   },
 

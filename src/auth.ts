@@ -1,7 +1,7 @@
 // Sign-in with WorkOS AuthKit, web sessions, and personal MCP tokens.
 // Session cookies and tokens are random secrets; only their SHA-256 hashes are stored.
 
-import type { Env } from "./types";
+import type { Env, PrimaryEnv } from "./types";
 import { isLocalHost } from "./util";
 
 const WORKOS_API = "https://api.workos.com";
@@ -148,7 +148,7 @@ export async function createSession(
   return secret;
 }
 
-export async function getSession(request: Request, env: Env): Promise<Session | null> {
+export async function getSession(request: Request, env: PrimaryEnv): Promise<Session | null> {
   const secret = readCookie(request, SESSION_COOKIE);
   if (!secret) return null;
   const row = await env.DB.prepare(
@@ -250,7 +250,7 @@ export function forgetUserTokens(user: string) {
   for (const [k, v] of tokenCache) if (v.user === user) tokenCache.delete(k);
 }
 
-export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false): Promise<{ user: string | null; expired: boolean; kind?: string | null }> {
+export async function resolveToken(env: PrimaryEnv, token: string, ctx?: ExecutionContext, fresh = false): Promise<{ user: string | null; expired: boolean; kind?: string | null }> {
   if (!token.startsWith("ab_")) return { user: null, expired: false };
   const row = await lookupToken(env, token, ctx, fresh);
   if (!row) return { user: null, expired: false };
@@ -261,7 +261,7 @@ export async function resolveToken(env: Env, token: string, ctx?: ExecutionConte
 /** A bearer token's user and kind ("app": the Atteo app, acting as the person), or null. */
 /** `userRow`: the token's user as read with it (null: none), or undefined when the token came from the cache. `ctx`: the
  *  once-a-minute "last used" write goes in the background instead of holding up the request. */
-export async function tokenIdentity(env: Env, token: string, fresh = false, ctx?: ExecutionContext): Promise<{ user: string; kind: string | null; userRow?: TokenUser | null } | null> {
+export async function tokenIdentity(env: PrimaryEnv, token: string, fresh = false, ctx?: ExecutionContext): Promise<{ user: string; kind: string | null; userRow?: TokenUser | null } | null> {
   if (!token.startsWith("ab_")) return null;
   const row = await lookupToken(env, token, ctx, fresh);
   if (!row || (row.expires_at != null && row.expires_at < Date.now())) return null;
@@ -269,7 +269,7 @@ export async function tokenIdentity(env: Env, token: string, fresh = false, ctx?
 }
 
 /** Resolves a bearer token to its user, or null if unknown, revoked or expired. */
-export async function userForToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false): Promise<string | null> {
+export async function userForToken(env: PrimaryEnv, token: string, ctx?: ExecutionContext, fresh = false): Promise<string | null> {
   if (!token.startsWith("ab_")) return null;
   const row = await lookupToken(env, token, ctx, fresh);
   if (!row || (row.expires_at != null && row.expires_at < Date.now())) return null;

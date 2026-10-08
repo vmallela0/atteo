@@ -8,7 +8,7 @@
 
 import * as registry from "./registry";
 import { blockedMessage, scanText } from "./secrets";
-import type { Env } from "./types";
+import type { Env, PrimaryEnv } from "./types";
 import { offBoardSeq } from "./util";
 
 export const REASON_MAX = 500;
@@ -22,7 +22,7 @@ export class ModerationError extends Error {
 }
 
 /** Whom this person has muted on this board. */
-export async function mutedOn(env: Env, user: string, boardId: string): Promise<string[]> {
+export async function mutedOn(env: PrimaryEnv, user: string, boardId: string): Promise<string[]> {
   return (await env.DB.prepare(`SELECT muted FROM mutes WHERE user = ? AND board_id = ? ORDER BY muted`).bind(user, boardId).all<{ muted: string }>()).results.map((r) => r.muted);
 }
 

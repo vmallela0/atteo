@@ -17,8 +17,9 @@
 // moment the request arrives (alongside the sign-in lookup, so it adds no wait). It returns a bookmark B covering every
 // write committed before the request began, and every later read in the Session waits for a replica at least at B.
 // So a post, join or rename you made is in the very next page or /updates you load. The client's own bookmark is never
-// used (it's always older than B); the response carries B (x-d1-bookmark) and which instances served (x-d1-served).
-import type { Env } from "./types";
+// used (it's always older than B). With D1_DEBUG_HEADERS=1 (staging and local benches only, never prod: they name the
+// region and colo) the response carries B (x-d1-bookmark) and which instances served (x-d1-served).
+import type { Env, ReplicaEnv } from "./types";
 
 export const BOOKMARK_HEADER = "x-d1-bookmark";
 
@@ -133,14 +134,17 @@ export function withRole<M extends { user: string; role: unknown }>(list: M[], v
 }
 
 /** The env for a read that may come from a replica: only presentational reads in the hot GETs (see above). Anywhere
- *  else, or with the switch off, it's env itself (the primary). Never for a read that decides access or visibility. */
-export function presentational(env: Env): Env {
-  return env.DB_REPLICA ? { ...env, DB: env.DB_REPLICA } : env;
+ *  else, or with the switch off, it's env itself (the primary). Never for a read that decides access or visibility:
+ *  those take a PrimaryEnv, which a ReplicaEnv doesn't type-check as. */
+export function presentational(env: Env): ReplicaEnv {
+  return (env.DB_REPLICA ? { ...env, DB: env.DB_REPLICA } : env) as ReplicaEnv;
 }
 
-/** The response with the Session's bookmark (when it read anything) and which instances served its reads
- *  (x-d1-served: primary=<n> replica=<n> last=<region/colo>, from D1's meta), so a run on staging can be checked. */
-export function stamp(res: Response, rs: ReadSession): Response {
+/** With D1_DEBUG_HEADERS=1 only (staging, local benches): the response with the Session's bookmark (when it read
+ *  anything) and which instances served its reads (x-d1-served: primary=<n> replica=<n> last=<region/colo>, from D1's
+ *  meta), so a run on staging can be checked. Otherwise the response untouched. */
+export function stamp(res: Response, rs: ReadSession, env: Pick<Env, "D1_DEBUG_HEADERS">): Response {
+  if (env.D1_DEBUG_HEADERS !== "1") return res;
   const b = rs.bookmark();
   if (!b || res.status === 101 || res.webSocket) return res;
   const served = `primary=${rs.served.primary} replica=${rs.served.replica}${rs.served.where ? ` last=${rs.served.where}` : ""}`;

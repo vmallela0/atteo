@@ -3,15 +3,15 @@
 // may go to the replica but only once it has caught up to the Session's bookmark, writes always go to the primary.
 // What must hold: the switch off changes nothing; on, only the hot board GETs get a Session, and only the presentational
 // reads a call site opts in to use it; nothing that decides access or visibility ever reads the replica, even for a
-// change committed after the request's Session took its bookmark; a client reads its own writes; the response carries
-// the Session's bookmark.
+// change committed after the request's Session took its bookmark; a client reads its own writes; with D1_DEBUG_HEADERS=1
+// (staging only) the response carries the Session's bookmark, and without it no x-d1-* header at all.
 import { describe, expect, it } from "vitest";
 import { begin, isHotRead, presentational, readSession, stamp, withRole, BOOKMARK_HEADER } from "../src/replicas";
 import { boardAccess, boardMembers, isMember, memberRole, pendingInvites } from "../src/registry";
 import { mutedOn } from "../src/moderation";
 import { createToken, getSession, sha256hex, tokenIdentity } from "../src/auth";
 import { meterD1, type Hops } from "../src/devHops";
-import type { Env } from "../src/types";
+import type { Env, ReplicaEnv } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
 const { readFileSync, readdirSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string; readdirSync: (u: URL) => string[] };
@@ -123,6 +123,7 @@ async function world() {
   return f;
 }
 const cookie = (u: string) => ({ cookie: `ab_session=secret-${u}` });
+const debug = { D1_DEBUG_HEADERS: "1" };
 
 /** One hot request's env, as index.ts builds it: env.DB the primary, DB_REPLICA the Session (its anchor already sent). */
 function request(f: ReturnType<typeof replicated>, req: Request) {
@@ -259,10 +260,14 @@ describe("a lagging replica never decides access or visibility, even for a chang
 
 describe("which reads may use the replica: an explicit, presentational allow-list (src/index.ts)", () => {
   const src = new URL("../src/", dir);
+  const files = readdirSync(src).filter((f) => f.endsWith(".ts"));
   const index = readFileSync(new URL("index.ts", src), "utf8");
+  const code = index.replace(/(^|\s)\/\/.*$/gm, "$1"); // comments may name `pres`; only code is counted
   // Every call handed the replica env: `fn(pres, …)` or `fn(replicas.presentational(env), …)`, or `pres.DB.prepare(sql)`.
-  const handed = [...index.matchAll(/([\w.]+)\((?:pres|replicas\.presentational\(env\))[,)]/g)].map((m) => m[1]);
-  const prepared = [...index.matchAll(/pres\.DB\.prepare\(`([^`]*)`/g)].map((m) => m[1]);
+  const calls = [...code.matchAll(/([\w.]+)\(\s*(pres|replicas\.presentational\(\s*env\s*\))\s*[,)]/g)];
+  const handed = calls.map((m) => m[1]);
+  const viaPres = calls.filter((m) => m[2] === "pres").length;
+  const prepared = [...code.matchAll(/\bpres\.DB\.prepare\(\s*`([^`]*)`/g)].map((m) => m[1]);
   it("only display reads: members shown, presence, sidebar, names, the board row, rules shown, Slack channels", () => {
     const allowed = new Set([
       "registry.boardMembers", "sessions.onBoard", "machines.forUsers", "sideBoardsNamed", "registry.agentsOnBoard", "registry.agentStatus",
@@ -272,15 +277,43 @@ describe("which reads may use the replica: an explicit, presentational allow-lis
     expect(handed.filter((f) => !allowed.has(f))).toEqual([]);
     expect(prepared).toEqual(["SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL"]);
   });
-  it("never a gating read: access, membership, role, invites, mutes, sign-in, tokens", () => {
-    const gating = /(?:boardAccess|accessOf|canSee|memberRole|isMember|pendingInvites|mutedOn|getSession|loadViewer|tokenIdentity|resolveToken|userForToken)\((?:pres|replicas\.presentational)/;
-    for (const f of readdirSync(src).filter((f) => f.endsWith(".ts"))) expect(readFileSync(new URL(f, src), "utf8"), f).not.toMatch(gating);
+  it("the replica env goes nowhere else: no alias, spread, other pres.DB use or later argument", () => {
+    // Every `pres` in the code is its one declaration, an allowed call's first argument or the one prepared read, and
+    // every presentational is that declaration or an allowed call's first argument.
+    expect(code.match(/\bconst pres = replicas\.presentational\(env\);/g)).toHaveLength(1);
+    expect(code.match(/\bpres\b/g)).toHaveLength(1 + viaPres + prepared.length);
+    expect(code.match(/\bpresentational\b/g)).toHaveLength(1 + calls.length - viaPres);
   });
-  it("DB_REPLICA is set in one place and read only through presentational()", () => {
-    const users = readdirSync(src).filter((f) => f.endsWith(".ts") && /DB_REPLICA/.test(readFileSync(new URL(f, src), "utf8")));
-    expect(users.sort()).toEqual(["index.ts", "replicas.ts", "types.ts"]);
+  it("never a gating read: access, membership, role, invites, mutes, sign-in, tokens", () => {
+    const gating = /(?:boardAccess|accessOf|canSee|memberRole|isMember|pendingInvites|mutedOn|getSession|loadViewer|tokenIdentity|resolveToken|userForToken)\(\s*(?:pres\b|replicas\.presentational)/;
+    for (const f of files) expect(readFileSync(new URL(f, src), "utf8"), f).not.toMatch(gating);
+  });
+  it("DB_REPLICA is set in one place and read only through presentational(), which only index.ts calls", () => {
+    for (const word of [/DB_REPLICA/, /\bpresentational\b/]) {
+      const users = files.filter((f) => word.test(readFileSync(new URL(f, src), "utf8")));
+      expect(users.sort(), String(word)).toEqual(["index.ts", "replicas.ts", "types.ts"]); // types.ts: the field and its comment
+    }
     expect(index.match(/DB_REPLICA/g)).toHaveLength(2); // the comment and the one assignment in fetch()
     expect(index).toMatch(/DB_REPLICA: retryingReads\(rs\.db\)/);
+  });
+  it("the type system refuses the replica env to every gating read (tsc --noEmit covers test/)", () => {
+    const never = (pres: ReplicaEnv, req: Request) => [
+      // @ts-expect-error a ReplicaEnv is not a PrimaryEnv
+      boardAccess(pres, B, "bob"),
+      // @ts-expect-error
+      memberRole(pres, B, "bob"),
+      // @ts-expect-error
+      isMember(pres, B, "bob"),
+      // @ts-expect-error
+      pendingInvites(pres, B),
+      // @ts-expect-error
+      mutedOn(pres, "own", B),
+      // @ts-expect-error
+      getSession(req, pres),
+      // @ts-expect-error
+      tokenIdentity(pres, "t"),
+    ];
+    expect(typeof never).toBe("function");
   });
 });
 
@@ -298,13 +331,13 @@ describe("read-your-writes and the bookmark", () => {
     const one = request(f, hot());
     const v1 = f.version();
     await boardMembers(one.pres, B);
-    const r1 = stamp(new Response("{}"), one.rs);
+    const r1 = stamp(new Response("{}"), one.rs, debug);
     const b1 = r1.headers.get(BOOKMARK_HEADER)!;
     expect(ver(b1)).toBeGreaterThanOrEqual(v1);
     expect(r1.headers.get("x-d1-served")).toBe("primary=1 replica=1"); // the anchor, then the members list
     await w(f.env, `UPDATE boards SET title = 'B2' WHERE id = ?`, B);
     const two = request(f, hot(undefined, { [BOOKMARK_HEADER]: b1 }));
-    const b2 = stamp(new Response("{}"), two.rs).headers.get(BOOKMARK_HEADER)!;
+    const b2 = stamp(new Response("{}"), two.rs, debug).headers.get(BOOKMARK_HEADER)!;
     expect(b2 > b1).toBe(true); // bookmarks sort oldest to newest
   });
   it("a client's bookmark is never where the Session starts", async () => {
@@ -312,10 +345,26 @@ describe("read-your-writes and the bookmark", () => {
     request(f, hot(undefined, { [BOOKMARK_HEADER]: bm(1) }));
     expect(f.served.at(-1)).toMatchObject({ sql: "SELECT 1 AS anchor", by: "primary", session: true });
   });
+  it("the x-d1-* headers (region, colo) only with D1_DEBUG_HEADERS=1: on no response otherwise, and never in prod's vars", async () => {
+    const f = await world();
+    const { rs, pres } = request(f, hot());
+    await boardMembers(pres, B);
+    for (const v of [undefined, "", "0", "true"])
+      for (const res of [new Response("{}"), new Response("no", { status: 401 }), new Response("gone", { status: 404 }), Response.redirect("http://localhost/x", 302)]) {
+        const out = stamp(res, rs, { D1_DEBUG_HEADERS: v });
+        expect(out).toBe(res);
+        expect([...out.headers.keys()].filter((k) => k.startsWith("x-d1-")), String(v)).toEqual([]);
+      }
+    expect(stamp(new Response("{}"), rs, debug).headers.get("x-d1-served")).toBe("primary=1 replica=1");
+    // wrangler.jsonc: set once, in env.staging's vars, never at the top level (prod).
+    const wrangler = readFileSync(new URL("../wrangler.jsonc", dir), "utf8");
+    expect(wrangler.match(/"D1_DEBUG_HEADERS"/g)).toHaveLength(1);
+    expect(wrangler.indexOf(`"D1_DEBUG_HEADERS"`)).toBeGreaterThan(wrangler.indexOf(`"staging": {`));
+  });
   it("an immutable response is copied", async () => {
     const f = await world();
     const { rs } = request(f, hot());
-    expect(stamp(Response.redirect("http://localhost/x", 302), rs).headers.get(BOOKMARK_HEADER)).toBeTruthy();
+    expect(stamp(Response.redirect("http://localhost/x", 302), rs, debug).headers.get(BOOKMARK_HEADER)).toBeTruthy();
   });
 });
 

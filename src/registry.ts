@@ -6,7 +6,7 @@ import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
 import { agentNameIndex, foldAgentName } from "./mentions";
 import { noteInviteRedeemed, type Later } from "./observe";
-import { PERSON_ONLY_KINDS, type Env } from "./types";
+import { PERSON_ONLY_KINDS, type Env, type PrimaryEnv } from "./types";
 import { dropLinksFor as dropLinearLinks } from "./linear";
 import { dropLinksFor as dropDiscordLinks } from "./discord";
 import { dropLinksFor as dropNotionLinks } from "./notion";
@@ -155,7 +155,7 @@ export async function addMember(env: Env, boardId: string, user: string, opts: {
 }
 
 /** A member's role, or null if they aren't one (or their access has expired). */
-export async function memberRole(env: Env, boardId: string, user: string): Promise<Role | null> {
+export async function memberRole(env: PrimaryEnv, boardId: string, user: string): Promise<Role | null> {
   const r = await env.DB.prepare(`SELECT role, expires_at FROM members WHERE board_id = ? AND user = ? AND NOT EXISTS (SELECT 1 FROM boards WHERE id = ? AND deleted_at IS NOT NULL)`).bind(boardId, user, boardId).first<{ role: Role; expires_at: number | null }>();
   if (!r || (r.expires_at != null && r.expires_at < Date.now())) return null;
   return r.role;
@@ -263,7 +263,7 @@ export interface BoardAccess {
 }
 /** Shared with test/queryPlans.test.ts (every board request runs it): it must use an index. */
 export const BOARD_ACCESS_SQL = `SELECT b.deleted_at, (SELECT role FROM members WHERE board_id = b.id AND user = ?1 AND (expires_at IS NULL OR expires_at > ?3)) AS role FROM boards b WHERE b.id = ?2`;
-export async function boardAccess(env: Env, boardId: string, user: string | null): Promise<BoardAccess> {
+export async function boardAccess(env: PrimaryEnv, boardId: string, user: string | null): Promise<BoardAccess> {
   const r = await env.DB.prepare(BOARD_ACCESS_SQL)
     .bind(user ?? "", boardId, Date.now())
     .first<{ role: Role | null; deleted_at: number | null }>();
@@ -283,7 +283,7 @@ export async function grepBoards(env: Env, user: string): Promise<{ id: string; 
   return r.results;
 }
 
-export async function isMember(env: Env, boardId: string, user: string): Promise<boolean> {
+export async function isMember(env: PrimaryEnv, boardId: string, user: string): Promise<boolean> {
   const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ?1 AND user = ?2 AND (expires_at IS NULL OR expires_at > ?3) AND NOT EXISTS (SELECT 1 FROM boards WHERE id = ?1 AND deleted_at IS NOT NULL)`).bind(boardId, user, Date.now()).first();
   return !!r;
 }
@@ -538,7 +538,7 @@ export async function endMcpSession(env: Env, sessionId: string) {
   await env.DB.prepare(`DELETE FROM mcp_sessions WHERE id = ?`).bind(sessionId).run();
 }
 
-export async function pendingInvites(env: Env, boardId: string): Promise<InviteRow[]> {
+export async function pendingInvites(env: PrimaryEnv, boardId: string): Promise<InviteRow[]> {
   const r = await env.DB.prepare(`SELECT * FROM invites WHERE board_id = ? AND accepted_at IS NULL ORDER BY created_at DESC`).bind(boardId).all<InviteRow>();
   return r.results;
 }
