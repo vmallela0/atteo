@@ -12,6 +12,8 @@
 //   BASE=http://localhost:8787 node test/browser/agent-link.mjs
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
+// Where the agent site lives (vedu's agent picks the final path; GET /agent was already the person's own agent chat).
+const AGENT = process.env.AGENT_PATH || "/agent";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-5), U = `inst${run}`, F = `frnd${run}`;
 for (const n of [U, F]) await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
@@ -33,7 +35,7 @@ const made = await fetch(`${BASE}/api/agent-logins`, { method: "POST", headers: 
 const login = await made.json().catch(() => ({}));
 const setup = login.setup_url ? new URL(login.setup_url, BASE).href : "";
 const code = setup.split("/").pop();
-check(made.status === 201 && /\/agent\/setup\/[^/]+$/.test(setup), `the person gets a one-use setup link (${made.status}${setup ? `, ${new URL(setup).pathname.replace(code, "<code>")}` : ""})`);
+check(made.status === 201 && new RegExp(`${AGENT}/setup/[^/]+$`).test(setup), `the person gets a one-use setup link (${made.status}${setup ? `, ${new URL(setup).pathname.replace(code, "<code>")}` : ""})`);
 if (!setup) {
   console.log("agent link: no setup link, so nothing else can be checked");
   process.exit(1);
@@ -52,10 +54,10 @@ const p = await instinct.newPage(), errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 await p.goto(setup);
 await p.getByRole("button", { name: /connect/i }).click();
-await p.waitForURL(/\/agent\/?$/, { timeout: 10000 }).catch(() => {});
-check(new URL(p.url()).pathname.replace(/\/$/, "") === "/agent", `Connect signs Instinct in and lands on /agent (${new URL(p.url()).pathname})`);
+await p.waitForURL((u) => u.pathname.replace(/\/$/, "") === AGENT, { timeout: 10000 }).catch(() => {});
+check(new URL(p.url()).pathname.replace(/\/$/, "") === AGENT, `Connect signs Instinct in and lands on ${AGENT} (${new URL(p.url()).pathname})`);
 const ck = (await instinct.cookies(BASE)).find((c) => c.name === "atteo_agent");
-check(!!ck && ck.httpOnly && ck.sameSite === "Strict" && ck.path === "/agent", `its cookie is HttpOnly, SameSite=Strict and only for /agent (${ck ? `${ck.httpOnly}, ${ck.sameSite}, ${ck.path}` : "none"})`);
+check(!!ck && ck.httpOnly && ck.sameSite === "Strict" && ck.path === AGENT, `its cookie is HttpOnly, SameSite=Strict and only for ${AGENT} (${ck ? `${ck.httpOnly}, ${ck.sameSite}, ${ck.path}` : "none"})`);
 
 // One use: a second browser can't sign in with the same link.
 const other = await browser.newContext(), p2 = await other.newPage();
@@ -66,11 +68,11 @@ check(!(await other.cookies(BASE)).some((c) => c.name === "atteo_agent"), "the s
 await other.close();
 
 // Home: the person's boards; other members' words come marked as untrusted data, and no page shows the setup code.
-await p.goto(`${BASE}/agent`);
+await p.goto(`${BASE}${AGENT}`);
 const home = await p.content();
 check(home.includes(`Instinct ${run}`), "/agent lists the person's boards");
 check(!home.includes(code) && !(sessionCookie.split("=")[1] && home.includes(sessionCookie.split("=")[1])), "no page shows the setup code or the person's session");
-await p.goto(`${BASE}/agent/b/${board}`);
+await p.goto(`${BASE}${AGENT}/b/${board}`);
 const page = await p.content(), text = await p.evaluate(() => document.body.innerText);
 check(page.includes(BAIT), "the board's messages show at /agent/b/<id>");
 check(/untrusted/i.test(text), "other members' text there is marked as untrusted data");
@@ -86,7 +88,7 @@ check(!!mine && mine.author === U && mine.via === "agent", `a post from /agent l
 
 // The same post without the form's CSRF token is refused.
 const agentCookie = ck ? `atteo_agent=${ck.value}` : "";
-const forged = await fetch(`${BASE}/agent/b/${board}`, { method: "POST", headers: { cookie: agentCookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ text: `forged ${run}` }), redirect: "manual" });
+const forged = await fetch(`${BASE}${AGENT}/b/${board}`, { method: "POST", headers: { cookie: agentCookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ text: `forged ${run}` }), redirect: "manual" });
 check(forged.status === 403, `a form post without its CSRF token is refused (${forged.status})`);
 
 // The agent cookie is for /agent only: the API and the person's settings don't take it.
@@ -99,7 +101,7 @@ check(settings.status !== 200 || !(await settings.text()).includes(U), `or for t
 const list = await (await fetch(`${BASE}/api/agent-logins`, { headers: { cookie: sessionCookie } })).json().catch(() => ({}));
 const id = (list.logins || list.agent_logins || []).find((l) => l.name === "instinct")?.id;
 const del = id ? await fetch(`${BASE}/api/agent-logins/${encodeURIComponent(id)}`, { method: "DELETE", headers: { cookie: sessionCookie, origin: BASE } }) : null;
-await p.goto(`${BASE}/agent`);
+await p.goto(`${BASE}${AGENT}`);
 check(!!del && del.ok && !(await p.content()).includes(`Instinct ${run}`), `revoking the agent login signs Instinct out (${del ? del.status : "no login listed"})`);
 
 check(!errors.length, `no page errors${errors.length ? ` (${errors[0]})` : ""}`);
