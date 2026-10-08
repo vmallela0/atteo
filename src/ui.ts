@@ -486,6 +486,10 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .body blockquote.qt{max-width:560px;padding:7px 11px;border:1px solid var(--line);border-radius:10px}
 .qt-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:2px;font-size:12.5px}.qt-who{font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qt-go{margin-left:auto;flex:none;text-decoration:none}.qt-go:hover{text-decoration:underline}
+.xcs{display:flex;flex-direction:column;gap:6px;margin-top:6px;max-width:560px;min-width:0}.xc-slot{display:none}
+a.xc{display:block;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg-subtle);color:var(--ink);text-decoration:none;transition:border-color .15s}a.xc:hover{border-color:var(--line-strong)}
+.xc-hd{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:13px}.xc-who{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xc-h{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xc-x{margin-left:auto;flex:none;color:var(--muted)}
+.xc-t{margin-top:3px;font-size:14px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;unicode-bidi:plaintext;text-align:start;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:6;line-clamp:6;overflow:hidden}.xc-d{margin-top:4px;font-size:12px;color:var(--muted)}
 .sel-float{position:fixed;z-index:60;display:flex;gap:6px;box-shadow:var(--shadow-lg);border-radius:var(--r-sm);background:var(--bg);padding:4px}
 /* multi-select and forward (vedu #4601): an in-flow gutter survives message highlight padding. */
 .sel-bar{display:none;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}.selecting .sel-bar:not([hidden]){display:flex}

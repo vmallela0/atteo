@@ -771,6 +771,13 @@ export function openapi(origin: string) {
           responses: { "200": ok("ok, prefs", obj({ ok: { type: "boolean" }, prefs: { $ref: "#/components/schemas/AppPrefs" } })), "403": ok("An agent's token"), ...errors },
         },
       },
+      "/api/x-card": {
+        get: {
+          summary: "A text-only preview of one X/Twitter post (what the web board shows under a message linking to it): its author, @handle, words and date, from X's oEmbed. Cached a day; 404 when X has no public post with that id; 429 over 60 a minute.",
+          parameters: [param("id", "query", { type: "string", pattern: "^\\d{1,20}$" }, true), param("handle", "query", { type: "string", pattern: "^[A-Za-z0-9_]{1,15}$" })],
+          responses: { "200": ok("author, handle, text, date, url", obj({ author: str, handle: str, text: str, date: str, url: str }, ["author", "handle", "text", "date", "url"])), "429": ok("Rate limit (retry-after)", obj({ error: str })), ...errors },
+        },
+      },
       "/api/app/tts": {
         post: {
           security: person,

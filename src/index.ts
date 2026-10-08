@@ -78,6 +78,7 @@ import * as testAccounts from "./testAccounts";
 import { musePage } from "./muse";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
+import * as xCard from "./xCard";
 import * as voice from "./voice";
 import * as calls from "./calls";
 import * as slack from "./slack";
@@ -2245,6 +2246,8 @@ const handler = {
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
+      // ---- X post cards under messages with a link to one (all in xCard.ts; the board page asks, never on encrypted boards) ----
+      if (path === "/api/x-card" && method === "GET") return xCard.route(url, viewer, xCard.workerDeps(env, ctx));
       // ---- board calls (Cloudflare Realtime + the gated Atteo turn; all in calls.ts): /api/boards/:id/call… ----
       if (path.startsWith("/api/boards/") && calls.CALL_RE.test(path)) return (await calls.route(request, env, path, viewer))!;
       // ---- talk to Atteo (speech-to-speech; all in voice.ts): /api/app/voice/session, /session/end, /status ----

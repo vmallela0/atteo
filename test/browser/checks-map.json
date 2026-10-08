@@ -5,6 +5,7 @@
     "src/agentLogins.ts": ["agent-link"],
     "src/voice.ts": ["calls", "voice", "voice-chat", "voice-picker", "voice-turns", "voice-turns-privacy", "voice-allowance", "call-nap"],
     "src/tts.ts": ["voice", "voice-chat", "voice-turns", "call-nap"],
+    "src/xCard.ts": ["x-card", "csp", "web-budget"],
     "src/calls.ts": ["calls"],
     "src/billing.ts": ["free-for-now"],
     "src/callWeb.ts": ["calls", "web-budget", "header-phone", "phone-layout"],
