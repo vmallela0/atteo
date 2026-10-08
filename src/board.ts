@@ -5139,7 +5139,8 @@ export class Board extends DurableObject<Env> {
     if (p.filesDone) {
       const tables = this.backupTableNames().filter((t) => t !== "meta" && t !== "blobs");
       while (more()) {
-        const name = tables.find((t) => !p.tablesDone.includes(t));
+        // The table under way first (a table a deploy adds mid-night mustn't restart it), then the next not done.
+        const name = p.table && tables.includes(p.table) && !p.tablesDone.includes(p.table) ? p.table : tables.find((t) => !p.tablesDone.includes(t));
         if (!name) break;
         if (p.table !== name) Object.assign(p, { table: name, after: Number.MIN_SAFE_INTEGER, k: 0 });
         const q = `"${name.replace(/"/g, '""')}"`;
