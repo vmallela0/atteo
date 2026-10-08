@@ -8219,13 +8219,16 @@ await step("ask one agent (jxn #6339): my grok, someone's muse, keep waiting, fi
   [r, ...ms] = await Promise.all([api(J, "POST", "/api/ask", { to: "my agents", text: `Q7 ${run}`, wait_seconds: 20 }, muse), answer(grok, `Q7 ${run}`, "grok: all"), answer(lead, `Q7 ${run}`, "lead: all")]);
   // One "@agents" message (jxn #6453), in both mailboxes: the same entry, not a copy each.
   assert(ms[0] && ms[1] && ms[0].seq === ms[1].seq && ms[0].text.startsWith("@agents Q7"), `one message, each one's mail: ${JSON.stringify(ms)}`);
-  assert(!((await api(J, "GET", "/api/mailbox?peek=1")).body.mail ?? []).some((x) => x.text?.includes(`Q7 ${run}`)), "not a session-less caller's (a dispatcher's) mail");
+  // A dispatcher (no session) gets its share too, so it's answered even when no running session reads its mailbox (jxn #6481).
+  assert(((await api(J, "GET", "/api/mailbox?peek=1")).body.mail ?? []).some((x) => x.text?.includes(`Q7 ${run}`)), "a session-less caller (a dispatcher) has it too");
   // Each takes its own part: lead taking it leaves it for grok; once grok has it too, it's delivered.
   const has = async (session) => ((await api(J, "GET", "/api/mailbox?peek=1", null, session)).body.mail ?? []).some((x) => x.text?.includes(`Q7 ${run}`));
   await api(J, "GET", "/api/mailbox", null, lead);
   assert(!(await has(lead)) && (await has(grok)), "lead took its part; grok still has it");
   await api(J, "GET", "/api/mailbox", null, grok);
   assert(!(await has(grok)) && !(await has(lead)), "both took it");
+  await api(J, "GET", "/api/mailbox");
+  assert(!((await api(J, "GET", "/api/mailbox?peek=1")).body.mail ?? []).some((x) => x.text?.includes(`Q7 ${run}`)), "the dispatcher took its share: delivered");
   assert(r.body.status === "answered" && [...r.body.agents].sort().join() === "grok,lead", `to the others, not the asker: ${JSON.stringify(r.body)}`);
   assert(r.body.answers.map((a) => `${a.agent}=${a.text}`).sort().join() === "grok=grok: all,lead=lead: all", JSON.stringify(r.body.answers));
   assert(!((await api(J, "GET", "/api/mailbox?peek=1", null, muse)).body.mail ?? []).some((x) => x.text?.includes(`Q7 ${run}`)), "the asking session doesn't get its own question");

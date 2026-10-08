@@ -3494,7 +3494,7 @@ export class Board extends DurableObject<Env> {
     // And what their agent writes back reaches the person (their inbox, like a reply), never the agent's own mailbox.
     let ownMail = false, ownReply = false;
     let fromPerson: { direct: boolean } | null = null; // from_your_person's data
-    let everyOne: string[] = []; // "@agents" on your agent chat: each of your running sessions (their ids)
+    let everyOne: string[] = []; // "@agents" on your agent chat: each of your running sessions (their ids), and "" for a dispatcher
     if (sibling && e.retracts == null) {
       // Your agent to another of your sessions: that session's mail, already read in the person's own inbox.
       ownMail = true;
@@ -3504,7 +3504,9 @@ export class Board extends DurableObject<Env> {
       // "@agents" on your agent chat (jxn #6431, #6453), from you or one of your agents: one message to every agent of
       // yours that's running, in each one's own mailbox (one row that names them all: mail is one row per post).
       const toAgents = e.retracts == null && hasGroupMention(e.text, ALL_AGENTS);
-      if (toAgents) everyOne = await this.liveSessionIds(e.author, fromSession);
+      // Plus "": the mailbox's session-less drainer (a dispatcher), so it's answered even when no running session reads
+      // its mailbox (jxn #6481).
+      if (toAgents) everyOne = await this.liveSessionIds(e.author, fromSession).then((ids) => (ids.length ? [...ids, ""] : []));
       if (e.via === "person" || toAgents) {
         ownMail = true;
         kinds.set(e.author, "agent");
