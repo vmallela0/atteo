@@ -156,6 +156,29 @@ describe("the switch", () => {
   });
 });
 
+describe("live delivery stays on the primary (vedu-push-entry review)", () => {
+  it("the WebSocket upgrade (its role check) gets no Session: plain env.DB, the primary", async () => {
+    const f = await world();
+    for (const p of [`/api/boards/${B}/ws`, `/b/${B}/ws`]) {
+      expect(isHotRead("GET", p), p).toBe(false);
+      expect(begin(f.env, new Request(`http://localhost${p}`, { headers: { upgrade: "websocket", ...cookie("bob") } }))).toBeNull();
+    }
+    expect(f.sessions()).toBe(0);
+  });
+  it("only the Worker's fetch opens a Session: never the board Durable Object (live pushes, its member reads) or anything else", () => {
+    const { readFileSync: read, readdirSync: ls } = { readFileSync, readdirSync };
+    const src = new URL("../src/", dir);
+    const users = ls(src)
+      .filter((f) => f.endsWith(".ts"))
+      .filter((f) => /withSession\s*\(|from "\.\/replicas"/.test(read(new URL(f, src), "utf8")));
+    // replicas.ts makes the Session; index.ts calls replicas.begin in fetch() (devHops.ts only meters one it's handed).
+    expect(users.sort()).toEqual(["index.ts", "replicas.ts"]);
+    const index = read(new URL("index.ts", src), "utf8");
+    expect(index.match(/replicas\.begin\(/g)).toHaveLength(1);
+    expect(read(new URL("board.ts", src), "utf8")).not.toMatch(/withSession|replicas/);
+  });
+});
+
 describe("security reads see everything committed before the request, however far the replica lags", () => {
   it("the sign-in lookup goes to the primary (the Session's first query), then the rest read the replica", async () => {
     const f = await world();

@@ -3,7 +3,8 @@
 // useful once read replication is enabled on the database itself (dashboard, or the REST API's read_replication).
 //
 // Which requests: GET /b/<board> (the board page), GET /api/boards/<board>/updates (every open tab, per message) and
-// GET /api/boards/<board>/entries[/<seq>] (agents, SDKs, "load earlier"). Everything else, among it every write, /mcp,
+// GET /api/boards/<board>/entries[/<seq>] (agents, SDKs, "load earlier"). Never the /ws upgrade (its role check) nor
+// anything in the board Durable Object (live pushes and their member reads). Everything else, among it every write, /mcp,
 // sign-in, tokens, OAuth, invites, joins and access changes, keeps plain env.DB, which D1 always serves from the
 // primary: "otherwise all queries will continue to be executed only by the primary database" (D1 docs).
 //
