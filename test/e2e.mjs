@@ -1674,13 +1674,16 @@ await step("messaging fast path (vedu #6564): a post says its thread root, /upda
   assert(e3.entries.length === 0 && JSON.stringify(e3.reactions) === "{}", `nothing new: ${JSON.stringify(e3)}`);
   // The one access read still answers each guard: a viewer can't post (web or MCP), an outsider sees nothing, and a
   // deleted board is gone, for its members too.
-  await ops("members", { board: fb, user: OUT });
-  const role = await web(`/api/boards/${fb}/members/${OUT}`, A, { method: "POST", headers: json, body: JSON.stringify({ role: "viewer" }) });
+  // A fresh viewer (not OUT: sharing a board with A and B would make OUT their coworker in the social steps below).
+  const VW = `e2e-fastv-${run}`;
+  await makeUser(VW);
+  await ops("members", { board: fb, user: VW });
+  const role = await web(`/api/boards/${fb}/members/${VW}`, A, { method: "POST", headers: json, body: JSON.stringify({ role: "viewer" }) });
   assert(role.ok, `make viewer: ${role.status} ${await role.text()}`);
-  const v = await say(OUT, { text: "a viewer posting" });
+  const v = await say(VW, { text: "a viewer posting" });
   assert(v.status === 403 && /role is viewer/.test(v.j.error), `viewer web post: ${v.status} ${JSON.stringify(v.j)}`);
-  await err(OUT, fb, "post", { type: "note", text: "a viewer posting over MCP" }, "role is viewer");
-  assert((await web(`/api/boards/${fb}/updates?after=0`, OUT)).ok, "a viewer still reads");
+  await err(VW, fb, "post", { type: "note", text: "a viewer posting over MCP" }, "role is viewer");
+  assert((await web(`/api/boards/${fb}/updates?after=0`, VW)).ok, "a viewer still reads");
   const stranger = `e2e-fast-${run}`;
   await makeUser(stranger);
   assert((await web(`/api/boards/${fb}/updates?after=0`, stranger)).status === 404, "a non-member gets 404");
