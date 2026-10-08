@@ -186,6 +186,7 @@
  "delete-account": 4,
  "upd-bar": 2,
  "task-frozen": 4,
+ "task-drag-live": 5,
  "host": 3,
  "frame-tab-state": 25,
  "tabs-close": 12,
