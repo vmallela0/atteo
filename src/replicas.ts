@@ -12,14 +12,15 @@
 // and gives the Session a bookmark B (the primary's state at that moment); every later read in the request may be
 // served by a replica, but only one that has caught up to at least B (sequential consistency). Whichever query comes
 // first goes to the primary; in these requests that is the sign-in lookup (sessions for a cookie, tokens for a bearer
-// token, or the token's user when the token is in the isolate's short cache, as before). Queries sent before the first
-// answer arrives carry no bookmark yet, so they too go to the primary.
+// token, or the token's user when the token is in the isolate's short cache, as before), and on these three paths it
+// is awaited before any other D1 query is sent (the bench's hop log: sign-in at +0 ms, access at +1 round trip).
 //
 // Why that's safe for access (the review's question): the request's first query starts after the request arrived, so
 // B covers every write committed before the request began, by anyone: a member removed or demoted, a token revoked, a
 // board deleted. The access check (boardAccess) and every other read here see at least B, so a removal that finished
 // before this request was sent is always seen, exactly as on the primary. The one difference: a removal committed in
-// the few milliseconds between this request's first query and its access read is caught on the primary but may not be
+// the one primary round trip between this request's first query and its access read (about 40 ms near the primary,
+// about 150 ms from Europe on staging) is caught on the primary but may not be
 // on a replica; that request then behaves as if it had arrived a moment earlier (it was in flight when the removal
 // happened, so either order is a correct answer). No write reads a replica: writes always go to the primary.
 //
