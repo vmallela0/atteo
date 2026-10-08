@@ -21,8 +21,10 @@ export interface IntegrationDeps {
   confirm?: (question: string) => Promise<boolean>;
 }
 
-export const SOON: Record<string, string> = { discord: "Discord", notion: "Notion", teams: "Microsoft Teams" };
-export const INTEGRATIONS = ["linear", "slack", ...Object.keys(SOON)];
+export const SOON: Record<string, string> = { discord: "Discord", teams: "Microsoft Teams" };
+export const INTEGRATIONS = ["linear", "slack", "notion", ...Object.keys(SOON)];
+/** The ones connected with OAuth through /api/integrations/<name>/start, and disconnected with DELETE /api/integrations/<name>. */
+const OAUTH: Record<string, string> = { linear: "Linear", notion: "Notion" };
 /** The flags these commands take without a value (for parseArgs). */
 export const INTEGRATION_FLAGS = ["no-open", "yes", "json"];
 const BOARD_ID = /^b_[a-z0-9]{8,32}$/;
@@ -65,6 +67,15 @@ export function linearLine(s: Status): string {
   return `connected · ${where} · by ${j.created_by}${j.issues ? ` · ${j.issues} issue${j.issues === 1 ? "" : "s"}` : ""}`;
 }
 
+/** One line about Notion's link, from GET /api/integrations/notion. */
+export function notionLine(s: Status): string {
+  if (!s.ok) return s.status === 503 ? notSetUp : `couldn't check (${s.error})`;
+  const j = s.j;
+  if (!j.linked) return "not connected";
+  const counts = [j.published ? `${j.published} published` : "", j.imported ? `${j.imported} imported` : ""].filter(Boolean).join(", ");
+  return `connected · ${j.workspace?.name || "Notion"} · by ${j.created_by}${j.active === false ? " (no longer an owner: inactive)" : ""}${counts ? ` · ${counts}` : ""}`;
+}
+
 /** One line about Slack's channels, from GET /api/integrations/slack. */
 export function slackLine(s: Status): string {
   if (!s.ok) return s.status === 503 ? notSetUp : `couldn't check (${s.error})`;
@@ -77,45 +88,48 @@ export function slackLine(s: Status): string {
 export async function listIntegrations(opt: Opt, d: IntegrationDeps): Promise<void> {
   const b = await boardFor(opt, d);
   const q = `?board=${encodeURIComponent(b.id)}`;
-  const [linear, slack] = await Promise.all([statusOf(d, `/api/integrations/linear${q}`), statusOf(d, `/api/integrations/slack${q}`)]);
+  const [linear, slack, notion] = await Promise.all([statusOf(d, `/api/integrations/linear${q}`), statusOf(d, `/api/integrations/slack${q}`), statusOf(d, `/api/integrations/notion${q}`)]);
   if (opt.json === true) {
     const val = (s: Status) => (s.ok ? s.j : { error: s.error, status: s.status });
-    return d.say(JSON.stringify({ board: b.id, linear: val(linear), slack: val(slack), coming_soon: Object.keys(SOON) }, null, 2));
+    return d.say(JSON.stringify({ board: b.id, linear: val(linear), slack: val(slack), notion: val(notion), coming_soon: Object.keys(SOON) }, null, 2));
   }
   d.say(`Integrations on ${b.title ? `"${b.title}" (${b.id})` : b.id}:`);
   d.say(`  linear    ${linearLine(linear)}`);
   d.say(`  slack     ${slackLine(slack)}`);
+  d.say(`  notion    ${notionLine(notion)}`);
   for (const [k, name] of Object.entries(SOON)) d.say(`  ${k.padEnd(9)} coming soon (${name})`);
   d.say(`\nConnect one: atteo connect linear · disconnect: atteo disconnect linear · on the web: the board's ⋯ → Integrations`);
 }
 
 /** atteo connect <integration> [--board <id|name>] [--no-open]: the link that connects it, opened in the browser. */
 export async function connectIntegration(name: string, opt: Opt, d: IntegrationDeps): Promise<void> {
-  if (SOON[name]) return d.say(`${SOON[name]} is coming soon. For now: Linear (atteo connect linear) and Slack (atteo connect slack).`);
-  if (name !== "linear" && name !== "slack") throw d.fail(`Unknown integration "${name}". Known: ${INTEGRATIONS.join(", ")}.`);
-  const label = name === "linear" ? "Linear" : "Slack";
+  if (SOON[name]) return d.say(`${SOON[name]} is coming soon. For now: Linear (atteo connect linear), Slack (atteo connect slack) and Notion (atteo connect notion).`);
+  if (!OAUTH[name] && name !== "slack") throw d.fail(`Unknown integration "${name}". Known: ${INTEGRATIONS.join(", ")}.`);
+  const label = OAUTH[name] ?? "Slack";
   const b = await boardFor(opt, d);
   const base = d.base();
   const q = `?board=${encodeURIComponent(b.id)}`;
   const s = await statusOf(d, `/api/integrations/${name}${q}`);
   if (!s.ok && s.status === 503) throw d.fail(`${label} isn't set up on ${base} yet.`);
   if (!s.ok && s.status === 404) throw d.fail(`You're not on board ${b.id} (atteo boards lists yours).`);
-  const url = name === "linear" ? `${base}/api/integrations/linear/start${q}` : `${base}/slack/connect${q}`;
-  if (s.ok) d.say(`${label} on ${b.title ?? b.id}: ${name === "linear" ? linearLine(s) : slackLine(s)}`);
-  const linked = s.ok && (name === "linear" ? !!s.j.linked : (s.j.channels ?? []).length > 0);
+  const url = OAUTH[name] ? `${base}/api/integrations/${name}/start${q}` : `${base}/slack/connect${q}`;
+  if (s.ok) d.say(`${label} on ${b.title ?? b.id}: ${name === "linear" ? linearLine(s) : name === "notion" ? notionLine(s) : slackLine(s)}`);
+  const linked = s.ok && (OAUTH[name] ? !!s.j.linked : (s.j.channels ?? []).length > 0);
   d.say(
     name === "linear"
       ? `${linked ? "To connect again (another team or workspace), open" : "Open this link to connect Linear"} (a board owner, signed in on Atteo: approve on Linear, then pick the team):\n  ${url}`
-      : `${linked ? "Manage its channels" : "Open this link to connect a Slack channel"} (a board owner, signed in on Atteo):\n  ${url}`,
+      : name === "notion"
+        ? `${linked ? "To connect again (another workspace, or to share more pages), open" : "Open this link to connect Notion"} (a board owner, signed in on Atteo: on Notion, pick the pages Atteo may use):\n  ${url}`
+        : `${linked ? "Manage its channels" : "Open this link to connect a Slack channel"} (a board owner, signed in on Atteo):\n  ${url}`,
   );
   if (opt["no-open"] !== true) d.open(url);
 }
 
 /** atteo disconnect <integration> [--board <id|name>] [--yes]. */
 export async function disconnectIntegration(name: string | undefined, opt: Opt, d: IntegrationDeps): Promise<void> {
-  if (!name) throw d.fail("Usage: atteo disconnect linear [--board <id|name>] [--yes]");
+  if (!name) throw d.fail("Usage: atteo disconnect linear|notion [--board <id|name>] [--yes]");
   if (SOON[name]) return d.say(`${SOON[name]} is coming soon: there's nothing to disconnect.`);
-  if (name !== "linear" && name !== "slack") throw d.fail(`Unknown integration "${name}". Known: ${INTEGRATIONS.join(", ")}.`);
+  if (!OAUTH[name] && name !== "slack") throw d.fail(`Unknown integration "${name}". Known: ${INTEGRATIONS.join(", ")}.`);
   const b = await boardFor(opt, d);
   const base = d.base();
   if (name === "slack") {
@@ -124,14 +138,16 @@ export async function disconnectIntegration(name: string | undefined, opt: Opt, 
     if (opt["no-open"] !== true) d.open(url);
     return;
   }
-  if (opt.yes !== true && d.confirm && !(await d.confirm(`Disconnect Linear from ${b.title ?? b.id}? Its issues stay in Linear; tasks stop syncing.`))) throw d.fail("Nothing changed.");
+  const label = OAUTH[name];
+  const ask = name === "linear" ? `Disconnect Linear from ${b.title ?? b.id}? Its issues stay in Linear; tasks stop syncing.` : `Disconnect Notion from ${b.title ?? b.id}? Pages already published stay in Notion.`;
+  if (opt.yes !== true && d.confirm && !(await d.confirm(ask))) throw d.fail("Nothing changed.");
   try {
-    const j = await d.api("DELETE", `/api/integrations/linear?board=${encodeURIComponent(b.id)}`);
-    d.say(j?.linked === false ? `Linear is disconnected from ${b.title ?? b.id}.` : "Done.");
+    const j = await d.api("DELETE", `/api/integrations/${name}?board=${encodeURIComponent(b.id)}`);
+    d.say(j?.linked === false ? `${label} is disconnected from ${b.title ?? b.id}.` : "Done.");
   } catch (e) {
     const status = (e as { status?: number }).status;
-    if (status === 503) throw d.fail(`Linear isn't set up on ${base} yet.`);
-    // People only (src/linear.ts): an agent or CLI login is refused. Say where a person does it.
+    if (status === 503) throw d.fail(`${label} isn't set up on ${base} yet.`);
+    // People only (src/linear.ts, src/notion.ts): an agent or CLI login is refused. Say where a person does it.
     if (status === 403) throw d.fail(`${(e as Error).message}\nOn the web, signed in as yourself: ${base}/b/${encodeURIComponent(b.id)}#integrations (⋯ → Integrations → Disconnect).`);
     throw e;
   }

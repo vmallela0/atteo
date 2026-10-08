@@ -79,7 +79,7 @@ export function parseSince(raw: unknown): number | "last-read" {
 
 export class RecapError extends Error {}
 
-type BoardStub = { recap(user: string, opts: { since: number | "last-read"; session: string | null; as: "agent" | "person" }): Promise<RecapCore> };
+type BoardStub = { recap(user: string, opts: { since: number | "last-read"; session: string | null; as: "agent" | "person"; everyone?: boolean }): Promise<RecapCore> };
 
 /** The whole recap for one caller: the board's part, plus their own pending approvals here and members who joined since. */
 export async function buildRecap(env: Env, stub: BoardStub, user: string, opts: { since: number | "last-read"; session: string | null; as: "agent" | "person" }): Promise<Recap & { text: string }> {

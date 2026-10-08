@@ -517,7 +517,7 @@ describe("the write and read paths record those counters", () => {
 
   it("every board secret-filter refusal goes through the counter", () => {
     expect(board).toContain("noteEgressBlock(this.env, this.ctx, hit.rule)");
-    expect(board.match(/this\.secretBlock\(hit\)/g)).toHaveLength(15);
+    expect(board.match(/this\.secretBlock\(hit\)/g)).toHaveLength(16); // docImport (src/notion.ts) too
     expect(board.match(/blockedMessage\(hit\)/g)).toHaveLength(1);
   });
 

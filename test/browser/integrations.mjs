@@ -1,6 +1,6 @@
 // Browser check for vedu #6508: board info → Integrations. ⋯ → Integrations opens it; Linear's status loads from
-// /api/integrations/linear (stubbed here: no real Linear), Slack's from the page (the fake bridge), and Discord, Notion
-// and Microsoft Teams are "Coming soon". Only an owner sees Connect; whoever linked it or an owner sees Disconnect; a
+// /api/integrations/linear (stubbed here: no real Linear), Notion's from /api/integrations/notion (stubbed: not
+// connected), Slack's from the page (the fake bridge), and Discord and Microsoft Teams are "Coming soon". Only an owner sees Connect; whoever linked it or an owner sees Disconnect; a
 // server without Linear says so. 1280 and 390.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
@@ -22,6 +22,7 @@ const open=async(user,w,phone,state)=>{
     if(r.request().method()==="DELETE"){deletes.push(r.request().url());state.v="none";return r.fulfill({status:200,contentType:"application/json",body:JSON.stringify({ok:true,linked:false})})}
     if(state.v==="off")return r.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"Linear isn't set up yet"})});
     return r.fulfill({status:200,contentType:"application/json",body:JSON.stringify(state.v==="linked"?LINKED:{linked:false})})});
+  await p.route("**/api/integrations/notion?*",r=>r.fulfill({status:200,contentType:"application/json",body:JSON.stringify({linked:false})}));
   await p.goto(`${BASE}/b/${board}`);await p.locator("#composer-text").waitFor();
   return {ctx,p,errors,deletes};
 };
@@ -31,7 +32,7 @@ const panel=async(p,want)=>{if(!(await p.locator(".actions .board-head-menu").ev
 const settle=async(p)=>{await p.locator(".actions .board-head-menu").evaluate(d=>d.open=false);await p.waitForTimeout(450)};
 const fits=async(p,w)=>{for(const r of await p.locator("#acc-integrations .int-row").all()){const x=await r.boundingBox();if(!x||x.x<0||x.x+x.width>w+0.5)return false}return true};
 for(const [label,w,phone] of [["desktop",1280,false],["phone",390,true]]){
-  // The owner, Linear not connected yet: Connect Linear, Connect Slack, three coming soon.
+  // The owner, Linear not connected yet: Connect Linear, Connect Slack, Connect Notion, two coming soon.
   const st={v:"none"};const {ctx,p,errors,deletes}=await open(A,w,phone,st);
   await panel(p,"Not connected");
   check(await p.locator("#acc-integrations").isVisible(),`${label}: ⋯ → Integrations opens board info at Integrations`);
@@ -40,7 +41,9 @@ for(const [label,w,phone] of [["desktop",1280,false],["phone",390,true]]){
   check((await p.locator("#int-slack .int-st").innerText()).includes("Not connected"),`${label}: Slack says not connected`);
   check((await p.locator("#int-slack a").getAttribute("href"))===`/slack/connect?board=${board}`,`${label}: the owner gets Connect Slack`);
   const soon=p.locator("#acc-integrations [data-soon]");
-  check(await soon.count()===3&&(await soon.allInnerTexts()).every(t=>t.includes("Coming soon")),`${label}: Discord, Notion, Teams are greyed "Coming soon"`);
+  check(await soon.count()===2&&(await soon.allInnerTexts()).every(t=>t.includes("Coming soon")),`${label}: Discord, Teams are greyed "Coming soon"`);
+  await p.locator("#int-notion .int-st").filter({hasText:"Not connected"}).waitFor({timeout:8000}).catch(()=>{});
+  check((await p.locator("#int-notion a").getAttribute("href"))===`/api/integrations/notion/start?board=${board}`,`${label}: the owner gets Connect Notion → /start`);
   check(await soon.locator("a,button").count()===0,`${label}: …with nothing to click`);
   check(await fits(p,w),`${label}: every row fits ${w}px`);
   await settle(p);
@@ -67,6 +70,7 @@ for(const [label,w,phone] of [["desktop",1280,false],["phone",390,true]]){
   check(await o2.p.locator("#int-linear a, #int-linear button, #int-slack a").count()===0,`${label}: …but no Connect or Disconnect (owners connect; the linker or an owner disconnects)`);
   st2.v="none";await o2.p.locator("#invite [data-close]").first().click();await panel(o2.p,"Not connected");
   check(await o2.p.locator("#int-linear a").count()===0,`${label}: …and no Connect Linear when it isn't connected`);
+  check(await o2.p.locator("#int-notion a, #int-notion button").count()===0,`${label}: …nor Connect Notion`);
   check(o2.errors.length===0,`${label}: contributor: no page errors ${o2.errors.join(" | ")}`);
   await o2.ctx.close();
 }

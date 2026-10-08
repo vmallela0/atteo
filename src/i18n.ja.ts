@@ -1196,4 +1196,7 @@ export const JA: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "このボードと Linear の接続を解除しますか？Issue は Linear に残り、タスクの同期は止まります。",
   "Couldn’t disconnect": "接続を解除できませんでした",
   "Linear disconnected": "Linear の接続を解除しました",
+  "Connect Notion": "Notion を接続",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "このボードから Notion を切断しますか？公開済みのページは Notion に残ります。",
+  "Notion disconnected": "Notion を切断しました",
 };

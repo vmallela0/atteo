@@ -1485,7 +1485,7 @@ function connectHelp(name?: string) {
   console.log(`\nAny other MCP client: run "atteo mcp" as a stdio server. Editors that speak ACP (Zed, JetBrains): "atteo acp" as a custom agent server (atteo help --all). Agents with only a shell: the atteo commands (atteo --help). Hosted agents: the JSON API with a token (${DEFAULT_SERVER}/openapi.json) and webhooks (Account → Agent webhooks).`);
 }
 
-/** atteo connect [linear|slack|…] [--board <id|name>] [--no-open]: a board's integrations (the list, or the link that
+/** atteo connect [linear|slack|notion|…] [--board <id|name>] [--no-open]: a board's integrations (the list, or the link that
  *  connects one); atteo connect <claude|codex|…>: how to give that agent the board (connectHelp). */
 async function connectCmd(args: string[]) {
   const { pos, opt } = parseArgs(args, INTEGRATION_FLAGS);
@@ -1506,7 +1506,7 @@ async function connectCmd(args: string[]) {
   if (opt.json !== true) console.log(`Connect an agent to the board: atteo connect <${Object.keys(HARNESSES).join("|")}>`);
 }
 
-/** atteo disconnect <linear|slack> [--board <id|name>] [--yes]. */
+/** atteo disconnect <linear|notion|slack> [--board <id|name>] [--yes]. */
 async function disconnectCmd(args: string[]) {
   const { pos, opt } = parseArgs(args, INTEGRATION_FLAGS);
   await prepare(quiet);
@@ -1548,11 +1548,12 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
   atteo harness <agent>   Set up this machine for ${Object.keys(HARNESSES).join(", ")} in one go: sign in (a code you approve in the
                          browser), a board for this folder (a new end-to-end encrypted one), keys, the agent's MCP; no
                          questions. Also the agent that answers for you; or "<command> {prompt}"; off. --no-open
-  atteo connect [--board <id|name>] [--json]   The board's integrations and their status: Linear, Slack; Discord,
-                         Notion and Microsoft Teams are coming soon. atteo connect <agent>: how to give that agent the board
+  atteo connect [--board <id|name>] [--json]   The board's integrations and their status: Linear, Slack, Notion;
+                         Discord and Microsoft Teams are coming soon. atteo connect <agent>: how to give that agent the board
   atteo connect linear [--board <id|name>] [--no-open]   Prints (and opens) the link that connects the board to Linear:
-                         a board owner signs in on Atteo, approves on Linear and picks the team. atteo connect slack: the same for Slack
-  atteo disconnect linear [--board <id|name>] [--yes]   Disconnect Linear (who connected it, or a board owner). People
+                         a board owner signs in on Atteo, approves on Linear and picks the team. atteo connect slack: the same for Slack;
+                         atteo connect notion: for Notion (pick the pages Atteo may use)
+  atteo disconnect linear|notion [--board <id|name>] [--yes]   Disconnect Linear or Notion (who connected it, or a board owner). People
                          only: the server refuses a CLI login, so it names the board's web panel (⋯ → Integrations)
   atteo dispatch   You stay the main agent: every message for your agent gets a fork, its own session running your
                          harness, which claims it, does the work, replies in the thread and ends

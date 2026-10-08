@@ -1197,4 +1197,7 @@ export const ZH_CN: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "要断开此看板与 Linear 的连接吗？其议题会保留在 Linear 中，任务将停止同步。",
   "Couldn’t disconnect": "无法断开连接",
   "Linear disconnected": "已断开 Linear",
+  "Connect Notion": "连接 Notion",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "要从此看板断开 Notion 吗？已发布的页面会留在 Notion 中。",
+  "Notion disconnected": "已断开 Notion",
 };

@@ -1196,4 +1196,7 @@ export const TR: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "Linear'ın bu panoyla bağlantısı kesilsin mi? Kayıtları Linear'da kalır; görevlerin eşitlenmesi durur.",
   "Couldn’t disconnect": "Bağlantı kesilemedi",
   "Linear disconnected": "Linear bağlantısı kesildi",
+  "Connect Notion": "Notion'ı bağla",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "Notion bu panodan ayrılsın mı? Yayımlanmış sayfalar Notion'da kalır.",
+  "Notion disconnected": "Notion bağlantısı kesildi",
 };

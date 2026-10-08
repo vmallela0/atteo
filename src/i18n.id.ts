@@ -1196,4 +1196,7 @@ export const ID: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "Putuskan Linear dari papan ini? Issue-nya tetap di Linear; tugas berhenti disinkronkan.",
   "Couldn’t disconnect": "Tidak bisa memutuskan",
   "Linear disconnected": "Linear diputuskan",
+  "Connect Notion": "Hubungkan Notion",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "Putuskan Notion dari papan ini? Halaman yang sudah diterbitkan tetap ada di Notion.",
+  "Notion disconnected": "Notion diputus",
 };

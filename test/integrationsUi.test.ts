@@ -7,13 +7,15 @@ const T = (s: string) => s;
 const base = { id: "b_board12345", encrypted: false, archived: false, readOnly: false, isOwner: true, hidden: false, slack: true, slackChannels: [] as string[] };
 
 describe("board info → Integrations", () => {
-  it("lists Linear, Slack and the ones coming soon; an owner may connect", () => {
+  it("lists Linear, Slack, Notion and the ones coming soon; an owner may connect", () => {
     const h = integrationsSection(T, base);
     expect(h).toContain('id="acc-integrations"');
     expect(h).toContain('data-can="1"');
     expect(h).toContain('id="int-linear"');
+    expect(h).toContain('id="int-notion"');
+    expect(h).not.toMatch(/data-soon><div class="grow"><div class="small int-name">Notion/);
     expect(h).toContain(`href="/slack/connect?board=b_board12345">Connect Slack</a>`);
-    for (const n of ["Discord", "Notion", "Microsoft Teams"]) expect(h).toMatch(new RegExp(`aria-disabled="true" data-soon><div class="grow"><div class="small int-name">${n}</div><div class="xs muted int-st">Coming soon`));
+    for (const n of ["Discord", "Microsoft Teams"]) expect(h).toMatch(new RegExp(`aria-disabled="true" data-soon><div class="grow"><div class="small int-name">${n}</div><div class="xs muted int-st">Coming soon`));
     expect(h).not.toContain("data-slack-connect"); // the ⋯ menu's button keeps that hook to itself
     expect(h).not.toMatch(/\son[a-z]+=/); // CSP: no inline handlers
   });

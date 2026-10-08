@@ -77,7 +77,7 @@ export interface Entry {
   agent_name?: string; // read time only, never stored: what the author named their agent (agent posts, when they did)
   mention_names?: Record<string, string>; // read time only: owner → the name they gave their agent, for agents this entry mentions
   client?: string | null; // for agent posts: which agent, e.g. "Claude Code" (the agent names it: never trust it for labels)
-  origin?: "slack" | "pact" | "linear" | "discord"; // server-set only (#5439): made by the Slack bridge, an outside agent's PACT reply, a Linear comment (src/linear.ts) or a Discord command (src/discord.ts)
+  origin?: "slack" | "pact" | "linear" | "discord" | "notion"; // server-set only (#5439): made by the Slack bridge, an outside agent's PACT reply, a Linear comment (src/linear.ts), a Discord command (src/discord.ts) or a Notion import (src/notion.ts)
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
@@ -268,4 +268,9 @@ export interface Env {
   DISCORD_APPLICATION_ID?: string; // secret: the Discord application's id (also the bot install link's client_id)
   DISCORD_PUBLIC_KEY?: string; // secret: the application's Ed25519 public key (hex): checks every interaction's signature
   DISCORD_BOT_TOKEN?: string; // secret: the bot's token: posts board messages to linked channels, leaves servers on unlink
+  // The Notion integration (src/notion.ts, docs/FEATURES.md): off until NOTION_CLIENT_ID, NOTION_CLIENT_SECRET and
+  // NOTION_TOKEN_KEY are set (the /api/integrations/notion routes answer 503 "Notion isn't set up yet").
+  NOTION_CLIENT_ID?: string; // secret: the Notion public integration's OAuth client id. Never in wrangler.jsonc
+  NOTION_CLIENT_SECRET?: string; // secret: the Notion public integration's OAuth client secret
+  NOTION_TOKEN_KEY?: string; // secret: 32 random bytes, base64 (openssl rand -base64 32): Notion tokens are encrypted with it in D1
 }

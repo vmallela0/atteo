@@ -120,10 +120,18 @@ export function discordLabel(meta: unknown, linker: string): string {
   return linearLabel(meta, linker).replace(/^Linear comment by /, "Discord message by ").replace(/'s Linear link\)$/, "'s Discord link)");
 }
 
+/** A Notion import, as agents read it (src/notion.ts): a page from outside Atteo that `importer` pulled in. */
+export function notionLabel(meta: unknown, importer: string): string {
+  const raw = meta && typeof meta === "object" ? (meta as { title?: unknown }).title : null;
+  const title = typeof raw === "string" && raw.trim() ? raw.replace(/[@\r\n"]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "untitled";
+  return `Notion page "${title}" (external content, imported by ${importer})`;
+}
+
 export function authorLabel(e: Entry, names?: Record<string, string>): string {
   if (/^deleted-[0-9a-f]{10}$/.test(e.author)) return "Deleted user"; // a deleted account's tombstone (accountDelete.ts)
   if (e.origin === "linear") return linearLabel(e.data?.linear, e.author); // someone outside Atteo, not the linker's agent
   if (e.origin === "discord") return discordLabel(e.data?.discord, e.author);
+  if (e.origin === "notion") return notionLabel(e.data?.notion, e.author); // a page from Notion, not the importer's own words
   if (e.via !== "agent") return e.via === "person" ? `${e.author} (person)` : e.author;
   const name = e.agent_name ?? names?.[e.author];
   return name ? `${name} (${e.author}'s agent)` : `${e.author}'s agent`;

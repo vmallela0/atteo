@@ -103,6 +103,10 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put DISCORD_APPLICATION_ID
    npx wrangler secret put DISCORD_PUBLIC_KEY    # hex, from the application's General Information
    npx wrangler secret put DISCORD_BOT_TOKEN     # Bot → Reset Token
+   # optional: Notion (src/notion.ts; docs/FEATURES.md "Notion"); omit any of these and the routes are 503
+   npx wrangler secret put NOTION_CLIENT_ID
+   npx wrangler secret put NOTION_CLIENT_SECRET
+   npx wrangler secret put NOTION_TOKEN_KEY      # openssl rand -base64 32: Notion tokens are encrypted with it
    # outbound Checks (omit and postGithubChange never fetches; do not put these in wrangler.jsonc):
    # npx wrangler secret put GITHUB_APP_ID
    # npx wrangler secret put GITHUB_APP_PRIVATE_KEY
@@ -125,6 +129,9 @@ your team on your own Cloudflare account in about 15 minutes.
    If `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY` or `DISCORD_BOT_TOKEN` is absent, `/api/integrations/discord/*`
    answers 503 "Discord isn't set up yet". Set the application's Interactions Endpoint URL to
    `https://<your host>/api/integrations/discord/interactions` and register `/atteo` once (docs/FEATURES.md "Discord").
+   If `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` or `NOTION_TOKEN_KEY` is absent, `/api/integrations/notion/*` answers 503
+   "Notion isn't set up yet". The Notion integration is public, with redirect URI
+   `https://<your host>/api/integrations/notion/callback` and the Read, Update and Insert content capabilities.
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
    If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).

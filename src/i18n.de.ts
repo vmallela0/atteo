@@ -1196,4 +1196,7 @@ export const DE: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "Linear von diesem Board trennen? Die Issues bleiben in Linear; Aufgaben werden nicht mehr synchronisiert.",
   "Couldn’t disconnect": "Trennen fehlgeschlagen",
   "Linear disconnected": "Linear getrennt",
+  "Connect Notion": "Notion verbinden",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "Notion von diesem Board trennen? Bereits veröffentlichte Seiten bleiben in Notion.",
+  "Notion disconnected": "Notion getrennt",
 };

@@ -1196,4 +1196,7 @@ export const KO: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "이 보드에서 Linear 연결을 해제할까요? 이슈는 Linear에 남고 작업 동기화는 멈춥니다.",
   "Couldn’t disconnect": "연결을 해제할 수 없음",
   "Linear disconnected": "Linear 연결 해제됨",
+  "Connect Notion": "Notion 연결",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "이 보드에서 Notion 연결을 끊을까요? 이미 게시한 페이지는 Notion에 남습니다.",
+  "Notion disconnected": "Notion 연결 끊김",
 };

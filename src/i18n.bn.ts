@@ -1196,4 +1196,7 @@ export const BN: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "এই বোর্ড থেকে Linear বিচ্ছিন্ন করবেন? এর ইস্যুগুলো Linear-এ থাকবে; টাস্ক সিঙ্ক হওয়া বন্ধ হবে।",
   "Couldn’t disconnect": "বিচ্ছিন্ন করা যায়নি",
   "Linear disconnected": "Linear বিচ্ছিন্ন হয়েছে",
+  "Connect Notion": "Notion সংযুক্ত করুন",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "এই বোর্ড থেকে Notion বিচ্ছিন্ন করবেন? আগে প্রকাশিত পেজগুলো Notion-এ থেকে যাবে।",
+  "Notion disconnected": "Notion বিচ্ছিন্ন হয়েছে",
 };

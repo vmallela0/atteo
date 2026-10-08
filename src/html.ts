@@ -1212,8 +1212,9 @@ function machinesHtml(rows: { user: string; machine: string | null; agents: numb
   return `<ul class="ag-machines xs muted" aria-label="${esc(T("Agents running on members' machines"))}">${owners.flatMap((u) => live.filter((r) => r.user === u).map(line)).join("")}</ul>`;
 }
 
-/** Board info → Integrations (vedu #6508): Linear (its status loads from /api/integrations/linear), Slack (the bridge's
- *  channels, already known here), and what's coming. Connecting is for the board's owners (who linked Linear may also disconnect it), on the
+/** Board info → Integrations (vedu #6508): Linear and Notion (their status loads from /api/integrations/linear and
+ *  /api/integrations/notion), Slack (the bridge's channels, already known here), and what's coming. Connecting is for
+ *  the board's owners (who linked Linear or Notion may also disconnect it), on the
  *  web: each one's own OAuth pages. Never on "Your agent" or a DM, which can't be connected to anything. */
 export function integrationsSection(T: (s: string, v?: Record<string, string | number>) => string, o: { id: string; encrypted: boolean; archived: boolean; readOnly: boolean; isOwner: boolean; hidden: boolean; slack: boolean; slackChannels: string[] }): string {
   if (o.hidden) return "";
@@ -1221,8 +1222,8 @@ export function integrationsSection(T: (s: string, v?: Record<string, string | n
   const row = (name: string, status: string, act = "", extra = "") => `<li class="int-row"${extra}><div class="grow"><div class="small int-name">${esc(name)}</div><div class="xs muted int-st">${status}</div></div><div class="row int-act">${act}</div></li>`;
   const slackStatus = !o.slack ? esc(T("Not set up on this server yet")) : o.encrypted ? esc(e2e) : o.slackChannels.length ? esc(T("Connected")) + " · " + o.slackChannels.map((c) => `<span class="mono">#${esc(c)}</span>`).join(", ") : esc(T("Not connected"));
   const slackAct = o.slack && o.isOwner && !o.encrypted && !o.archived ? `<a class="btn sm" href="/slack/connect?board=${esc(encodeURIComponent(o.id))}">${esc(T(o.slackChannels.length ? "Manage" : "Connect Slack"))}</a>` : "";
-  const soon = ["Discord", "Notion", "Microsoft Teams"].map((n) => row(n, esc(T("Coming soon")), "", ` aria-disabled="true" data-soon`)).join("");
-  return `<section class="acc-sec" id="acc-integrations" data-can="${o.isOwner && !o.readOnly && !o.archived && !o.encrypted ? "1" : ""}"${o.encrypted ? ` data-block="${esc(e2e)}"` : ""}><h3>${esc(T("Integrations"))}</h3><ul class="int-list">${row("Linear", esc(T("Loading…")), "", ` id="int-linear"`)}${row("Slack", slackStatus, slackAct, ` id="int-slack"`)}${soon}</ul></section>`;
+  const soon = ["Discord", "Microsoft Teams"].map((n) => row(n, esc(T("Coming soon")), "", ` aria-disabled="true" data-soon`)).join("");
+  return `<section class="acc-sec" id="acc-integrations" data-can="${o.isOwner && !o.readOnly && !o.archived && !o.encrypted ? "1" : ""}"${o.encrypted ? ` data-block="${esc(e2e)}"` : ""}><h3>${esc(T("Integrations"))}</h3><ul class="int-list">${row("Linear", esc(T("Loading…")), "", ` id="int-linear"`)}${row("Slack", slackStatus, slackAct, ` id="int-slack"`)}${row("Notion", esc(T("Loading…")), "", ` id="int-notion"`)}${soon}</ul></section>`;
 }
 
 export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false, machines: { user: string; machine: string | null; agents: number }[] = [], viewer?: string): string {
@@ -1296,9 +1297,24 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
 // The board page's script, the same for everyone: served as /board.js, hashed and cached for good, and loaded between the
 // page's inline parts (index.ts). What it needs from this page and viewer, it reads from window.BC (boardPage writes it).
 /** Board info → Integrations' script (vedu #6508), loaded the first time board info opens (web-budget: the board's own
- *  script carries only the loader). Linear's status from /api/integrations/linear; Disconnect (with a confirm). */
+ *  script carries only the loader). Linear's and Notion's status from /api/integrations/{linear,notion}; Disconnect
+ *  (with a confirm). */
 const INTEGRATIONS_JS = `(()=>{const BOARD=BC.board,ME=BC.me;
-window.intLoadNow=async()=>{const li=document.getElementById('int-linear');if(!li)return;const sec=document.getElementById('acc-integrations'),st=li.querySelector('.int-st'),act=li.querySelector('.int-act');
+window.intLoadNow=async()=>{await Promise.all([intLinear(),intNotion()])};
+async function intNotion(){const li=document.getElementById('int-notion');if(!li)return;const sec=document.getElementById('acc-integrations'),st=li.querySelector('.int-st'),act=li.querySelector('.int-act');
+  if(sec.dataset.block){st.textContent=sec.dataset.block;act.innerHTML='';return}
+  const r=await fetch('/api/integrations/notion?board='+encodeURIComponent(BOARD)).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
+  const can=sec.dataset.can==='1';li.classList.toggle('off',!!r&&r.status===503);
+  if(r&&r.status===503){st.textContent=tr('Not set up on this server yet');act.innerHTML='';return}
+  if(!r||!r.ok){st.textContent=j.error||tr('Couldn’t load');act.innerHTML='';return}
+  if(!j.linked){st.textContent=tr('Not connected');act.innerHTML=can?'<a class="btn sm" href="/api/integrations/notion/start?board='+encodeURIComponent(BOARD)+'">'+esc(tr('Connect Notion'))+'</a>':'';return}
+  st.innerHTML=esc(j.workspace&&j.workspace.name||'Notion')+' <span class="faint">· '+esc(tr('connected by {name}',{name:j.created_by||''}))+'</span>';
+  act.innerHTML=j.created_by===ME||BC.isOwner?'<button class="btn ghost sm danger" type="button" data-notion-disconnect>'+esc(tr('Disconnect'))+'</button>':''}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-notion-disconnect]');if(!b)return;
+  if(!confirm(tr('Disconnect Notion from this board? Pages already published stay in Notion.')))return;b.disabled=true;
+  const r=await fetch('/api/integrations/notion?board='+encodeURIComponent(BOARD),{method:'DELETE'}).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
+  if(!r||!r.ok){b.disabled=false;toast(j.error||tr('Couldn’t disconnect'));return}toast(tr('Notion disconnected'));intNotion()});
+async function intLinear(){const li=document.getElementById('int-linear');if(!li)return;const sec=document.getElementById('acc-integrations'),st=li.querySelector('.int-st'),act=li.querySelector('.int-act');
   if(sec.dataset.block){st.textContent=sec.dataset.block;act.innerHTML='';return}
   const r=await fetch('/api/integrations/linear?board='+encodeURIComponent(BOARD)).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
   const can=sec.dataset.can==='1',go=l=>'<a class="btn sm" href="/api/integrations/linear/start?board='+encodeURIComponent(BOARD)+'">'+esc(l)+'</a>';
@@ -1308,11 +1324,11 @@ window.intLoadNow=async()=>{const li=document.getElementById('int-linear');if(!l
   if(!j.linked){st.textContent=tr('Not connected');act.innerHTML=can?go(tr('Connect Linear')):'';return}
   const where=j.team?j.team.name+(j.project?' · '+j.project.name:''):(j.org&&j.org.name?j.org.name+' · ':'')+tr('No team picked yet');
   st.innerHTML=esc(where)+' <span class="faint">· '+esc(tr('connected by {name}',{name:j.created_by||''}))+'</span>';
-  act.innerHTML=(can&&!j.ready?go(tr('Pick a team')):'')+(j.created_by===ME||BC.isOwner?'<button class="btn ghost sm danger" type="button" data-linear-disconnect>'+esc(tr('Disconnect'))+'</button>':'')};
+  act.innerHTML=(can&&!j.ready?go(tr('Pick a team')):'')+(j.created_by===ME||BC.isOwner?'<button class="btn ghost sm danger" type="button" data-linear-disconnect>'+esc(tr('Disconnect'))+'</button>':'')}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-linear-disconnect]');if(!b)return;
   if(!confirm(tr('Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.')))return;b.disabled=true;
   const r=await fetch('/api/integrations/linear?board='+encodeURIComponent(BOARD),{method:'DELETE'}).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
-  if(!r||!r.ok){b.disabled=false;toast(j.error||tr('Couldn’t disconnect'));return}toast(tr('Linear disconnected'));intLoadNow()});
+  if(!r||!r.ok){b.disabled=false;toast(j.error||tr('Couldn’t disconnect'));return}toast(tr('Linear disconnected'));intLinear()});
 })();`;
 export const INTEGRATIONS_PAGE_JS = INTEGRATIONS_JS;
 export const INTEGRATIONS_JS_SRC = `/integrations.js?v=${fnv(INTEGRATIONS_JS)}`;

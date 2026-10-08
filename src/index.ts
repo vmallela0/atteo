@@ -84,6 +84,7 @@ import * as calls from "./calls";
 import * as slack from "./slack";
 import * as linear from "./linear";
 import * as discord from "./discord";
+import * as notion from "./notion";
 import { slackOn } from "./slackCore";
 import { CALL_CSS, CALL_CSS_PATH, CALL_CSS_SRC, CALL_JS, CALL_JS_PATH, callPageBody } from "./callWeb";
 import { MAX_SCHEDULES } from "./schedules";
@@ -892,6 +893,13 @@ const handler = {
       if (path === "/api/integrations/discord/code" && method === "POST") return await discord.code(discord.discordFor(env, origin), viewer, request, url);
       if (path === "/api/integrations/discord" && method === "GET") return await discord.status(discord.discordFor(env, origin), viewer, url);
       if (path === "/api/integrations/discord" && method === "DELETE") return await discord.unlink(discord.discordFor(env, origin), viewer, request, url);
+      // ---- Notion (src/notion.ts): publish a board's docs and recap to Notion pages; pull pages in as docs ----
+      if (path === "/api/integrations/notion/start" && method === "GET") return await notion.start(notion.notionFor(env, origin), viewer, url);
+      if (path === "/api/integrations/notion/callback" && method === "GET") return await notion.callback(notion.notionFor(env, origin), viewer, url);
+      if (path === "/api/integrations/notion" && method === "GET") return await notion.status(notion.notionFor(env, origin), viewer, url);
+      if (path === "/api/integrations/notion" && method === "DELETE") return await notion.unlink(notion.notionFor(env, origin), viewer, request, url);
+      if (path === "/api/integrations/notion/publish" && method === "POST") return await notion.publish(notion.notionFor(env, origin), viewer, request);
+      if (path === "/api/integrations/notion/import" && method === "POST") return await notion.importPage(notion.notionFor(env, origin), viewer, request);
       if (path === "/api/integrations/slack" && method === "GET") return await slack.boardStatus(slack.bridgeFor(env, origin), viewer, url, request);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed

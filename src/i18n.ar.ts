@@ -1196,4 +1196,7 @@ export const AR: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "قطع اتصال Linear بهذه اللوحة؟ تبقى مشكلاته في Linear، وتتوقف مزامنة المهام.",
   "Couldn’t disconnect": "تعذّر قطع الاتصال",
   "Linear disconnected": "تم قطع اتصال Linear",
+  "Connect Notion": "ربط Notion",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "فصل Notion عن هذه اللوحة؟ تبقى الصفحات المنشورة في Notion.",
+  "Notion disconnected": "تم فصل Notion",
 };

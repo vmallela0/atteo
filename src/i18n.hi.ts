@@ -1196,4 +1196,7 @@ export const HI: Record<string, string> = {
   "Disconnect Linear from this board? Its issues stay in Linear; tasks stop syncing.": "इस बोर्ड से Linear डिस्कनेक्ट करें? उसके इश्यू Linear में रहेंगे; टास्क सिंक होना बंद हो जाएगा।",
   "Couldn’t disconnect": "डिस्कनेक्ट नहीं हो सका",
   "Linear disconnected": "Linear डिस्कनेक्ट हो गया",
+  "Connect Notion": "Notion कनेक्ट करें",
+  "Disconnect Notion from this board? Pages already published stay in Notion.": "इस बोर्ड से Notion डिस्कनेक्ट करें? पहले से प्रकाशित पेज Notion में रहेंगे।",
+  "Notion disconnected": "Notion डिस्कनेक्ट हो गया",
 };
