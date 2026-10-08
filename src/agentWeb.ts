@@ -30,7 +30,8 @@ const HEADERS: Record<string, string> = {
   "cache-control": "no-store",
   "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
   "content-type": "text/html; charset=utf-8",
-  "referrer-policy": "no-referrer",
+  // same-origin, not no-referrer: with no-referrer Chrome sends "Origin: null" on our own form posts (alt-lead #6362).
+  "referrer-policy": "same-origin",
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
   "x-robots-tag": "noindex, nofollow",
@@ -64,7 +65,12 @@ const instruction = () => `<div class="copy"><pre id="agent-instruction">${esc(A
 
 function sameOrigin(request: Request): boolean {
   const expected = new URL(request.url).origin;
+  // Browsers say where a request came from; anything but our own pages is refused. "Origin: null" (privacy modes,
+  // some referrer policies) is accepted only when Sec-Fetch-Site vouches that it's same-origin.
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin") return false;
   const origin = request.headers.get("origin");
+  if (origin === "null") return site === "same-origin";
   if (origin && origin !== expected) return false;
   const referer = request.headers.get("referer");
   if (referer) {

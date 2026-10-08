@@ -179,9 +179,20 @@ describe("/a", () => {
     const cookie = cookiePair(continued);
     const home = await routeAgentWeb(new Request("https://atteo.test/a", { headers: { cookie } }), f.env, f.deps);
     expect(home.status).toBe(200);
-    for (const [name, value] of [["cache-control", "no-store"], ["x-robots-tag", "noindex, nofollow"], ["referrer-policy", "no-referrer"], ["x-frame-options", "DENY"]]) expect(home.headers.get(name)).toBe(value);
+    for (const [name, value] of [["cache-control", "no-store"], ["x-robots-tag", "noindex, nofollow"], ["referrer-policy", "same-origin"], ["x-frame-options", "DENY"]]) expect(home.headers.get(name)).toBe(value);
     expect(home.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(await home.text()).not.toContain("device_code");
+  });
+
+  it("accepts a real browser's same-origin form post (Origin: null) and refuses cross-site ones (alt-lead #6362)", async () => {
+    const f = fixture(); addUser(f.db, "maya");
+    const post = (headers: Record<string, string>, ip: string) => routeAgentWeb(new Request("https://atteo.test/a/start", { method: "POST", headers: { "cf-connecting-ip": ip, ...headers } }), f.env, f.deps);
+    expect((await post({ origin: "null", "sec-fetch-site": "same-origin" }, "192.0.2.10")).status).not.toBe(403);
+    expect((await post({ origin: "null" }, "192.0.2.11")).status).toBe(403);
+    expect((await post({ origin: "https://atteo.test", "sec-fetch-site": "cross-site" }, "192.0.2.12")).status).toBe(403);
+    expect((await post({ origin: "https://evil.example" }, "192.0.2.13")).status).toBe(403);
+    const page = await routeAgentWeb(new Request("https://atteo.test/a"), f.env, f.deps);
+    expect(page.headers.get("referrer-policy")).toBe("same-origin");
   });
 
   it("rate-limits starts by IP", async () => {
