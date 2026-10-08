@@ -5,6 +5,7 @@
 # carries --env staging, and ship.sh keeps deploying only the top level of wrangler.jsonc.
 #   STAGING_SKIP_DEPLOY=1  smoke-test what's already there
 #   STAGING_BENCH=1        then scripts/bench-messaging.mjs against staging, when that script exists (light load only)
+#   STAGING_BENCH_ARGS     more options for that bench run (e.g. "--no-push" for the A/B of vedu #6581)
 # ADMIN_KEY for staging is a random value of its own, kept outside the repo in the git dir (mode 600). First run, or
 # when the file is missing, makes a fresh one and puts it on the Worker. It is never printed.
 set -euo pipefail
@@ -46,7 +47,8 @@ fi
 ADMIN_KEY="$(cat "$KEY_FILE")" BASE="$BASE" node scripts/staging-smoke.mjs
 
 if [ -n "${STAGING_BENCH:-}" ]; then
-  if [ -f scripts/bench-messaging.mjs ]; then ADMIN_KEY="$(cat "$KEY_FILE")" node scripts/bench-messaging.mjs --base "$BASE"
+  # shellcheck disable=SC2086 # STAGING_BENCH_ARGS: more bench options, word-split on purpose (e.g. "--no-push --no-browser")
+  if [ -f scripts/bench-messaging.mjs ]; then ADMIN_KEY="$(cat "$KEY_FILE")" node scripts/bench-messaging.mjs --base "$BASE" ${STAGING_BENCH_ARGS:-}
   else echo "STAGING_BENCH: scripts/bench-messaging.mjs isn't in this checkout; skipped"; fi
 fi
 echo "staging ok in $(( $(date +%s) - start ))s: $BASE"

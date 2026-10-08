@@ -62,6 +62,7 @@ import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
+import * as liveEntry from "./liveEntry";
 import * as repoBoards from "./repoBoards";
 import { recordForward, scrubForwards } from "./forwards";
 import * as backup from "./backup";
@@ -2690,7 +2691,10 @@ const handler = {
         // An agent's CLI says which session it is (X-Atteo-Session), so atteo ping can answer per session (#5433).
         const sh = as === "agent" ? atteoHeader(request, "session") : null;
         const sid = sh ? ((await sessions.get(env, who, sh).catch(() => null))?.id ?? null) : null;
-        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}&as=${as}${sid ? `&session=${encodeURIComponent(sid)}` : ""}`, request));
+        // A person's web tab (the session cookie, never a token: the app and the CLI keep the signal) gets new messages
+        // rendered over the socket, in their language (liveEntry.ts); for a while, then it reconnects and is checked again.
+        const push = as === "person" && !tok && !!viewer ? `&push=1${viewer.lang ? `&lang=${encodeURIComponent(viewer.lang)}` : ""}` : "";
+        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}&as=${as}${sid ? `&session=${encodeURIComponent(sid)}` : ""}${push}`, request));
       }
 
       // ---- a new board, as JSON (the app's "New board"; the web uses the POST /boards form). Encrypted unless asked not to. ----
@@ -3991,23 +3995,11 @@ const handler = {
           const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
           const fresh = snap.entries;
           const roots: Record<number, number> = snap.roots ?? {};
-          const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);
-          const names = Object.fromEntries(members0.filter((x) => x.agent_name).map((x) => [x.user, x.agent_name!]));
-          const memberSet = new Set(members0.map((x) => x.user)), people = displayMap(members0);
+          // Each entry as liveEntry.updateItem renders it: the board's live push renders with the same function.
+          const shared = liveEntry.renderShared(id, snap.info.created_by, members0);
+          const forViewer: liveEntry.RenderFor | null = viewer ? { name: viewer.name, person: viewer.via !== "agent", lang: viewer.lang } : null;
           return json({
-            entries: fresh.map((e) => ({
-              seq: e.seq,
-              author: e.author, // their "… is typing" ends when their message arrives
-              ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
-              root: roots[e.seq] ?? e.seq,
-              retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && e.author === viewer.name, lang: viewer?.lang, members: memberSet, people, person: !!viewer && viewer.via !== "agent" }),
-              row: logRow(e, undefined, undefined, viewer?.lang),
-              reactions: snap.reactions[e.seq] ?? [],
-              ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
-              ...(snap.claims[e.seq] ? { claim: snap.claims[e.seq] } : {}),
-              ...(e.human_decision ? { human_decision: e.human_decision } : {}),
-            })),
+            entries: fresh.map((e) => liveEntry.updateItem(e, shared, forViewer, { root: roots[e.seq] ?? e.seq, reactions: snap.reactions[e.seq] ?? [], reviews: snap.reviews[e.seq], claim: snap.claims[e.seq] })),
             ...(after === 0 ? { reactions: snap.reactions } : {}),
             reviews: snap.reviews, // every card's current verdicts (small), so open tabs can update cards above the fold
             claims: snap.claims, // every claim's status and every stale entry, same idea
@@ -4125,6 +4117,9 @@ const handler = {
           const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
           const parentRead = replyTo ? stub.get(replyTo, seer()).catch(() => null) : null;
           const boardMembers = await (postMembers ?? registry.boardMembers(env, id));
+          // Who is on the board now (D1: not removed, not expired), for the board's live push to open tabs: a socket whose
+          // user isn't here gets nothing; the rest of what it renders with (names) comes from the same rows (liveEntry.ts).
+          const liveMembers: liveEntry.LiveMember[] = boardMembers.map((m) => ({ user: m.user, display_name: m.display_name, agent_name: m.agent_name }));
           const { mentions, ambiguous }: { mentions: Mention[]; ambiguous: string[] } = mayMention(text) ? parseMentions(text, boardMembers, viewer.name, pv()) : { mentions: [], ambiguous: [] };
           // People-only: who it's for, each a member of this board (the author is added by the board).
           let toPeople: string[] | undefined;
@@ -4174,7 +4169,7 @@ const handler = {
             let entry: Entry;
             let rootSeq: number; // the board says the new entry's thread root with the post (no rootsFor call after it)
             if (viewer.via === "agent") {
-              const res = await withRetry(async () => await stub.postFresh(viewer.name, input, so.session, yes(body.strict)));
+              const res = await withRetry(async () => await stub.postFresh(viewer.name, input, so.session, yes(body.strict), liveMembers));
               if ("refused" in res) {
                 const n = res.relevant.length + res.others.length + res.remaining;
                 return json({ error: `Not posted: ${n} new ${n === 1 ? "entry" : "entries"} arrived since you last read${res.relevant.length ? `, and ${res.relevant.length === 1 ? "this one bears" : `these ${res.relevant.length} bear`} on your post (in relevant)` : ""}. All now marked read${res.remaining ? ` (${res.remaining} more unread)` : ""}. Take ${n === 1 ? "it" : "them"} into account, then post again if your message still fits.`, refused: true, relevant: withNames(res.relevant, await social.boardAgentNames(env, id)), others: res.others, remaining: res.remaining }, 409);
@@ -4182,7 +4177,7 @@ const handler = {
               entry = res.entry;
               rootSeq = res.root;
               missed = res.missed.map((e) => e.seq);
-            } else ({ entry, root: rootSeq } = await withRetry(async () => await stub.postRooted(viewer.name, input)));
+            } else ({ entry, root: rootSeq } = await withRetry(async () => await stub.postRooted(viewer.name, input, liveMembers)));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? rootSeq : entry.seq;

@@ -42,11 +42,12 @@ import { linearFor, syncTask as linearSyncTask } from "./linear";
 import { onEntry as discordOnEntry } from "./discord";
 import { onEntry as teamsOnEntry } from "./teams";
 import type { Listener } from "./listen";
-import { memberRole } from "./registry";
+import { boardMembers, memberRole } from "./registry";
 import { LIVE_MS } from "./sessions";
 import { meterBoardEnv } from "./devHops";
 import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
 import { priceUsage, PRICE_DATE, type PricedUsage, type Usage } from "./spend";
+import { langOf, pushEligible, PUSH_LEASE_MS, PUSH_MAX_BYTES, PUSH_MEMBERS_MS, renderShared, socketPlan, updateItem, type LiveMember, type TabAtt, type UpdateItem } from "./liveEntry";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -296,13 +297,6 @@ interface WaitAtt {
   user: string;
   session?: string; // an agent session's wait: woken by anything but its own posts, including its person's other sessions
   forMe?: true; // wait {for: "me"}: woken only by what's for this agent (Board.forMeSeqs)
-}
-
-/** A board tab's (or CLI watcher's) socket: whose, and whether it's the person themselves (not an agent's token). */
-interface TabAtt {
-  user: string;
-  person: boolean;
-  session?: string; // the agent session a CLI socket belongs to (X-Atteo-Session), for atteo ping
 }
 
 export const PING_TIMEOUT_MS = 3000;
@@ -681,7 +675,12 @@ export class Board extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, [user]);
     // A person signed in as themselves (web, the app) or an agent (the CLI's token): people-only signals go to the first only.
     const session = url.searchParams.get("session");
-    server.serializeAttachment({ user, person: url.searchParams.get("as") === "person", ...(session ? { session } : {}) } satisfies TabAtt);
+    // A signed-in person's web tab (the Worker says push=1 only for the session cookie) gets new entries rendered, in its
+    // language, for PUSH_LEASE_MS; then it reconnects, which checks its session again (src/liveEntry.ts).
+    const person = url.searchParams.get("as") === "person";
+    const lang = langOf(url.searchParams.get("lang"));
+    const push = person && url.searchParams.get("push") === "1" ? Date.now() + PUSH_LEASE_MS : 0;
+    server.serializeAttachment({ user, person, ...(session ? { session } : {}), ...(lang ? { lang } : {}), ...(push ? { push } : {}) } satisfies TabAtt);
     server.send(JSON.stringify({ type: "hello", last: this.info().last_seq }));
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -845,6 +844,108 @@ export class Board extends DurableObject<Env> {
         ws.send(data);
       } catch {}
     }
+  }
+
+  /**
+   * A new entry, to every open tab (vedu #6581). As broadcast(), plus, with the board's members as D1 has them
+   * (registry.boardMembers, which leaves out removed members and expired access):
+   * - a socket whose user isn't among them gets nothing (not even the signal);
+   * - a signed-in person's web tab whose push lease holds gets the entry itself, rendered for it, when `pushable`
+   *   (liveEntry.pushEligible) and only if this board's entriesAfter() (the query GET /updates runs, in snapshot())
+   *   returns the entry to that viewer. It renders that row through liveEntry.updateItem, the function /updates
+   *   renders with. Anything else gets today's signal, and the tab fetches /updates as before.
+   * `live`: the members the posting route read for the post. A route that didn't (MCP, …) isn't slowed down: everyone
+   * but web tabs gets the signal now, and the web tabs get theirs (pushed or not) once this object has read the members
+   * itself, after the post has answered. Each push says `prev`, the viewer's previous visible entry: a tab that
+   * doesn't have it fetches /updates instead.
+   */
+  private async broadcastEntry(msg: Record<string, unknown>, entry: Entry, live: LiveMember[] | null, pushable: boolean): Promise<void> {
+    this.changes++;
+    if (live || !pushable) return this.fanOut(msg, entry, live, pushable, "all");
+    await this.fanOut(msg, entry, null, false, "others");
+    if (!this.tabs().some((ws) => { const a = ws.deserializeAttachment() as TabAtt | null; return !!a?.person && !!a.push; })) return; // no web tab open: no read
+    const id = this.meta("id") ?? "";
+    const later = async () => {
+      let members: LiveMember[] | null = null;
+      try {
+        members = await Promise.race([boardMembers(this.env, id), new Promise<never>((_, no) => setTimeout(() => no(new Error("members read timed out")), PUSH_MEMBERS_MS))]);
+      } catch {}
+      // No members (D1 didn't answer): web tabs get the signal, as before. Unsent meanwhile: the signal (the tab fetches).
+      const still = !!members && !this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", entry.seq).toArray().length;
+      await this.fanOut(msg, entry, members, still, "web");
+    };
+    // One after another, so web tabs hear about entries in the order they were posted.
+    this.pushChain = this.pushChain.then(later, later).catch(() => {});
+    this.ctx.waitUntil(this.pushChain);
+  }
+  private pushChain: Promise<void> = Promise.resolve();
+
+  /** broadcastEntry's sends. `which`: every tab, web tabs only (a person's cookie tab: att.push), or all but those. */
+  private async fanOut(msg: Record<string, unknown>, entry: Entry, live: LiveMember[] | null, pushable: boolean, which: "all" | "web" | "others"): Promise<void> {
+    const data = JSON.stringify(msg);
+    const aud = this.audienceOf(entry.seq);
+    const members = live ? new Set(live.map((m) => m.user)) : null;
+    const now = Date.now();
+    // A human decision carries its live state (decisions.ts), refreshed per read: the signal and the fetch, as before.
+    const ok = pushable && !!live && !aud && !this.decisions.isHuman(entry.seq);
+    let common: { shared: ReturnType<typeof renderShared>; root: number; claim: unknown; sum: boolean; count: number } | null = null;
+    if (ok) common = { shared: renderShared(this.meta("id") ?? "", this.info().created_by, live!), root: await this.rootOf(entry.seq), claim: this.claimStates()[entry.seq], sum: this.touchesSummary(entry), count: this.info().entry_count };
+    // Per user: whether the board gives them the entry, and their previous visible one. The rendering itself differs
+    // only by what updateItem reads of the viewer (author? creator? language), so it's made once per such kind.
+    const frames = new Map<string, string | null>(); // user + lang → this viewer's frame (null: the board doesn't give it to them)
+    const items = new Map<string, UpdateItem>();
+    const frameFor = (a: TabAtt): string | null => {
+      const key = `${a.user}\n${a.lang ?? ""}`;
+      if (frames.has(key)) return frames.get(key)!;
+      const viewer: Viewer = { user: a.user, person: true };
+      // The same query snapshot() makes for GET /updates?after=seq-1, for this viewer: the entry, or nothing.
+      const row = this.entriesAfter(entry.seq - 1, null, 1, null, viewer)[0];
+      let f: string | null = null;
+      if (row && row.seq === entry.seq) {
+        const vis = peopleOk(viewer);
+        const prev = (this.sql.exec(`SELECT MAX(seq) AS s FROM entries WHERE seq < ? AND ${vis.sql}`, entry.seq, ...vis.args).one().s as number | null) ?? 0;
+        const lang = langOf(a.lang);
+        const kind = `${a.user === row.author}\n${a.user === common!.shared.creator}\n${lang ?? ""}`;
+        let item = items.get(kind);
+        if (!item) items.set(kind, (item = updateItem(this.decisions.attach([row])[0], common!.shared, { name: a.user, person: true, lang }, { root: common!.root, reactions: [], claim: common!.claim })));
+        f = JSON.stringify({ ...msg, entry: item, prev, count: common!.count, ...(common!.sum ? { sum: true } : {}) });
+        if (new TextEncoder().encode(f).length > PUSH_MAX_BYTES) f = data; // too big to push: the signal, and the tab fetches it
+      }
+      frames.set(key, f);
+      return f;
+    };
+    for (const ws of this.tabs()) {
+      const a = ws.deserializeAttachment() as TabAtt | null;
+      const web = !!a?.person && !!a.push;
+      if ((which === "web" && !web) || (which === "others" && web)) continue;
+      // Tabs opened before people-only existed carry no attachment: they hear nothing private.
+      if (aud && (!a || !canSee(aud, a))) continue;
+      const plan = socketPlan(a, this.ctx.getTags(ws)[0], members, ok, now);
+      if (plan === "skip") continue;
+      let out = data;
+      if (plan === "renew") out = JSON.stringify({ ...msg, renew: true });
+      else if (plan === "push") {
+        const f = frameFor(a!);
+        if (f == null) continue; // GET /updates wouldn't return it to them: nothing
+        out = f;
+      }
+      try {
+        ws.send(out);
+      } catch {}
+    }
+  }
+
+  /** Might this new entry change the sidebar (open questions and tasks…)? A pushed one says so, and the tab refreshes it. */
+  private touchesSummary(e: Entry): boolean {
+    if (e.type !== "note") return true;
+    // A reply answers its parent and the questions above it in the thread (state.ts computeSummary).
+    for (let cur = e.reply_to, hops = 0; cur != null && hops < 50; hops++) {
+      const r = this.sql.exec("SELECT type, reply_to FROM entries WHERE seq = ?", cur).toArray()[0];
+      if (!r) return true;
+      if (r.type === "question") return true;
+      cur = r.reply_to as number | null;
+    }
+    return false;
   }
 
   /** Columns added after a board was created. Idempotent; runs on every wake-up. */
@@ -1256,6 +1357,7 @@ export class Board extends DurableObject<Env> {
     input: NewEntry,
     session?: string | null,
     strict = false, // post {strict: true}: anything unread stops it, as before relevance (#2177)
+    live?: LiveMember[] | null, // the board's members as the Worker just read them (registry.boardMembers): see broadcastEntry
   ): Promise<{ entry: Entry; missed: Entry[]; root: number } | { refused: true; relevant: Entry[]; others: number[]; remaining: number }> {
     const again = this.sentBefore(user, input.idem);
     if (again) return { entry: again, missed: [], root: await this.rootOf(again.seq) }; // a retry of a post that already landed
@@ -1263,7 +1365,7 @@ export class Board extends DurableObject<Env> {
     const cursor = this.seenCursor(user, session); // a held wait's entries count as read here, acked or not
     const missed = this.entriesAfter(cursor, user, MISSED_SCAN, session, asAgent(user));
     if (!missed.length) {
-      const entry = await this.post(user, session ? { ...input, session } : input);
+      const entry = await this.post(user, session ? { ...input, session } : input, { live });
       return { entry, missed: [], root: await this.rootOf(entry.seq) };
     }
     // More than we check at once: refuse, as before, so nothing unchecked is skipped by the post.
@@ -1277,13 +1379,13 @@ export class Board extends DurableObject<Env> {
       return { refused: true, relevant: this.decisions.attach(missed.filter((e) => relevant.has(e.seq))), others: missed.filter((e) => !relevant.has(e.seq)).map((e) => e.seq), remaining };
     }
     // The post moves this reader past everything it missed.
-    const entry = await this.post(user, session ? { ...input, session } : input);
+    const entry = await this.post(user, session ? { ...input, session } : input, { live });
     return { entry, missed: this.decisions.attach(missed), root: await this.rootOf(entry.seq) };
   }
 
   /** post, with the new entry's thread root: the Worker renders the entry in its reply without a second call (rootsFor). */
-  async postRooted(user: string, input: NewEntry): Promise<{ entry: Entry; root: number }> {
-    const entry = await this.post(user, input);
+  async postRooted(user: string, input: NewEntry, live?: LiveMember[] | null): Promise<{ entry: Entry; root: number }> {
+    const entry = await this.post(user, input, { live });
     return { entry, root: await this.rootOf(entry.seq) };
   }
 
@@ -1430,7 +1532,7 @@ export class Board extends DurableObject<Env> {
     return { price_date: PRICE_DATE, self_reported: true, this_week: sum(seen), agents: grouped("agent"), tasks: grouped("task_seq"), days: grouped("day").sort((a, b) => String((a as Record<string, unknown>).day).localeCompare(String((b as Record<string, unknown>).day))) };
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" | "linear" | "discord" | "notion" | "teams" } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" | "linear" | "discord" | "notion" | "teams"; live?: LiveMember[] | null } = {}): Promise<Entry> {
     this.renewLeases(user, input.session);
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
@@ -1733,7 +1835,7 @@ export class Board extends DurableObject<Env> {
         if (a.user !== user || (forSession && a.session && a.session !== forSession.session)) return false;
         return forOwnAgent || (!!a.session && a.session !== input.session);
       }, entry);
-      this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "own", to_people: people }, entry.seq);
+      await this.broadcastEntry({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "own", to_people: people }, entry, internal.live ?? null, false);
       return entry;
     }
     if (people) {
@@ -1752,7 +1854,7 @@ export class Board extends DurableObject<Env> {
         }
       }
       this.wakeWaits((a) => a.wait === "any");
-      this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "people", to_people: people }, entry.seq);
+      await this.broadcastEntry({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "people", to_people: people }, entry, internal.live ?? null, false);
       return entry;
     }
     this.ctx.waitUntil(this.notify(info, entry, forSession, !!sibling, input.session ?? null).catch(() => {}));
@@ -1806,10 +1908,10 @@ export class Board extends DurableObject<Env> {
     const sealedText = !!internal.sealed || !!info.encrypted;
     const flag = sealedText ? null : flagOf(screenedText(entry), entry.ai_flag);
     const pingText = entry.text || (internal.attachments ? `📎 ${filesLabel(internal.attachments.list)}` : entry.artifact_name ? `📎 ${entry.artifact_name}` : "");
-    this.broadcast({
+    await this.broadcastEntry({
       type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title,
       entry_title: sealedText ? null : (entry.title ?? null), excerpt: pingExcerpt(pingText, sealedText), ...(flag ? { flagged: flag.quoted ? "quoted" : true } : {}),
-    }, entry.seq);
+    }, entry, internal.live ?? null, pushEligible(entry, { encrypted: !!info.encrypted, sealed: !!internal.sealed }) && !internal.seeding);
     return entry;
   }
 

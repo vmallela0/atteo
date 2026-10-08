@@ -1635,6 +1635,9 @@ let ticking=null,again=false,sumNext=false; // sumNext: a task was finished, so 
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
 async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();pollAfter=d.poll_after_ms||0;
+  applyUpdate(d,sumNow);
+}catch(e){await new Promise(r=>setTimeout(r,5000))}}
+function applyUpdate(d,sumNow){
   const stick=stickNext||pinned;stickNext=false;let added=0;
   let shown=0;for(const e of d.entries){if(addEntry(e)){added++;if(!offChat(document.getElementById('e'+e.seq)))shown++}}
   if(typeof d.last==='number')last=Math.max(last,d.last);
@@ -1646,8 +1649,12 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else if(shown){unseen+=shown;pillSync()}if(window.e2eSync)e2eSync();ghostSoon()}
-  if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();capApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
-}catch(e){await new Promise(r=>setTimeout(r,5000))}}
+  if(d.entries.length||sumNow){if(d.summary!=null){document.getElementById('sum').innerHTML=d.summary;foldApply();capApply()}if(d.count!=null)document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}}
+// #6581: a pushed message, shown without /updates when the page has all before it (prev).
+function pushedEntry(d){const e=d.entry;if(!e||e.seq!==d.seq||typeof e.html!=='string'||typeof d.prev!=='number'||last<d.prev||polling)return false;
+  try{if(d.author===ME0&&d.via==='person'&&!document.getElementById('e'+e.seq))document.querySelector('#thread>.entry.pending')?.remove(); // own post pushed first: drop its copy
+    applyUpdate({entries:[e],count:d.count},false)}catch(x){return false}
+  if(d.sum){sumNext=true;tick(false)}return true}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
 const RXP={};
 // "#412" links read as chips with that message's title, so people never have to think in numbers.
@@ -1669,7 +1676,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove();if(thrOpen&&(t.dataset.root===String(thrOpen)||t.dataset.seq===String(thrOpen)))thrRender()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}} // an open thread shows the unsend at once
     last=Math.max(last,e.seq);return true}
-// Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
+// Live updates: a WebSocket that says what changed (or brings the new message); fall back to long-polling if it can't stay up.
 // A socket gone quiet without closing (sleep, Wi-Fi change) is replaced and the page catches up (#6564).
 let ws,retry=0,polling=false,pollAfter=0,heard=0;
 function revive(){const old=ws;if(!old)return;old.onopen=old.onmessage=old.onclose=null;clearInterval(old.pinger);try{old.close()}catch(e){}connect();tick(false)}
@@ -1712,6 +1719,8 @@ function connect(){
     if(d.type==='task'&&d.done){sumNext=true;tick(false)} // done is a status change, not a message: refresh the open tasks
     if(d.type==='claim'||d.type==='handling')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
+    if(d.type==='entry'&&d.renew)setTimeout(revive,0); // old sign-in: reconnect
+    if(d.type==='entry'&&pushedEntry(d)){if(!document.getElementById('panel-tasks').hidden)loadTasks();return}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code!==4003)document.getElementById('conn').hidden=false;if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};

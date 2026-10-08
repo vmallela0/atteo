@@ -2,7 +2,8 @@
 // Messaging latency bench (vedu #6564, #6566): the critical path of a message, measured on a LOCAL server only.
 //
 //   post  → acknowledged   web (cookie), REST as an agent (token), MCP post tool
-//   post  → another member sees it: the live signal on their board socket, then the /updates fetch the page makes
+//   post  → another member sees it: the live signal on their board socket; the entry in hand, pushed with the signal
+//           (vedu #6581) or fetched with /updates as the page does when it can't use the push
 //   read  → board page HTML, /updates?after= (the page's catch-up), /entries?after= (agents and SDKs)
 //   web   → (with a browser) the optimistic "sending…" copy, the sender's real entry, another tab's render, first paint
 //
@@ -20,7 +21,8 @@
 //     (staging only, docs/STAGING.md; STAGING_BENCH=1 scripts/staging.sh runs this): light load, N=20 M=2 by default,
 //     no hop counts (staging doesn't meter), printed and never checked against the baseline
 //   node scripts/bench-messaging.mjs --update              # write this run's numbers as the profile's baseline
-// Options: --n --m --port --base --d1-ms --do-ms --no-browser --json <file> --update --no-check --keep (state dir and
+// Options: --n --m --port --base --d1-ms --do-ms --gap (ms idle between samples, default 200) --no-browser --no-push (listeners ignore pushed entries and fetch, as
+//   before #6581: an A/B on one deployment) --json <file> --update --no-check --keep (state dir and
 //   server log) --log-hops (the server log names every D1 query and Durable Object call, per request)
 // Env: GROW, SLACK, PW_CHROME, ADMIN_KEY (with --base; default ci-admin-key).
 // Local servers and staging only: --base must be localhost or the staging Worker. Never production.
@@ -40,6 +42,7 @@ const remote = (() => { try { return new URL(opt("base", "http://localhost")).ho
 const N = Number(opt("n", remote ? 20 : 40)), M = Number(opt("m", remote ? 2 : 3)), PORT = Number(opt("port", 8640));
 const D1_MS = Number(opt("d1-ms", 0)), DO_MS = Number(opt("do-ms", 0));
 const GROW = Number(process.env.GROW ?? 0.5), SLACK = Number(process.env.SLACK ?? 15);
+const GAP = Number(opt("gap", 200)); // ms idle between samples
 const PROFILE = remote ? `staging` : `d1=${D1_MS},do=${DO_MS}`;
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 let BASE = (opt("base", "") || `http://localhost:${PORT}`).replace(/\/$/, "");
@@ -83,7 +86,7 @@ const run = Date.now().toString(36).slice(-5);
 // P posts from the web; AG's token posts as an agent (its own per-minute post limit: staging keeps prod's 60 a person).
 const P = `e2e-bp${run}`, AG = `e2e-ba${run}`, L = Array.from({ length: M }, (_, i) => `e2e-bl${i}${run}`);
 for (const u of [P, AG, ...L]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
-const made = await ops("boards", { user: P, title: `Bench ${run}` });
+const made = await ops("boards", { user: P, title: `e2e bench ${run}` }); // "e2e …": scripts/cleanup-e2e.mjs removes it with its users
 if (!made.board) throw new Error(`setup: ${JSON.stringify(made)} (users: ${JSON.stringify(await ops("users", { name: P, email: `${P}@example.com`, verified: "true" }))})`);
 const board = made.board.id;
 for (const u of [AG, ...L]) await ops("members", { board, user: u });
@@ -118,10 +121,12 @@ const seqOf = (kind, res) => {
 
 for (let i = 0; i < (remote ? 10 : 20); i++) await post("web", `seed ${i}: the build passed and the docs are up to date`); // a board with some history
 
-// Listeners: a board tab's live path. The socket's "entry" signal, then one /updates?after=last at a time (as tick()).
+// Listeners: a board tab's live path, as the page's: an entry pushed with its signal is applied when the tab has
+// everything before it (prev), and a sidebar-changing one (sum) still fetches; otherwise one /updates?after=last at a
+// time (as tick()).
 // The board broadcasts before the post's response leaves, so a listener often hears of a seq before the poster knows it:
 // each listener keeps when it got each seq (signal, then fetch), and the poster settles them once it has the seq.
-const sigAt = new Map(), gotAt = new Map(); // `${user}:${seq}` → performance.now()
+const sigAt = new Map(), gotAt = new Map(), pushed = new Set(); // `${user}:${seq}` → performance.now(); which were pushed
 class Listener {
   constructor(u) { this.u = u; this.last = 0; this.busy = false; this.again = false; }
   async open() {
@@ -134,7 +139,14 @@ class Listener {
         const t = now();
         let d; try { d = JSON.parse(m.data); } catch { return; }
         if (d.type !== "entry") return;
-        if (!sigAt.has(`${this.u}:${d.seq}`)) sigAt.set(`${this.u}:${d.seq}`, t);
+        const key = `${this.u}:${d.seq}`;
+        if (!sigAt.has(key)) sigAt.set(key, t);
+        if (!flag("no-push") && d.entry && d.entry.seq === d.seq && typeof d.prev === "number" && this.last >= d.prev) {
+          if (!gotAt.has(key)) { gotAt.set(key, t); pushed.add(key); }
+          this.last = Math.max(this.last, d.seq);
+          if (d.sum) this.tick();
+          return;
+        }
         this.tick();
       };
     });
@@ -178,10 +190,15 @@ async function phase(kind, label) {
     // Wait until every listener has it (or 5s), so each sample is one message on an otherwise idle board.
     const all = () => L.every((u) => gotAt.has(`${u}:${seq}`));
     for (let w = 0; !all() && w < 2500; w++) await sleep(2);
+    // Then idle a moment, so the post's own background work (D1 writes after it answered) is done before the next one:
+    // a pushed entry arrives with the answer, and without the /updates round trip the next post would queue behind it.
+    await sleep(GAP);
     for (const u of L) {
       if (sigAt.has(`${u}:${seq}`)) add("deliver: live signal", sigAt.get(`${u}:${seq}`) - t0);
-      if (gotAt.has(`${u}:${seq}`)) add("deliver: signal + /updates", gotAt.get(`${u}:${seq}`) - t0);
-      else add("deliver: missed (5s)", 1);
+      if (gotAt.has(`${u}:${seq}`)) {
+        add("deliver: entry in hand", gotAt.get(`${u}:${seq}`) - t0); // pushed or fetched: when the tab can show it
+        add(pushed.has(`${u}:${seq}`) ? "deliver: pushed with the signal" : "deliver: signal + /updates", gotAt.get(`${u}:${seq}`) - t0);
+      } else add("deliver: missed (5s)", 1);
     }
   }
 }

@@ -1631,6 +1631,59 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   assert(!(await open(null)).ok, "signed-out must not connect");
 });
 
+await step("live entries (vedu #6581): a web tab gets a public message rendered over its socket; Just mine reaches only its person, as a signal; agents' sockets and removed members never get the entry", async () => {
+  const lb = (await ops("boards", { user: A, title: `live push ${run}` })).body.board.id;
+  const C = `e2e-livec-${run}`; // removed mid-connection below
+  await makeUser(C);
+  for (const u of [B, C]) await ops("members", { board: lb, user: u });
+  const wsUrl = BASE.replace(/^http/, "ws") + `/api/boards/${lb}/ws`;
+  const open = (headers) =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(wsUrl, { headers });
+      const s = { ws, msgs: [], closed: null };
+      ws.onmessage = (m) => s.msgs.push(String(m.data));
+      ws.onclose = (e) => { s.closed = e.code; };
+      ws.onopen = () => resolve(s);
+      ws.onerror = () => resolve(s);
+    });
+  const [aWeb, bWeb, bAgent, cWeb] = await Promise.all([open({ cookie: cookie[A] }), open({ cookie: cookie[B] }), open(auth(B)), open({ cookie: cookie[C] })]);
+  for (const s of [aWeb, bWeb, bAgent, cWeb]) await until(() => s.msgs.some((x) => x.includes('"type":"hello"')));
+  const frames = (s, seq) => s.msgs.map((x) => { try { return JSON.parse(x); } catch { return {}; } }).filter((f) => f.type === "entry" && f.seq === seq);
+  const say = async (who, body) => (await (await web(`/api/boards/${lb}/entries`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+
+  // A public note: B's web tab gets it rendered (the same html /updates gives B), B's agent socket the signal only.
+  const pub = await say(A, { text: `live public ${run}` });
+  await until(() => frames(bWeb, pub).length && frames(bAgent, pub).length && frames(cWeb, pub).length);
+  const [pushed] = frames(bWeb, pub);
+  assert(pushed?.entry?.html?.includes(`live public ${run}`) && typeof pushed.prev === "number", `B's web tab: ${JSON.stringify(pushed)?.slice(0, 300)}`);
+  const u = await (await web(`/api/boards/${lb}/updates?after=${pub - 1}`, B)).json();
+  assert(JSON.stringify(u.entries.find((e) => e.seq === pub)) === JSON.stringify(pushed.entry), "the pushed entry is what /updates returns to B");
+  assert(frames(bAgent, pub).every((f) => f.entry === undefined), "an agent's socket gets the signal, never the rendered entry");
+
+  // Just mine from B: B's own tab and agent hear of it (the signal: they fetch it), A and C hear nothing.
+  const mine = await say(B, { text: `live just mine ${run}`, own: true });
+  await until(() => frames(bWeb, mine).length && frames(bAgent, mine).length);
+  for (const s of [bWeb, bAgent]) assert(frames(s, mine).length === 1 && frames(s, mine)[0].entry === undefined && !JSON.stringify(frames(s, mine)).includes(`live just mine ${run}`), `B's own lane: ${JSON.stringify(frames(s, mine))}`);
+  await sleep(300); // guards a negative
+  assert(!frames(aWeb, mine).length && !aWeb.msgs.some((x) => x.includes(`live just mine ${run}`)), `A must not get B's Just mine #${mine}`);
+  assert(!frames(cWeb, mine).length, `C must not get B's Just mine #${mine}`);
+  // The next public message: A's push says its previous visible entry is #pub (the Just mine one isn't A's).
+  const pub2 = await say(B, { text: `live public two ${run}` });
+  await until(() => frames(aWeb, pub2).length);
+  assert(frames(aWeb, pub2)[0].prev === pub && frames(aWeb, pub2)[0].entry, `A's prev: ${JSON.stringify(frames(aWeb, pub2)[0]).slice(0, 200)}`);
+
+  // C is removed while connected: the socket is closed (4003), and nothing after reaches it.
+  const rm = await web(`/api/boards/${lb}/members/${C}/remove`, A, { method: "POST" });
+  assert(rm.ok, `remove: ${rm.status}`);
+  // Told so, and closed (4003; the close frame itself isn't reliably delivered here, so the message is what's checked).
+  await until(() => cWeb.msgs.some((x) => x.includes('"type":"removed"')));
+  assert(cWeb.msgs.some((x) => x.includes('"type":"removed"')) && (cWeb.closed == null || cWeb.closed === 4003), `C's socket: closed ${cWeb.closed}, last ${cWeb.msgs.slice(-1).join("").slice(0, 200)}`);
+  const after = await say(A, { text: `live after removal ${run}` });
+  await until(() => frames(bWeb, after).length);
+  assert(!cWeb.msgs.some((x) => x.includes(`"seq":${after}`) || x.includes(`live after removal ${run}`)), "a removed member gets nothing");
+  for (const s of [aWeb, bWeb, bAgent, cWeb]) s.ws.close();
+});
+
 await step("messaging fast path (vedu #6564): a post says its thread root, /updates and /entries carry roots and reactions, guards unchanged", async () => {
   const fb = (await ops("boards", { user: A, title: `fast ${run}` })).body.board.id;
   await ops("members", { board: fb, user: B });

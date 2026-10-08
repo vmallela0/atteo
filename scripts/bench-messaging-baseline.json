@@ -18,6 +18,12 @@
    "deliver: signal + /updates": {
     "p95": 16.1
    },
+   "deliver: entry in hand": {
+    "p95": 15.5
+   },
+   "deliver: pushed with the signal": {
+    "p95": 15.5
+   },
    "ack: REST post (agent token)": {
     "p95": 7.8,
     "d1": 5,
@@ -77,6 +83,12 @@
    },
    "deliver: signal + /updates": {
     "p95": 298.2
+   },
+   "deliver: entry in hand": {
+    "p95": 200.5
+   },
+   "deliver: pushed with the signal": {
+    "p95": 200.5
    },
    "ack: REST post (agent token)": {
     "p95": 146.8,
