@@ -1007,7 +1007,12 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
 .kcol.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
 .kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
-.kfrozen{opacity:.7;min-width:120px}.kfrozen.open{min-width:220px}.kfz{all:unset;cursor:pointer;display:inline-flex;gap:4px}.kfz:focus-visible{outline:2px solid var(--accent);outline-offset:2px} /* frozen: parked, folded until opened (vedu #4791) */
+/* Frozen: parked, last and folded until opened (vedu #4791). Folded, the whole column is the toggle with a chevron
+   (#6434: it read as a broken, empty stub whose only click target was its label); open, it's a column like the rest. */
+.kfrozen{min-width:120px;-webkit-tap-highlight-color:transparent}.kfrozen:not(.open){opacity:.7;cursor:pointer;border-style:dashed}.kfrozen:not(.open):hover{opacity:1;border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
+.kanban.fz-open{grid-template-columns:repeat(5,minmax(220px,1fr))}
+.kfz{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px}.kfz:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.kfz::after{content:"›";display:inline-block;font-size:17px;line-height:12px;color:var(--muted);transition:transform .15s}.kfrozen.open .kfz::after{transform:rotate(90deg)}[dir=rtl] .kfrozen:not(.open) .kfz::after{transform:scaleX(-1)}
 .kcards{display:flex;flex-direction:column;gap:6px}
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
 .kcard:focus-visible,#kanban:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

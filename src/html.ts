@@ -2859,7 +2859,10 @@ async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/task
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||tr('Could not update'));loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
 kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)return;dragSeq=c.dataset.seq;e.dataTransfer.effectAllowed='move';c.classList.add('dragging')});
-kb.addEventListener('click',e=>{const b=e.target.closest('.kfz');if(!b)return;kFrozenOpen=!kFrozenOpen;const col=b.closest('.kcol');col.classList.toggle('open',kFrozenOpen);b.setAttribute('aria-expanded',String(kFrozenOpen));col.querySelector('.kcards').hidden=!kFrozenOpen});
+// Folded, a click anywhere on the Frozen column opens it; open, its header closes it (a card click opens the card).
+kb.addEventListener('click',e=>{const col=e.target.closest('.kfrozen');if(!col||(kFrozenOpen&&!e.target.closest('.kfz')))return;kFrozenOpen=!kFrozenOpen;
+  col.classList.toggle('open',kFrozenOpen);kb.classList.toggle('fz-open',kFrozenOpen);col.querySelector('.kfz').setAttribute('aria-expanded',String(kFrozenOpen));col.querySelector('.kcards').hidden=!kFrozenOpen;
+  if(kFrozenOpen)col.scrollIntoView({block:'nearest',inline:'nearest'})}); // on a phone, the now-wider column fully in view
 kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'))});
 kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
 kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;taskAct(s,{action:'update',status:col.dataset.status})});
