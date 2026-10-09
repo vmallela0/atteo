@@ -23,7 +23,7 @@ struct GuideRow: View {
 
     static var url: URL {
         var c = URLComponents(url: API.shared.publicBase.appendingPathComponent("guide"), resolvingAgainstBaseURL: false)!
-        c.queryItems = [URLQueryItem(name: "lang", value: L10n.current)]
+        c.queryItems = [URLQueryItem(name: "lang", value: L10n.web)]
         return c.url!
     }
 }
