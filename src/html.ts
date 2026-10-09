@@ -1017,7 +1017,7 @@ const CONNECT_JS = `
   // Instinct gets the browser-agent sign-in message (#6296), with this server's address.
   const says={grokbot:${JSON.stringify(grokBotMessage("%URL%"))}.split('%URL%').join(u),instinct:${JSON.stringify(BROWSER_AGENT_SAY)}.split('https://atteo.dev').join(location.origin),
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
-  const signs=' It sets itself up, then asks you to sign in and choose Allow.',sayWhere={grokbot:'Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).'+signs,any:'Copied. Paste it into your agent.'+signs,instinct:tr('Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.')};
+  const sayWhere={grokbot:tr('Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.'),any:tr('Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.'),instinct:tr('Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.')};
   if(location.hash==='#connect'){const d=document.getElementById('connect');if(d&&!d.open)d.showModal()}
   document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.split('https://atteo.example').join(location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};

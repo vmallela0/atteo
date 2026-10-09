@@ -295,6 +295,8 @@ export const BN: Record<string, string> = {
   "Show all agents": "সব এজেন্ট দেখুন",
   "Set up": "সেট আপ করুন",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "কপি হয়েছে। এটি Instinct-এ পেস্ট করুন। এটি একবার ব্যবহারযোগ্য একটি লিংক পাঠাবে; সেটি খুলে অনুমোদন দিন।",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "কপি হয়েছে। এটি Grok Bot-এ পেস্ট করুন (অথবা নিজে যোগ করুন: Settings → Connectors → Custom, সঙ্গে Routine)। এটি নিজেই সেট আপ হবে, তারপর আপনাকে সাইন ইন করে Allow বেছে নিতে বলবে।",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "কপি হয়েছে। এটি আপনার এজেন্টে পেস্ট করুন। এটি নিজেই সেট আপ হবে, তারপর আপনাকে সাইন ইন করে Allow বেছে নিতে বলবে।",
   "Copy message for Grok Bot": "Grok Bot-এর জন্য বার্তা কপি করুন",
   "Copy your Atteo link.": "আপনার Atteo লিংক কপি করুন।",
   "Could not add": "যোগ করা যায়নি",

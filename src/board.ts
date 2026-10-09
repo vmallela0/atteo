@@ -14,7 +14,7 @@ import { recordOutcome } from "./agents";
 import { workingAgents, type BoardAgentPresence } from "./boardStates";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
-import { cleanTitle, EMOJI_RE, ftsQuery, normalizeForScreen, USER_RE } from "./util";
+import { cleanTitle, EMOJI_RE, ftsQuery, normalizeForScreen, cleanBoardTitle, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { branchKey, closes, handoffText, HandoffError, isResult, isSealedReady, parseReady, parseResult, parseSealedReady, type Handoff, type HandoffReady, type HandoffResult, type SealedReady } from "./handoff";
 import { deliver } from "./webhooks";
@@ -1134,7 +1134,8 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Idempotent: sets id/title/creator the first time only. */
-  async init(id: string, title: string, createdBy: string, opts: { encrypted?: boolean } = {}): Promise<BoardInfo> {
+  async init(id: string, rawTitle: string, createdBy: string, opts: { encrypted?: boolean } = {}): Promise<BoardInfo> {
+    const title = cleanBoardTitle(rawTitle) || "Untitled";
     const hit = scanText(title, "board title");
     if (hit) throw new BoardError(this.secretBlock(hit));
     if (!this.meta("id")) {
@@ -5135,7 +5136,7 @@ export class Board extends DurableObject<Env> {
   }
 
   async rename(title: string): Promise<BoardInfo> {
-    const t = title.trim().slice(0, 120);
+    const t = cleanBoardTitle(title).slice(0, 120);
     if (!t) throw new BoardError("Give the board a name.");
     const hit = scanText(t, "board title");
     if (hit) throw new BoardError(this.secretBlock(hit));

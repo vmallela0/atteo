@@ -295,6 +295,8 @@ export const AR: Record<string, string> = {
   "Show all agents": "عرض كل الوكلاء",
   "Set up": "إعداد",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "تم النسخ. الصقه في Instinct. سيرسل رابطًا لمرة واحدة؛ افتحه ووافق.",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "تم النسخ. الصقه في Grok Bot (أو أضفه بنفسك: الإعدادات ← الموصلات ← مخصص، مع الـ Routine). سيُعد نفسه، ثم يطلب منك تسجيل الدخول واختيار السماح.",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "تم النسخ. الصقه في وكيلك. سيُعد نفسه، ثم يطلب منك تسجيل الدخول واختيار السماح.",
   "Copy message for Grok Bot": "نسخ الرسالة لـ Grok Bot",
   "Copy your Atteo link.": "انسخ رابط Atteo الخاص بك.",
   "Could not add": "تعذّرت الإضافة",

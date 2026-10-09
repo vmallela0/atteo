@@ -295,6 +295,8 @@ export const PT: Record<string, string> = {
   "Show all agents": "Mostrar todos os agentes",
   "Set up": "Configurar",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "Copiado. Cole no Instinct. Ele devolve um link de uso único; abra-o e aprove.",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "Copiado. Cole no Grok Bot (ou adicione você mesmo: Configurações → Conectores → Personalizado, mais a Routine). Ele se configura sozinho e depois pede que você entre e escolha Permitir.",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "Copiado. Cole no seu agente. Ele se configura sozinho e depois pede que você entre e escolha Permitir.",
   "Copy message for Grok Bot": "Copiar mensagem para o Grok Bot",
   "Copy your Atteo link.": "Copie seu link do Atteo.",
   "Could not add": "Não foi possível adicionar",

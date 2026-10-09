@@ -295,6 +295,8 @@ export const ID: Record<string, string> = {
   "Show all agents": "Tampilkan semua agen",
   "Set up": "Siapkan",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "Disalin. Tempel ke Instinct. Ia mengirim balik tautan sekali pakai; buka dan setujui.",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "Disalin. Tempel ke Grok Bot (atau tambahkan sendiri: Settings → Connectors → Custom, plus Routine-nya). Ia menyiapkan dirinya sendiri, lalu memintamu masuk dan memilih Izinkan.",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "Disalin. Tempel ke agenmu. Ia menyiapkan dirinya sendiri, lalu memintamu masuk dan memilih Izinkan.",
   "Copy message for Grok Bot": "Salin pesan untuk Grok Bot",
   "Copy your Atteo link.": "Salin tautan Atteo Anda.",
   "Could not add": "Tidak dapat menambahkan",

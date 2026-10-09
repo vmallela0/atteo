@@ -1035,6 +1035,7 @@ const handler = {
       const clientLookup: oauth.ClientLookup = {
         ownHosts: [new URL(origin).hostname, url.hostname],
         allowLocal: env.ALLOW_LOCAL_WEBHOOKS === "1" && isLocalHost(url.hostname),
+        beforeFetch: oauth.cimdFetchCap(env), // per client_id: /token (code and refresh) can't fetch one URL over and over
       };
       // Local test servers only: a client metadata document test/e2e.mjs sets (POST) and the OAuth flow fetches (GET).
       if (path.startsWith("/__cimd-test/") && env.ALLOW_LOCAL_WEBHOOKS === "1" && isLocalHost(url.hostname)) {
@@ -1064,16 +1065,18 @@ const handler = {
         try {
           return json(await oauth.exchange(env, f, request, clientLookup), 200, { ...cors, "cache-control": "no-store" });
         } catch (e) {
-          // 503 only when a client's metadata document couldn't be fetched for now (CIMD); everything else stays a 400.
-          const status = e instanceof oauth.OAuthError && e.status === 503 ? 503 : 400;
+          // 503 when a client's metadata document couldn't be fetched for now, 429 when its fetch cap is used up (CIMD);
+          // everything else stays a 400. Neither uses up the code or refresh token.
+          const status = e instanceof oauth.OAuthError && (e.status === 503 || e.status === 429) ? e.status : 400;
           return json({ error: e instanceof oauth.OAuthError ? e.code : "invalid_request", error_description: e instanceof Error ? e.message : String(e) }, status, { ...cors, "cache-control": "no-store" });
         }
       }
       if (path === "/oauth/authorize" && method === "GET") {
         if (!viewer || viewer.via === "agent") return redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`);
         try {
-          // A person can make us fetch at most 30 documents the cache can't answer per 10 minutes (no host probing).
-          const lookup = { ...clientLookup, beforeFetch: () => appSignin.hit(env, `cimd:u:${viewer.name}`, 30) };
+          // A person can make us fetch at most 30 documents the cache can't answer per 10 minutes (no host probing), and
+          // each client_id URL has its own cap on top (oauth.cimdFetchCap).
+          const lookup = { ...clientLookup, beforeFetch: oauth.cimdFetchCap(env, viewer.name) };
           const r = await oauth.startAuthorize(env, viewer.name, url.searchParams, lookup);
           return consentPage(viewer, r.id, r.client.name, r.redirect, r.person, r.host);
         } catch (e) {

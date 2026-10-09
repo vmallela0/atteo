@@ -295,6 +295,8 @@ export const JA: Record<string, string> = {
   "Show all agents": "すべてのエージェントを表示",
   "Set up": "設定する",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "コピーしました。Instinct に貼り付けてください。一度だけ使えるリンクが返ってくるので、開いて承認してください。",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "コピーしました。Grok Bot に貼り付けてください（自分で追加する場合：設定 → コネクタ → カスタム、さらに Routine）。自分で設定を済ませ、サインインして「許可」を選ぶよう求めてきます。",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "コピーしました。エージェントに貼り付けてください。自分で設定を済ませ、サインインして「許可」を選ぶよう求めてきます。",
   "Copy message for Grok Bot": "Grok Bot 用のメッセージをコピー",
   "Copy your Atteo link.": "Atteo のリンクをコピーします。",
   "Could not add": "追加できませんでした",

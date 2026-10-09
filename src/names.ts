@@ -5,17 +5,15 @@
 // "@name") carries the real @handle beside it, so nobody can pass as someone else by name.
 
 import type { Env } from "./types";
-import { esc } from "./util";
+import { esc, stripInvisible } from "./util";
 import { handleLookalikes, skeleton } from "./agentName";
 
-/** Controls, zero-width and bidi-override characters: invisible, or able to reorder what's around them. */
-const INVISIBLE = /[\u2800\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}\u0000-\u001f\u007f-\u009f­؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]/gu;
 
 /** The display name as shown, or null when there's nothing to show (unset, blank, or only invisible characters). */
 export function cleanDisplay(raw: string | null | undefined): string | null {
   if (!raw) return null;
   // Also no pile of accents on one letter (at most two marks each), which would spill over what's around the name.
-  const s = raw.replace(INVISIBLE, "").replace(/(\p{M}{2})\p{M}+/gu, "$1").replace(/\s+/g, " ").trim().slice(0, 60);
+  const s = stripInvisible(raw).replace(/(\p{M}{2})\p{M}+/gu, "$1").replace(/\s+/g, " ").trim().slice(0, 60);
   return s || null;
 }
 

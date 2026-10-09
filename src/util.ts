@@ -110,6 +110,30 @@ export function stripBidiControls(s: string): string {
   return s.replace(HIDDEN_FORMAT, "");
 }
 
+// Names (display names, agent names, board titles, OAuth client names) are stricter than messages: a name is short and
+// never needs hidden formatting, so everything invisible goes, stored that way. Controls; soft hyphen, CGJ, ALM and
+// the Hangul and Khmer fillers; Mongolian selectors; zero-width characters and LRM/RLM (U+200B–U+200F); bidi
+// embeddings, overrides and isolates (U+202A–U+202E, U+2066–U+2069) and the rest of U+2060–U+206F; braille blank;
+// interlinear annotation (U+FFF9–U+FFFB); musical format characters; tag characters (U+E0000–U+E007F, which can carry
+// hidden ASCII text); variation selectors. `NAME_GLUE` (ZWJ, VS15, VS16) is kept only where emoji may appear.
+const NAME_GLUE = "\\u200D\\uFE0E\\uFE0F";
+const NAME_INVISIBLE_SRC =
+  "\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B\\u200C\\u200E\\u200F\\u202A-\\u202E\\u2060-\\u206F" +
+  "\\u2800\\u3164\\uFE00-\\uFE0D\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{1D173}-\\u{1D17A}\\u{E0000}-\\u{E007F}\\u{E0100}-\\u{E01EF}";
+const NAME_INVISIBLE = new RegExp(`[${NAME_INVISIBLE_SRC}${NAME_GLUE}]`, "gu");
+const NAME_INVISIBLE_KEEP_EMOJI = new RegExp(`[${NAME_INVISIBLE_SRC}]`, "gu");
+
+/** A name without invisible or direction-changing characters (see above). `emoji`: keep ZWJ and VS15/VS16, so 👩‍💻 and
+ *  ❤️ in a board title stay whole. */
+export function stripInvisible(s: string, o: { emoji?: boolean } = {}): string {
+  return s.replace(o.emoji ? NAME_INVISIBLE_KEEP_EMOJI : NAME_INVISIBLE, "");
+}
+
+/** A board's title as stored: invisible characters gone (emoji kept whole), one line, trimmed; "" when nothing's left. */
+export function cleanBoardTitle(s: string): string {
+  return stripInvisible(s.replace(/\s+/g, " "), { emoji: true }).replace(/\s+/g, " ").trim();
+}
+
 /**
  * The copy `screenText` and the model screen read. Bidi controls are gone, and every ZWJ and ZWNJ is gone, so none
  * of them can hide a phrase. What people see is unchanged: this string is not rendered.

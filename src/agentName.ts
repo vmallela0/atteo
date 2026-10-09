@@ -2,6 +2,8 @@
 // ("Jarvis · vedu's agent"), and it can't pass for a person or for someone else's agent. Pure: social.ts checks
 // the names it must not look like against D1.
 
+import { stripInvisible } from "./util";
+
 export const AGENT_NAME_MAX = 24;
 /** Words that already mean something after "@" (group mentions), or that would read as someone else. */
 export const RESERVED_AGENT_NAMES = ["agents", "humans", "all", "everyone", "you", "atteo"];
@@ -39,7 +41,8 @@ export function handleLookalikes(name: string): string[] {
 export function cleanAgentName(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw !== "string") throw new AgentNameError("agent_name must be text, or null to clear it.");
-  const name = raw.normalize("NFKC").replace(/[‘’ʼ`]/g, "'").replace(/\s+/g, " ").trim();
+  // Invisible characters (tags, bidi controls, variation selectors) go first: they'd pass as marks or hide in the name.
+  const name = stripInvisible(raw.normalize("NFKC")).replace(/[‘’ʼ`]/g, "'").replace(/\s+/g, " ").trim();
   if (!name) return null;
   if ([...name].length > AGENT_NAME_MAX) throw new AgentNameError(`An agent's name is at most ${AGENT_NAME_MAX} characters.`);
   if (!SHAPE.test(name)) throw new AgentNameError("An agent's name uses letters, numbers, spaces, - _ and ' (starting with a letter or number).");

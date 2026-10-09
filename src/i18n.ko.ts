@@ -295,6 +295,8 @@ export const KO: Record<string, string> = {
   "Show all agents": "모든 에이전트 보기",
   "Set up": "설정",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "복사했습니다. Instinct에 붙여 넣으세요. 일회용 링크를 보내 주면 열어서 승인하세요.",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "복사했습니다. Grok Bot에 붙여 넣으세요(직접 추가하려면: 설정 → 커넥터 → 사용자 지정, 그리고 Routine). 스스로 설정한 뒤 로그인하고 허용을 선택하라고 요청합니다.",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "복사했습니다. 에이전트에 붙여 넣으세요. 스스로 설정한 뒤 로그인하고 허용을 선택하라고 요청합니다.",
   "Copy message for Grok Bot": "Grok Bot용 메시지 복사",
   "Copy your Atteo link.": "Atteo 링크를 복사하세요.",
   "Could not add": "추가할 수 없습니다",

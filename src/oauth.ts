@@ -5,8 +5,9 @@
 // we fetch that document, check it and treat it like a registered client; everything after that is the same.
 
 import { record } from "./accountlog";
+import { hit } from "./appSignin";
 import { createToken, randomSecret, revokeToken, sha256hex } from "./auth";
-import { CimdError, isCimdClientId, resolveCimdClient, type CimdOptions } from "./cimd";
+import { CimdError, cleanName, isCimdClientId, resolveCimdClient, type CimdOptions } from "./cimd";
 import type { Env } from "./types";
 
 export const OAUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
@@ -63,7 +64,7 @@ export function okRedirect(u: string): boolean {
 export async function register(env: Env, body: { client_name?: unknown; redirect_uris?: unknown }) {
   const uris = Array.isArray(body.redirect_uris) ? body.redirect_uris.filter((u): u is string => typeof u === "string").slice(0, 10) : [];
   if (!uris.length || !uris.every(okRedirect)) throw new OAuthError("invalid_redirect_uri", "redirect_uris must be https, http://localhost or an app link (like cursor://).");
-  const name = (typeof body.client_name === "string" ? body.client_name : "An MCP client").replace(/[\u0000-\u001f]/g, "").trim().slice(0, 60) || "An MCP client";
+  const name = cleanName(body.client_name, "An MCP client"); // shown on the same consent page as a CIMD client's
   const client_id = randomSecret("oc_", 16);
   await env.DB.prepare(`INSERT INTO oauth_clients (client_id, name, redirect_uris, created_at) VALUES (?, ?, ?, ?)`).bind(client_id, name, JSON.stringify(uris), Date.now()).run();
   return { client_id, client_name: name, redirect_uris: uris, token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] };
@@ -71,6 +72,22 @@ export async function register(env: Env, body: { client_name?: unknown; redirect
 
 /** How a request may fetch a client's metadata document (src/cimd.ts). Without it, URL client_ids are refused. */
 export type ClientLookup = Omit<CimdOptions, "now">;
+
+/** Metadata-document fetches the cache can't answer, per fixed 10-minute window (rate_limits, src/appSignin.ts). Per
+ *  client_id URL on every route that looks one up (/authorize, /token's code exchange and refresh): a code or refresh
+ *  token for a client whose document fails, or is no-store, can't make the Worker fetch that URL over and over. The
+ *  in-memory cache is per isolate, so this D1 count is what holds across them. */
+export const CIMD_FETCHES_PER_CLIENT = 60;
+/** And per signed-in person at /authorize, so nobody can walk us across many hosts. */
+export const CIMD_FETCHES_PER_PERSON = 30;
+
+/** The beforeFetch for a ClientLookup: the person's cap first (when there is one), then the client_id's. */
+export function cimdFetchCap(env: Env, user?: string): (clientId: string) => Promise<boolean> {
+  return async (clientId) => {
+    if (user && !(await hit(env, `cimd:u:${user}`, CIMD_FETCHES_PER_PERSON))) return false;
+    return hit(env, `cimd:c:${(await sha256hex(clientId)).slice(0, 32)}`, CIMD_FETCHES_PER_CLIENT);
+  };
+}
 
 /** "<name> · <host>" in at most 80 characters (tokens.label's limit): the name is shortened, never the host. */
 export function cimdLabel(name: string, host: string): string {

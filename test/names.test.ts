@@ -1,5 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { cleanDisplay, displayMap, looksLikeOtherHandle, personHtml, shownName } from "../src/names";
+import { cleanAgentName } from "../src/agentName";
+import { cleanBoardTitle, stripInvisible } from "../src/util";
+
+describe("one sanitizer for every name (review follow-up): tag characters, bidi controls and other invisible formatting", () => {
+  const TAGS = "\u{E0001}\u{E0020}\u{E0069}\u{E0067}\u{E006E}\u{E006F}\u{E0072}\u{E0065}\u{E007F}"; // hidden ASCII "ignore"
+  const BIDI = "‪‫‬‭‮⁦⁧⁨⁩";
+  it("stripInvisible drops tags (U+E0000–E007F), bidi embeddings, overrides and isolates, and other format characters", () => {
+    expect(stripInvisible(`Ve${TAGS}du`)).toBe("Vedu");
+    expect(stripInvisible(`a${BIDI}b`)).toBe("ab");
+    expect(stripInvisible("a​‌‍‎‏⁠⁤﻿­͏؜᠎￹￻\u{1D173}\u{E0100}️b")).toBe("ab");
+    expect(stripInvisible("Ünïcödé 名前 مرحبا")).toBe("Ünïcödé 名前 مرحبا"); // visible text is untouched
+  });
+  it("display_name", () => {
+    expect(cleanDisplay(`Vee${TAGS} ${BIDI}Dee`)).toBe("Vee Dee");
+    expect(cleanDisplay(`${TAGS}${BIDI}`)).toBeNull();
+  });
+  it("agent_name: stripped before it's checked, so a tag or variation selector can't ride along as a 'mark'", () => {
+    expect(cleanAgentName(`Jar${TAGS}vis`)).toBe("Jarvis");
+    expect(cleanAgentName("Jarvis\u{E0101}️")).toBe("Jarvis");
+    expect(cleanAgentName(`⁧Jarvis⁩`)).toBe("Jarvis");
+    expect(cleanAgentName(`${TAGS}${BIDI}`)).toBeNull();
+  });
+  it("board titles: the same, but emoji stay whole (ZWJ and VS16 kept)", () => {
+    expect(cleanBoardTitle(`Launch${TAGS} ${BIDI}plan`)).toBe("Launch plan");
+    expect(cleanBoardTitle("👩‍💻 Dev ❤️")).toBe("👩‍💻 Dev ❤️");
+    expect(cleanBoardTitle(`  ${TAGS}‮ `)).toBe("");
+    expect(cleanBoardTitle("two\nlines")).toBe("two lines");
+  });
+});
 
 describe("display names (jxn #4369)", () => {
   it("drops invisible and direction-flipping characters, and blank names fall back to the handle", () => {

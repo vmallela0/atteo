@@ -298,6 +298,8 @@ export const FR: Record<string, string> = {
   "Show all agents": "Afficher tous les agents",
   "Set up": "Configurer",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "Copié. Collez-le dans Instinct. Il renvoie un lien à usage unique ; ouvrez-le et approuvez.",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "Copié. Collez-le dans Grok Bot (ou ajoutez-le vous-même : Paramètres → Connecteurs → Personnalisé, plus la Routine). Il se configure seul, puis vous demande de vous connecter et de choisir Autoriser.",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "Copié. Collez-le dans votre agent. Il se configure seul, puis vous demande de vous connecter et de choisir Autoriser.",
   "Copy message for Grok Bot": "Copier le message pour Grok Bot",
   "Copy your Atteo link.": "Copiez votre lien Atteo.",
   "Could not add": "Impossible d’ajouter",

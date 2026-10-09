@@ -295,6 +295,8 @@ export const TR: Record<string, string> = {
   "Show all agents": "Tüm ajanları göster",
   "Set up": "Kur",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "Kopyalandı. Instinct'e yapıştırın. Tek kullanımlık bir bağlantı gönderir; açın ve onaylayın.",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "Kopyalandı. Grok Bot'a yapıştırın (ya da kendiniz ekleyin: Ayarlar → Bağlayıcılar → Özel, ayrıca Routine). Kendini kurar, ardından oturum açıp İzin ver'i seçmenizi ister.",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "Kopyalandı. Ajanınıza yapıştırın. Kendini kurar, ardından oturum açıp İzin ver'i seçmenizi ister.",
   "Copy message for Grok Bot": "Grok Bot için mesajı kopyala",
   "Copy your Atteo link.": "Atteo bağlantınızı kopyalayın.",
   "Could not add": "Eklenemedi",

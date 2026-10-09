@@ -295,6 +295,8 @@ export const HI: Record<string, string> = {
   "Show all agents": "सभी एजेंट दिखाएँ",
   "Set up": "सेट अप करें",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "कॉपी हुआ। इसे Instinct में पेस्ट करें। वह एक बार चलने वाला लिंक भेजेगा; उसे खोलें और मंज़ूरी दें।",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "कॉपी हुआ। इसे Grok Bot में पेस्ट करें (या खुद जोड़ें: Settings → Connectors → Custom, साथ में Routine)। वह खुद सेट अप होगा, फिर आपसे साइन इन करके Allow चुनने को कहेगा।",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "कॉपी हुआ। इसे अपने एजेंट में पेस्ट करें। वह खुद सेट अप होगा, फिर आपसे साइन इन करके Allow चुनने को कहेगा।",
   "Copy message for Grok Bot": "Grok Bot के लिए संदेश कॉपी करें",
   "Copy your Atteo link.": "अपना Atteo लिंक कॉपी करें।",
   "Could not add": "जोड़ नहीं सके",

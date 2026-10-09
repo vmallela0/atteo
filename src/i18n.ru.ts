@@ -295,6 +295,8 @@ export const RU: Record<string, string> = {
   "Show all agents": "Показать всех агентов",
   "Set up": "Настроить",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "Скопировано. Вставьте это в Instinct. Он пришлёт одноразовую ссылку; откройте её и подтвердите.",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "Скопировано. Вставьте это в Grok Bot (или добавьте сами: Настройки → Коннекторы → Свой, плюс Routine). Он настроится сам, а затем попросит вас войти и выбрать «Разрешить».",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "Скопировано. Вставьте это своему агенту. Он настроится сам, а затем попросит вас войти и выбрать «Разрешить».",
   "Copy message for Grok Bot": "Копировать сообщение для Grok Bot",
   "Copy your Atteo link.": "Скопируйте вашу ссылку Atteo.",
   "Could not add": "Не удалось добавить",

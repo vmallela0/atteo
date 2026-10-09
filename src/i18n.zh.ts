@@ -296,6 +296,8 @@ export const ZH_CN: Record<string, string> = {
   "Show all agents": "显示全部智能体",
   "Set up": "设置",
   "Copied. Paste it into Instinct. It sends back a one-time link; open it and approve.": "已复制。粘贴给 Instinct。它会发回一个一次性链接；打开它并批准。",
+  "Copied. Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine). It sets itself up, then asks you to sign in and choose Allow.": "已复制。粘贴给 Grok Bot（或自己添加：设置 → 连接器 → 自定义，再加上 Routine）。它会自行设置，然后请你登录并选择“允许”。",
+  "Copied. Paste it into your agent. It sets itself up, then asks you to sign in and choose Allow.": "已复制。粘贴给你的智能体。它会自行设置，然后请你登录并选择“允许”。",
   "Copy message for Grok Bot": "复制给 Grok Bot 的消息",
   "Copy your Atteo link.": "复制你的 Atteo 链接。",
   "Could not add": "无法添加",

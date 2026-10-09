@@ -1,7 +1,7 @@
 // OAuth Client ID Metadata Documents (vedu #6575): src/cimd.ts and its use in src/oauth.ts, with a mocked fetch.
 import { beforeEach, describe, expect, it } from "vitest";
 import { CIMD_MAX_BYTES, cacheSeconds, checkClientIdUrl, cleanName, clearCimdCache, resolveCimdClient, type CimdOptions } from "../src/cimd";
-import { authorizationServer, cimdLabel, exchange, finishAuthorize, register, startAuthorize, type ClientLookup } from "../src/oauth";
+import { authorizationServer, CIMD_FETCHES_PER_CLIENT, CIMD_FETCHES_PER_PERSON, cimdFetchCap, cimdLabel, exchange, finishAuthorize, register, startAuthorize, type ClientLookup } from "../src/oauth";
 import { consentPage } from "../src/oauthPage";
 import type { Env } from "../src/types";
 
@@ -490,5 +490,106 @@ describe("the consent page for a URL client", () => {
     expect(html).toContain("Claude wants to be your agent");
     expect(html).toContain("will return to claude.ai");
     expect(html).not.toContain("data-client-host");
+  });
+});
+
+describe("fetch caps per client_id (review follow-up): /token can't make the Worker fetch one URL over and over", () => {
+  const ID2 = "https://other.example.org/client.json";
+  const capped = (env: Env, f: typeof fetch, user?: string): ClientLookup => ({ ownHosts: OWN, fetch: f, beforeFetch: cimdFetchCap(env, user) });
+  const count = (db: any, key: string) => (db.prepare(`SELECT n FROM rate_limits WHERE key = ?`).get(key) as { n: number } | undefined)?.n;
+
+  it("beforeFetch is asked with the client_id URL", async () => {
+    const seen: string[] = [];
+    await resolveCimdClient(ID, opts(mock(() => json(DOC)).f, { beforeFetch: async (id) => (seen.push(id), true) }));
+    expect(seen).toEqual([ID]);
+  });
+
+  it("counts fetches the cache can't answer, per client_id, in D1; another client_id has its own count", async () => {
+    const { env, db } = fakeEnv();
+    const m = mock((u) => json(u === ID ? DOC : { ...DOC, client_id: ID2 }, { "cache-control": "no-store" }));
+    const cap = capped(env, m.f);
+    for (let i = 0; i < CIMD_FETCHES_PER_CLIENT; i++) await resolveCimdClient(ID, cap);
+    await expect(resolveCimdClient(ID, cap)).rejects.toMatchObject({ code: "temporarily_unavailable", status: 429 });
+    expect(m.calls).toHaveLength(CIMD_FETCHES_PER_CLIENT); // the refused one fetched nothing
+    expect((await resolveCimdClient(ID2, cap)).client_id).toBe(ID2);
+    // Keyed by a hash of the URL (client_ids run to 2048 characters), never the URL itself.
+    const keys = (db.prepare(`SELECT key FROM rate_limits`).all() as { key: string }[]).map((r) => r.key);
+    expect(keys).toHaveLength(2);
+    for (const k of keys) expect(k).toMatch(/^cimd:c:[0-9a-f]{32}$/);
+  });
+
+  it("a cached document costs nothing against the cap", async () => {
+    const { env, db } = fakeEnv();
+    const m = mock(() => json(DOC));
+    for (let i = 0; i < CIMD_FETCHES_PER_CLIENT + 5; i++) await resolveCimdClient(ID, capped(env, m.f));
+    expect(m.calls).toHaveLength(1);
+    expect(db.prepare(`SELECT n FROM rate_limits`).get().n).toBe(1);
+  });
+
+  it("at /authorize the person's cap applies too, and a person over it doesn't spend the client_id's", async () => {
+    const { env, db } = fakeEnv();
+    const m = mock(() => json(DOC, { "cache-control": "no-store" }));
+    for (let i = 0; i < CIMD_FETCHES_PER_PERSON; i++) await resolveCimdClient(ID, capped(env, m.f, "ada"));
+    await expect(resolveCimdClient(ID, capped(env, m.f, "ada"))).rejects.toMatchObject({ status: 429 });
+    expect(count(db, "cimd:u:ada")).toBe(CIMD_FETCHES_PER_PERSON + 1);
+    const clientKey = (db.prepare(`SELECT key FROM rate_limits WHERE key LIKE 'cimd:c:%'`).get() as { key: string }).key;
+    expect(count(db, clientKey)).toBe(CIMD_FETCHES_PER_PERSON);
+    expect((await resolveCimdClient(ID, capped(env, m.f, "bob"))).name).toBe("Smithery Connect");
+  });
+
+  it("/token: a code whose document is no-store or failing can't be replayed into unlimited fetches; the 429 doesn't use up the code", async () => {
+    const { env, db } = fakeEnv();
+    let answer: () => Response = () => json(DOC, { "cache-control": "no-store" });
+    const m = mock(() => answer());
+    const lookup = capped(env, m.f);
+    const { verifier, challenge } = pkce();
+    const { code } = await codeFor(env, lookup, challenge); // one fetch at /authorize
+    answer = () => json({}, {}, 503);
+    const f = { grant_type: "authorization_code", code, client_id: ID, code_verifier: verifier };
+    for (let i = 1; i < CIMD_FETCHES_PER_CLIENT; i++) await expect(exchange(env, f, null, lookup)).rejects.toMatchObject({ status: 503 });
+    await expect(exchange(env, f, null, lookup)).rejects.toMatchObject({ code: "temporarily_unavailable", status: 429 });
+    await expect(exchange(env, f, null, lookup)).rejects.toMatchObject({ status: 429 });
+    expect(m.calls).toHaveLength(CIMD_FETCHES_PER_CLIENT);
+    expect(db.prepare(`SELECT used FROM oauth_codes`).get().used).toBe(0);
+    // The next window: the same code still works.
+    db.prepare(`UPDATE rate_limits SET reset_at = 0`).run();
+    answer = () => json(DOC, { "cache-control": "no-store" });
+    expect((await exchange(env, f, null, lookup)).access_token).toMatch(/^ab_/);
+  });
+
+  it("/token refresh: capped the same way, and the refused refresh token isn't used up", async () => {
+    const { env, db } = fakeEnv();
+    let answer: () => Response = () => json(DOC, { "cache-control": "no-store" });
+    const m = mock(() => answer());
+    const lookup = capped(env, m.f);
+    const { verifier, challenge } = pkce();
+    const { code } = await codeFor(env, lookup, challenge);
+    const t = await exchange(env, { grant_type: "authorization_code", code, client_id: ID, code_verifier: verifier }, null, lookup);
+    answer = () => json({}, {}, 503);
+    const r = { grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: ID };
+    for (let i = 2; i < CIMD_FETCHES_PER_CLIENT; i++) await expect(exchange(env, r, null, lookup)).rejects.toMatchObject({ status: 503 });
+    await expect(exchange(env, r, null, lookup)).rejects.toMatchObject({ status: 429 });
+    expect(m.calls).toHaveLength(CIMD_FETCHES_PER_CLIENT);
+    db.prepare(`UPDATE rate_limits SET reset_at = 0`).run();
+    answer = () => json(DOC, { "cache-control": "no-store" });
+    expect((await exchange(env, r, null, lookup)).access_token).toMatch(/^ab_/);
+  });
+});
+
+describe("client names on the consent page: no tag or bidi characters (review follow-up)", () => {
+  it("CIMD client_name loses tag characters, bidi overrides and isolates, and variation selectors", async () => {
+    expect(cleanName("Smithery\u{E0049}\u{E0047}\u{E004E} Connect", "h")).toBe("Smithery Connect");
+    expect(cleanName("‮tcennoC‬ ⁦Smithery⁩⁧", "h")).toBe("tcennoC Smithery");
+    expect(cleanName("\u{E0001}\u{E0020}\u{E007F}", "connect.smithery.ai")).toBe("connect.smithery.ai");
+    expect(cleanName("A️\u{E0100}pp￹", "h")).toBe("App");
+    const doc = { ...DOC, client_name: "Smithery\u{E0020}\u{E0069}\u{E0067}\u{E006E}\u{E006F}\u{E0072}\u{E0065} Connect" };
+    expect((await resolveCimdClient(ID, opts(mock(() => json(doc)).f))).name).toBe("Smithery Connect");
+  });
+
+  it("a registered (DCR) client's name is cleaned the same way", async () => {
+    const { env } = fakeEnv();
+    const reg = await register(env, { client_name: "Cl\u{E0041}aude‮ ⁦", redirect_uris: ["https://claude.ai/api/mcp/auth_callback"] });
+    expect(reg.client_name).toBe("Claude");
+    expect((await register(env, { client_name: "\u{E0041}​", redirect_uris: ["https://claude.ai/cb"] })).client_name).toBe("An MCP client");
   });
 });
