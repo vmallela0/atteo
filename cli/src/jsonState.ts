@@ -2,7 +2,8 @@
 // run atteo at once, and a plain read → change → writeFileSync lost entries. A process that read the file earlier wrote
 // its stale copy back over newer ones, and a reader that caught a half-written file took it as {} and saved that. Now a
 // change is made under a lockfile, on a fresh read, applying only that change, and the file is replaced whole (a temp
-// file renamed over it), so no reader ever sees half of one. A file that doesn't parse is never saved over.
+// file renamed over it), so no reader ever sees half of one. A file caught mid-write is never saved over; one that stays
+// unparseable is kept aside as <file>.corrupt and started again.
 // Node fs only, no project imports: test/jsonState.test.mjs runs it as is, from many processes at once.
 
 import { randomBytes } from "node:crypto";
@@ -15,18 +16,28 @@ export const LOCK_STALE_MS = 10_000;
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); // sync: every caller is
 
-type Read<T> = { ok: true; value: T } | { ok: false; missing: boolean };
+/** missing: no file. corrupt: the same bytes failed to parse across the whole re-read window (not someone mid-write). */
+type Read<T> = { ok: true; value: T } | { ok: false; missing: boolean; corrupt: boolean };
 
 /** The file as it is now. One that doesn't parse is read again a few times (an older CLI may be mid-write) first. */
 function readNow<T>(file: string): Read<T> {
+  let first: string | null = null;
+  let same = true; // every read in the window saw the same bytes
   for (let i = 0; ; i++) {
+    let text: string;
     try {
-      return { ok: true, value: JSON.parse(readFileSync(file, "utf8")) };
+      text = readFileSync(file, "utf8");
     } catch (e) {
-      if ((e as { code?: string }).code === "ENOENT") return { ok: false, missing: true };
-      if (i >= 4) return { ok: false, missing: false };
-      sleep(20);
+      if ((e as { code?: string }).code === "ENOENT") return { ok: false, missing: true, corrupt: false };
+      text = "\0unreadable"; // EACCES and the like: never saved over
     }
+    try {
+      return { ok: true, value: JSON.parse(text) };
+    } catch {}
+    first ??= text;
+    same &&= text === first;
+    if (i >= 4) return { ok: false, missing: false, corrupt: same && text !== "\0unreadable" };
+    sleep(20);
   }
 }
 
@@ -99,19 +110,27 @@ function withLock<R>(file: string, fn: () => R): R {
 }
 
 /** Changes the file: `change` gets it as it is now (`init` when missing), under its lock, and edits it in place or returns
- *  the new value. A file that doesn't parse is left as it is (copied to <file>.corrupt, one line on stderr) and
- *  this change isn't saved: never written over with {}. Returns what was saved, or null when nothing was. */
+ *  the new value. Returns what was saved, or null when nothing was. A file that doesn't parse is never saved over while
+ *  it may be mid-write (it changed during the re-reads): this change is skipped. One whose same bytes stayed unparseable
+ *  (e.g. left empty by an older CLI killed mid-write) is copied to <file>.corrupt and started again from `init`, so the
+ *  CLI recovers instead of making a new session on every command. */
 export function updateJson<T>(file: string, init: T, change: (cur: T) => T | void, o: { space?: number; mode?: number } = {}): T | null {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   return withLock(file, () => {
     const r = readNow<T>(file);
     if (!r.ok && !r.missing) {
       const copy = `${file}.corrupt`;
-      try {
-        copyFileSync(file, copy);
-      } catch {}
-      process.stderr.write(`atteo: ${file} isn't valid JSON; left as it is (a copy is in ${copy}) and this change wasn't saved. Fix or remove it.\n`);
-      return null;
+      let kept = false;
+      if (r.corrupt)
+        try {
+          copyFileSync(file, copy);
+          kept = true;
+        } catch {}
+      if (!kept) {
+        process.stderr.write(`atteo: ${file} doesn't parse (being written, or unreadable); this change wasn't saved.\n`);
+        return null;
+      }
+      process.stderr.write(`atteo: ${file} wasn't valid JSON; started it again (the old one is in ${copy}).\n`);
     }
     const cur = r.ok ? r.value : init;
     const next = change(cur) ?? cur;

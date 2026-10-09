@@ -49,14 +49,32 @@ describe("shared JSON state under concurrent CLI processes", () => {
     expect(existsSync(join(dir, "sessions.json.lock"))).toBe(false);
   }, 30_000);
 
-  it("a half-written file is never saved as {}: left byte for byte, copied aside, and the change not saved", () => {
+  it("a file being half-written while it's read is never saved over: the change is skipped", async () => {
+    const file = join(dir, "sessions.json"), go = join(dir, "go");
+    writeFileSync(go, "");
+    const writer = run(["scribble", file, go]);
+    while (!existsSync(file)) await new Promise((r) => setTimeout(r, 5));
+    try {
+      expect(updateJson(file, {}, (m) => void (m["u|3:c"] = { id: "as_3" }))).toBeNull();
+    } finally {
+      writeFileSync(`${go}.done`, "");
+      await writer;
+    }
+    expect(readFileSync(file, "utf8")).toMatch(/^\{"k\d+": \{"id": "as_$/); // still the writer's, never {} or ours
+    expect(existsSync(`${file}.corrupt`)).toBe(false);
+    expect(existsSync(`${file}.lock`)).toBe(false);
+  });
+
+  it("a file that stays unparseable (same bytes through the re-reads) is copied aside and started again, never left stuck", () => {
     const file = join(dir, "sessions.json");
     const half = '{\n  "u|1:a": { "id": "as_1", "name": "a", "boards": [] },\n  "u|2:b": { "id": "as_';
     writeFileSync(file, half);
     expect(readJson(file, {})).toEqual({}); // read as nothing, in memory only
-    expect(updateJson(file, {}, (m) => void (m["u|3:c"] = { id: "as_3" }))).toBeNull();
-    expect(readFileSync(file, "utf8")).toBe(half);
+    expect(updateJson(file, {}, (m) => void (m["u|3:c"] = { id: "as_3" }))).toEqual({ "u|3:c": { id: "as_3" } });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ "u|3:c": { id: "as_3" } });
     expect(readFileSync(`${file}.corrupt`, "utf8")).toBe(half);
+    expect(updateJson(file, {}, (m) => void (m["u|4:d"] = { id: "as_4" }))).toEqual({ "u|3:c": { id: "as_3" }, "u|4:d": { id: "as_4" } });
+    expect(readFileSync(`${file}.corrupt`, "utf8")).toBe(half); // kept
     expect(existsSync(`${file}.lock`)).toBe(false);
   });
 
