@@ -1023,9 +1023,9 @@ const CONNECT_JS = `
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
   document.addEventListener('click',e=>{const o=e.target.closest('[data-cn-open]'),c=e.target.closest('[data-cn-cmd]'),l=e.target.closest('[data-cn-link]');box=e.target.closest('[data-cn-box]');
-    if(o){copy(u);const app=o.dataset.cnApp&&(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent)));if(app)location.assign(o.dataset.cnApp);else window.open(o.dataset.cnOpen,'_blank','noopener');done('Copied '+u+'. Paste it in '+o.dataset.cnWhere+', then sign in and choose Allow.')}
+    if(o){copy(u);const app=o.dataset.cnApp&&(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent)));if(app)location.assign(o.dataset.cnApp);else window.open(o.dataset.cnOpen,'_blank','noopener');done(tr('Copied {url}. Paste it in {where}, then sign in and choose Allow.',{url:u,where:tr(o.dataset.cnWhere)}))}
     else if(c){copy(cmds[c.dataset.cnCmd]);done(tr('Copied. Paste it in your terminal; it opens a browser to sign in.'))}
-    else if(l)done('Opening '+(l.dataset.cnLink==='cursor'?'Cursor':'VS Code')+'… confirm the install, then sign in when it asks.');
+    else if(l)done(tr('Opening {app}… confirm the install, then sign in when it asks.',{app:l.dataset.cnLink==='cursor'?'Cursor':'VS Code'}));
     const m=e.target.closest('[data-cn-say]');if(m){copy(says[m.dataset.cnSay]);done(sayWhere[m.dataset.cnSay])}
     const all=e.target.closest('[data-cn-all]');if(all){all.setAttribute('aria-expanded','true');box.classList.add('cn-x');box.querySelector('.cn-more')?.focus()}});})();
 window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;
