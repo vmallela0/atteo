@@ -209,6 +209,8 @@ const steps = [
     assert(s.status === 0, `sqlite3 refused the SQL: ${s.stderr}`);
     const q = spawnSync("sqlite3", [db, "SELECT name FROM users WHERE name = 'bk-user'"], { encoding: "utf8" });
     assert(q.stdout.trim() === "bk-user", `the user restored into sqlite: ${q.stdout}${q.stderr}`);
+    const av = spawnSync("sqlite3", [db, "SELECT typeof(bytes), hex(bytes) FROM avatars WHERE user = 'bk-user' AND kind = 'person'"], { encoding: "utf8" });
+    assert(av.stdout.trim() === `blob|${png("avatar").toString("hex").toUpperCase()}`, `the avatar's BLOB restored byte for byte: ${av.stdout.slice(0, 80)}${av.stderr}`);
     rmSync(dir, { recursive: true, force: true });
   }],
   ["restore-board (scripts/backup.mjs): the board back as of the night, files included (a later entry gone)", async () => {
@@ -342,6 +344,12 @@ const setup = [
     const t = await ops("tokens", { user: "bk-user", label: "bk" });
     assert(t.status === 201, "token issued");
     globalThis.__token = t.body.token;
+    // A profile picture: a BLOB in D1 (avatars.bytes), which D1 hands back as an array of numbers, not an ArrayBuffer.
+    // The first real night's d1-sql died on exactly that (atob: "not correctly encoded"). People only: a web session.
+    const cookie = (await ops("sessions", { user: "bk-user", verified: "true" })).body.cookie;
+    assert(cookie?.startsWith("ab_session="), "a person session for bk-user");
+    const av = await fetch(`${BASE}/api/me/avatar?kind=person`, { method: "POST", headers: { cookie, "content-type": "image/png" }, body: png("avatar") });
+    assert(av.status === 200, `avatar uploaded: ${av.status} ${(await av.text()).slice(0, 200)}`);
     const s = await ops("seed", { user: "bk-user", board: globalThis.__boardId, count: 5, prefix: "bk-seed" });
     assert(s.status === 200 && s.body.count === 5, "5 entries seeded");
     // Three pictures in one message, each its own bytes (the server's BACKUP_BLOB_PART_BYTES is tiny here, so each gets
@@ -364,7 +372,7 @@ const setup = [
 
 try {
   for (const fn of setup) await fn();
-  ok("setup: user, token, board with 7 entries including a long artifact and 3 pictures");
+  ok("setup: user, token, avatar, board with 7 entries including a long artifact and 3 pictures");
   for (const [name, fn] of steps) {
     const t0 = Date.now();
     try {

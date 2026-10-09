@@ -65,6 +65,16 @@ describe("dump values", () => {
     expect(new Uint8Array(decodeValue(JSON.parse(JSON.stringify(v))) as ArrayBuffer)).toEqual(new Uint8Array([0, 1, 254, 255]));
     expect(tableToSql("blobs", { columns: ["name", "bytes", "n", "x"], rows: [["it's", v, 3, null]] })).toBe(`INSERT INTO "blobs" ("name", "bytes", "n", "x") VALUES ('it''s', X'0001feff', 3, NULL);\n`);
   });
+
+  it("a D1 BLOB (an array of byte values) is dumped as {$b64}, and an older night's raw array still restores", () => {
+    // D1's .raw()/.all() return a BLOB as number[]: the night of Oct 9 2026 stored avatars that way and d1-sql died in
+    // atob ("The string to be decoded is not correctly encoded").
+    expect(encodeValue([0, 1, 254, 255])).toEqual({ $b64: "AAH+/w==" });
+    expect(encodeValue([])).toEqual({ $b64: "" });
+    const legacy = [0, 1, 254, 255];
+    expect(tableToSql("avatars", { columns: ["user", "bytes"], rows: [["a", legacy]] })).toBe(`INSERT INTO "avatars" ("user", "bytes") VALUES ('a', X'0001feff');\n`);
+    expect(new Uint8Array(decodeValue(legacy) as ArrayBuffer)).toEqual(new Uint8Array([0, 1, 254, 255]));
+  });
 });
 
 describe("parts from JSON in pieces (a board's table parts)", () => {

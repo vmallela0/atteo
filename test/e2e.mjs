@@ -1084,8 +1084,10 @@ await step("ops console opens for a localhost admin test session (no ADMIN_EMAIL
   const verified = (await ops("sessions", { user: op, verified: "true" })).body.cookie;
   assert(verified?.startsWith("ab_session="), "verified non-admin cookie");
   assert((await fetch(`${BASE}/_ops`, { headers: { cookie: verified } })).status === 404, "verified member still 404s without admin");
-  const admin = (await ops("sessions", { user: op, verified: "true", admin: true })).body.cookie;
-  assert(admin?.startsWith("ab_session="), "admin test cookie");
+  const adminRes = (await ops("sessions", { user: op, verified: "true", admin: true })).body;
+  const admin = adminRes.cookie;
+  // Without DEV_FAKE_ADMIN=1 (verify.sh passes --var DEV_FAKE_ADMIN:1; so does docs/BACKUPS.md's drill) this says so.
+  assert(admin?.startsWith("ab_session="), `admin test cookie: ${adminRes.error ?? JSON.stringify(adminRes)}`);
   const r = await fetch(`${BASE}/_ops`, { headers: { cookie: admin } });
   const html = await r.text();
   assert(r.status === 200, `/_ops as admin test session ${r.status}`);
@@ -1118,7 +1120,13 @@ await step("ops: the cost guard reports its last check (vedu #4665)", async () =
   const c = await r.json();
   assert(r.status === 200, `cost-guard ${r.status}`);
   for (const k of ["capped", "thresholds", "watching", "last_ok", "last_error", "usage"]) assert(k in c, `cost-guard has ${k}: ${JSON.stringify(c)}`);
-  assert(c.watching === false && c.last_ok === null && c.usage === null && typeof c.thresholds.hardRowsRead === "number", JSON.stringify(c));
+  assert(c.watching === false && typeof c.thresholds.hardRowsRead === "number", JSON.stringify(c));
+  // A fresh local D1 never ran a check. The backup drill's D1 is a restored production night, which carries
+  // production's last check: then it's only checked for its shape.
+  if (c.last_ok !== null) {
+    assert(typeof c.last_ok.at === "number" && c.usage && typeof c.usage.rows_read === "number", JSON.stringify(c));
+    console.log("      (this D1 carries a check from elsewhere, a restored night: skipped 'never checked locally')");
+  } else assert(c.usage === null, JSON.stringify(c));
   assert((await fetch(`${BASE}/api/ops/cost-guard`)).status !== 200, "operators only");
 });
 

@@ -16,8 +16,9 @@ export interface S3Config {
   virtualHost?: boolean; // bucket.host/key instead of host/bucket/key
 }
 
-/** A table dumped as column names plus rows of values; a BLOB value is {$b64: "…"}. */
-export type DumpValue = string | number | null | { $b64: string };
+/** A table dumped as column names plus rows of values; a BLOB value is {$b64: "…"}. Nights before Oct 9 2026 hold D1's
+ *  BLOBs as arrays of byte values (D1 returns them that way and encodeValue passed them through), so readers take both. */
+export type DumpValue = string | number | null | { $b64: string } | number[];
 export interface DumpTable {
   columns: string[];
   rows: DumpValue[][];
@@ -44,17 +45,21 @@ export async function sha256Hex(data: Uint8Array | string): Promise<string> {
   return hex(await crypto.subtle.digest("SHA-256", typeof data === "string" ? enc.encode(data) : data));
 }
 
-/** A SQLite value as JSON: blobs become {$b64}. */
+/** A SQLite value as JSON: blobs become {$b64}. A Durable Object's SQL gives a BLOB as an ArrayBuffer, D1 as an array
+ *  of byte values (SQLite has no array type, so an array is always a BLOB). */
 export function encodeValue(v: unknown): DumpValue {
   if (v == null) return null;
+  if (Array.isArray(v)) return { $b64: b64(Uint8Array.from(v as number[])) };
   if (v instanceof ArrayBuffer) return { $b64: b64(new Uint8Array(v)) };
   if (ArrayBuffer.isView(v)) return { $b64: b64(new Uint8Array(v.buffer, v.byteOffset, v.byteLength)) };
   if (typeof v === "bigint") return Number(v);
   return v as string | number;
 }
+/** Blob bytes of a dumped value ({$b64}, or an older night's array of bytes). */
+const blobBytes = (v: { $b64: string } | number[]): Uint8Array => (Array.isArray(v) ? Uint8Array.from(v) : unb64(v.$b64));
 export function decodeValue(v: DumpValue): string | number | null | ArrayBuffer {
   if (v && typeof v === "object") {
-    const u = unb64(v.$b64);
+    const u = blobBytes(v);
     return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
   }
   return v;
@@ -64,7 +69,7 @@ export function decodeValue(v: DumpValue): string | number | null | ArrayBuffer 
 export function tableToSql(name: string, t: DumpTable): string {
   const q = (s: string) => `"${s.replace(/"/g, '""')}"`;
   const lit = (v: DumpValue) =>
-    v == null ? "NULL" : typeof v === "number" ? (Number.isFinite(v) ? String(v) : "NULL") : typeof v === "string" ? `'${v.replace(/'/g, "''")}'` : `X'${hex(unb64(v.$b64))}'`;
+    v == null ? "NULL" : typeof v === "number" ? (Number.isFinite(v) ? String(v) : "NULL") : typeof v === "string" ? `'${v.replace(/'/g, "''")}'` : `X'${hex(blobBytes(v))}'`;
   const cols = t.columns.map(q).join(", ");
   return t.rows.map((r) => `INSERT INTO ${q(name)} (${cols}) VALUES (${r.map(lit).join(", ")});\n`).join("");
 }

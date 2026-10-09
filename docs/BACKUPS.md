@@ -86,8 +86,11 @@ CI=1 npx wrangler d1 migrations apply agent-board --local --persist-to "$state"
 node scripts/backup.mjs d1-sql "$day" --key ~/.atteo-backup/backup-key.json --out d1-$day.sql
 CI=1 npx wrangler d1 execute agent-board --local --persist-to "$state" --file d1-$day.sql
 
-# 2. One board back: a Worker on that state (ADMIN_KEY in .dev.vars), then the board's tables through the ops route
-npx wrangler dev --port $port --persist-to "$state" &
+# 2. One board back: a Worker on that state (ADMIN_KEY in .dev.vars), then the board's tables through the ops route.
+#    DEV_FAKE_ADMIN:1 as scripts/verify.sh gives its e2e Worker: e2e's localhost /_ops test session needs it.
+#    BUGS_BOARD empty: the restored D1 lists the developers' board but its Durable Object isn't restored here, so bug
+#    reports and feedback would hit an empty board ("Board not found"); off, e2e checks they say they're not set up.
+npx wrangler dev --port $port --persist-to "$state" --var DEV_FAKE_ADMIN:1 --var BUGS_BOARD: &
 node scripts/backup.mjs restore-board "$day" "$b" --key ~/.atteo-backup/backup-key.json --base http://localhost:$port   # its main part, row parts, then file parts
 
 # 3. e2e against it (drill passed = this comes back green)
