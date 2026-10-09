@@ -32,6 +32,23 @@ export interface CimdClient {
   redirect_uris: string[];
 }
 
+/** A stored copy: the checked client, when it was fetched, and until when it may stand in for a fetch. */
+export interface StoredCimd {
+  client: CimdClient;
+  fetched_at: number;
+  fresh_until: number;
+}
+export interface CimdStore {
+  get(clientId: string): Promise<StoredCimd | null>;
+  put(clientId: string, s: StoredCimd): Promise<void>;
+  /** The document is no longer good (a fetch answered with a bad document): its copy mustn't stand in any more. */
+  drop(clientId: string): Promise<void>;
+}
+/** A stored copy is used instead of fetching for at most this long (less when Cache-Control says so). */
+export const CIMD_STORE_FRESH_MS = 5 * 60 * 1000;
+/** When the fetch cap is used up, a stored copy this young still serves; with none, the lookup is a 429. */
+export const CIMD_STORE_FALLBACK_MS = 24 * 3600 * 1000;
+
 export class CimdError extends Error {
   constructor(readonly code: "invalid_client" | "temporarily_unavailable", message: string, readonly status = 400) {
     super(message);
@@ -46,6 +63,8 @@ export interface CimdOptions {
   /** Asked before each fetch the cache can't answer, with the client_id URL (oauth.ts cimdFetchCap: per client_id
    *  everywhere, and per person at /authorize); false refuses with a 429 and nothing is fetched. */
   beforeFetch?: (clientId: string) => Promise<boolean>;
+  /** The last good document per client_id, shared by every isolate (D1, oauth.ts cimdStore). */
+  store?: CimdStore;
   fetch?: typeof fetch;
   timeoutMs?: number;
   now?: () => number;
@@ -173,15 +192,48 @@ export function validateDocument(url: string, host: string, doc: unknown): CimdC
   return { client_id: url, name: cleanName(d.client_name, host), host, redirect_uris };
 }
 
-/** The client behind a URL client_id: from the cache, or fetched and checked now. Throws CimdError. */
+/**
+ * The client behind a URL client_id. Throws CimdError. In order: this isolate's cache; the stored copy (D1) while it's
+ * fresh (up to five minutes); otherwise a fetch, if the client_id's (and at /authorize the person's) fetch cap allows
+ * it. A capped lookup is served from a stored copy under a day old, so flooding a popular client_id can't lock out its
+ * real users; only with no such copy is it a 429.
+ */
 export async function resolveCimdClient(raw: string, o: CimdOptions): Promise<CimdClient> {
   const u = checkClientIdUrl(raw, o);
   const now = (o.now ?? Date.now)();
   const hit = cache.get(raw);
   if (hit && hit.until > now) return hit.client;
   if (hit) cache.delete(raw);
-  const host = u.host;
-  if (o.beforeFetch && !(await o.beforeFetch(raw))) throw new CimdError("temporarily_unavailable", "Too many app lookups in a row. Try again in a few minutes.", 429);
+  const stored = o.store ? await o.store.get(raw).catch(() => null) : null;
+  const good = stored && stored.client?.client_id === raw && Array.isArray(stored.client.redirect_uris) ? stored : null;
+  if (good && good.fresh_until > now && good.fetched_at <= now) {
+    remember(raw, good.client, good.fresh_until);
+    return good.client;
+  }
+  if (o.beforeFetch && !(await o.beforeFetch(raw))) {
+    if (good && now - good.fetched_at < CIMD_STORE_FALLBACK_MS) return good.client;
+    throw new CimdError("temporarily_unavailable", "Too many app lookups in a row. Try again in a few minutes.", 429);
+  }
+  let got: { client: CimdClient; ttl: number };
+  try {
+    got = await fetchDocument(raw, u.host, o);
+  } catch (e) {
+    // A bad document (not a host that's down for now) ends its stored copy too.
+    if (o.store && stored && e instanceof CimdError && e.code === "invalid_client") await o.store.drop(raw).catch(() => {});
+    throw e;
+  }
+  if (got.ttl > 0) remember(raw, got.client, now + got.ttl * 1000);
+  if (o.store) await o.store.put(raw, { client: got.client, fetched_at: now, fresh_until: now + Math.min(got.ttl * 1000, CIMD_STORE_FRESH_MS) }).catch(() => {});
+  return got.client;
+}
+
+function remember(raw: string, client: CimdClient, until: number): void {
+  if (cache.size >= CACHE_MAX && !cache.has(raw)) cache.delete(cache.keys().next().value as string);
+  cache.set(raw, { client, until });
+}
+
+/** One fetch of the document, checked; ttl: how long it may be cached, in seconds (0: not at all). */
+async function fetchDocument(raw: string, host: string, o: CimdOptions): Promise<{ client: CimdClient; ttl: number }> {
   const down = (why: string) => new CimdError("temporarily_unavailable", `Couldn't read the app's metadata document at ${host} (${why}). Try again in a minute.`, 503);
   let r: Response;
   try {
@@ -211,13 +263,7 @@ export async function resolveCimdClient(raw: string, o: CimdOptions): Promise<Ci
     } catch {
       throw new CimdError("invalid_client", `The app's metadata document at ${host} isn't valid JSON.`);
     }
-    const client = validateDocument(raw, host, doc);
-    const ttl = cacheSeconds(r.headers.get("cache-control"));
-    if (ttl > 0) {
-      if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
-      cache.set(raw, { client, until: now + ttl * 1000 });
-    }
-    return client;
+    return { client: validateDocument(raw, host, doc), ttl: cacheSeconds(r.headers.get("cache-control")) };
   } finally {
     await r.body?.cancel().catch(() => {});
   }

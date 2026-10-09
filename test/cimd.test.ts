@@ -1,7 +1,7 @@
 // OAuth Client ID Metadata Documents (vedu #6575): src/cimd.ts and its use in src/oauth.ts, with a mocked fetch.
 import { beforeEach, describe, expect, it } from "vitest";
 import { CIMD_MAX_BYTES, cacheSeconds, checkClientIdUrl, cleanName, clearCimdCache, resolveCimdClient, type CimdOptions } from "../src/cimd";
-import { authorizationServer, CIMD_FETCHES_PER_CLIENT, CIMD_FETCHES_PER_PERSON, cimdFetchCap, cimdLabel, exchange, finishAuthorize, register, startAuthorize, type ClientLookup } from "../src/oauth";
+import { authorizationServer, CIMD_FETCHES_PER_CLIENT, CIMD_FETCHES_PER_PERSON, cimdFetchCap, cimdLabel, cimdStore, exchange, finishAuthorize, register, startAuthorize, type ClientLookup } from "../src/oauth";
 import { consentPage } from "../src/oauthPage";
 import type { Env } from "../src/types";
 
@@ -573,6 +573,72 @@ describe("fetch caps per client_id (review follow-up): /token can't make the Wor
     db.prepare(`UPDATE rate_limits SET reset_at = 0`).run();
     answer = () => json(DOC, { "cache-control": "no-store" });
     expect((await exchange(env, r, null, lookup)).access_token).toMatch(/^ab_/);
+  });
+});
+
+describe("the stored copy in D1 (cimd_documents): a capped client_id never fails a real flow when one exists", () => {
+  const full = (env: Env, f: typeof fetch, user?: string): ClientLookup => ({ ownHosts: OWN, fetch: f, beforeFetch: cimdFetchCap(env, user), store: cimdStore(env) });
+  const exhaust = (db: any) => {
+    // Someone hammered this client_id: its window's count is far past the cap.
+    expect(db.prepare(`UPDATE rate_limits SET n = 10000 WHERE key LIKE 'cimd:c:%'`).run().changes).toBe(1);
+  };
+
+  it("a fresh stored copy (under five minutes) answers with no fetch, in any isolate", async () => {
+    const { env, db } = fakeEnv();
+    const m = mock(() => json(DOC));
+    await resolveCimdClient(ID, full(env, m.f));
+    expect(db.prepare(`SELECT client_id FROM cimd_documents`).get().client_id).toBe(ID);
+    clearCimdCache(); // another isolate
+    expect((await resolveCimdClient(ID, full(env, m.f))).name).toBe("Smithery Connect");
+    expect(m.calls).toHaveLength(1);
+    // Past five minutes it's fetched again (a document's own no-store means the copy is never "fresh").
+    clearCimdCache();
+    const later = { ...full(env, m.f), now: () => Date.now() + 6 * 60_000 };
+    await resolveCimdClient(ID, later);
+    expect(m.calls).toHaveLength(2);
+  });
+
+  it("capped client_id with a stored copy: authorize, token and refresh all succeed without fetching", async () => {
+    const { env, db } = fakeEnv();
+    const m = mock(() => json(DOC, { "cache-control": "no-store" })); // never fresh: every lookup would fetch
+    await resolveCimdClient(ID, full(env, m.f));
+    exhaust(db);
+    const calls = m.calls.length;
+    const lookup = full(env, m.f, "ada");
+    const { verifier, challenge } = pkce();
+    const { r, code } = await codeFor(env, lookup, challenge);
+    expect(r.client.name).toBe("Smithery Connect");
+    const t = await exchange(env, { grant_type: "authorization_code", code, client_id: ID, code_verifier: verifier }, null, full(env, m.f));
+    expect(t.access_token).toMatch(/^ab_/);
+    expect((await exchange(env, { grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: ID }, null, full(env, m.f))).access_token).toMatch(/^ab_/);
+    expect(m.calls).toHaveLength(calls);
+  });
+
+  it("capped client_id with no stored copy (or one over a day old): 429", async () => {
+    const { env, db } = fakeEnv();
+    const m = mock(() => json(DOC, { "cache-control": "no-store" }));
+    for (let i = 0; i < CIMD_FETCHES_PER_CLIENT; i++) await resolveCimdClient(ID, { ...full(env, m.f), store: undefined });
+    await expect(resolveCimdClient(ID, full(env, m.f))).rejects.toMatchObject({ code: "temporarily_unavailable", status: 429 });
+    // A copy from 25 hours ago doesn't serve.
+    await cimdStore(env).put(ID, { client: { client_id: ID, name: "Old", host: "connect.smithery.ai", redirect_uris: [CB] }, fetched_at: Date.now() - 25 * 3600_000, fresh_until: 0 });
+    await expect(resolveCimdClient(ID, full(env, m.f))).rejects.toMatchObject({ status: 429 });
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM cimd_documents`).get().n).toBe(1);
+  });
+
+  it("a fetch that finds a bad document drops the stored copy, so it can't stand in later", async () => {
+    const { env, db } = fakeEnv();
+    let answer: () => Response = () => json(DOC, { "cache-control": "no-store" });
+    const m = mock(() => answer());
+    await resolveCimdClient(ID, full(env, m.f));
+    answer = () => json({ ...DOC, client_secret: "x" });
+    await expect(resolveCimdClient(ID, full(env, m.f))).rejects.toMatchObject({ code: "invalid_client" });
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM cimd_documents`).get().n).toBe(0);
+    // A host that's only down for now keeps it.
+    answer = () => json(DOC, { "cache-control": "no-store" });
+    await resolveCimdClient(ID, full(env, m.f));
+    answer = () => json({}, {}, 503);
+    await expect(resolveCimdClient(ID, full(env, m.f))).rejects.toMatchObject({ status: 503 });
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM cimd_documents`).get().n).toBe(1);
   });
 });
 

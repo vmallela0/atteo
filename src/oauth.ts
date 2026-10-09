@@ -7,7 +7,7 @@
 import { record } from "./accountlog";
 import { hit } from "./appSignin";
 import { createToken, randomSecret, revokeToken, sha256hex } from "./auth";
-import { CimdError, cleanName, isCimdClientId, resolveCimdClient, type CimdOptions } from "./cimd";
+import { CimdError, cleanName, isCimdClientId, resolveCimdClient, type CimdClient, type CimdOptions, type CimdStore } from "./cimd";
 import type { Env } from "./types";
 
 export const OAUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
@@ -80,6 +80,28 @@ export type ClientLookup = Omit<CimdOptions, "now">;
 export const CIMD_FETCHES_PER_CLIENT = 60;
 /** And per signed-in person at /authorize, so nobody can walk us across many hosts. */
 export const CIMD_FETCHES_PER_PERSON = 30;
+
+/** The last good document per client_id, in D1 (cimd_documents): every isolate reads it before fetching, and it stands
+ *  in for a fetch once the cap is used up (src/cimd.ts resolveCimdClient). */
+export function cimdStore(env: Env): CimdStore {
+  return {
+    async get(clientId) {
+      const r = await env.DB.prepare(`SELECT client, fetched_at, fresh_until FROM cimd_documents WHERE client_id = ?`).bind(clientId).first<{ client: string; fetched_at: number; fresh_until: number }>();
+      return r ? { client: JSON.parse(r.client) as CimdClient, fetched_at: r.fetched_at, fresh_until: r.fresh_until } : null;
+    },
+    async put(clientId, s) {
+      await env.DB.prepare(
+        `INSERT INTO cimd_documents (client_id, client, fetched_at, fresh_until) VALUES (?, ?, ?, ?)
+         ON CONFLICT(client_id) DO UPDATE SET client = excluded.client, fetched_at = excluded.fetched_at, fresh_until = excluded.fresh_until`,
+      )
+        .bind(clientId, JSON.stringify(s.client), s.fetched_at, s.fresh_until)
+        .run();
+    },
+    async drop(clientId) {
+      await env.DB.prepare(`DELETE FROM cimd_documents WHERE client_id = ?`).bind(clientId).run();
+    },
+  };
+}
 
 /** The beforeFetch for a ClientLookup: the person's cap first (when there is one), then the client_id's. */
 export function cimdFetchCap(env: Env, user?: string): (clientId: string) => Promise<boolean> {

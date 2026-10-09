@@ -1036,6 +1036,7 @@ const handler = {
         ownHosts: [new URL(origin).hostname, url.hostname],
         allowLocal: env.ALLOW_LOCAL_WEBHOOKS === "1" && isLocalHost(url.hostname),
         beforeFetch: oauth.cimdFetchCap(env), // per client_id: /token (code and refresh) can't fetch one URL over and over
+        store: oauth.cimdStore(env), // the last good document, shared by every isolate; it also serves when the cap is used up
       };
       // Local test servers only: a client metadata document test/e2e.mjs sets (POST) and the OAuth flow fetches (GET).
       if (path.startsWith("/__cimd-test/") && env.ALLOW_LOCAL_WEBHOOKS === "1" && isLocalHost(url.hostname)) {

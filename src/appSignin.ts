@@ -160,6 +160,8 @@ export async function sweep(env: Env): Promise<void> {
   const now = Date.now();
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM rate_limits WHERE reset_at < ?`).bind(now),
+    // Stored client metadata documents (src/cimd.ts) serve for a day at most.
+    env.DB.prepare(`DELETE FROM cimd_documents WHERE fetched_at < ?`).bind(now - 24 * 3600_000),
     env.DB.prepare(`DELETE FROM app_signups WHERE expires_at < ?`).bind(now),
     env.DB.prepare(`DELETE FROM voice_sessions WHERE created_at < ?`).bind(now - 62 * 24 * 3600_000),
   ]);
