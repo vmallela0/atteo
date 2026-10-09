@@ -4,7 +4,8 @@ Backlog #4300 (vedu #4298): will the iOS app pass App Review and is it legal to 
 [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/) and Apple's
 [export compliance](https://developer.apple.com/documentation/security/complying-with-encryption-export-regulations)
 and [privacy manifest](https://developer.apple.com/documentation/bundleresources/privacy-manifest-files) docs,
-on main 2c95aa7 (Oct 5, 2026); re-checked against the ios/ sources and src/ on main 93ec7fe7 (Oct 8, 2026).
+on main 2c95aa7 (Oct 5, 2026); re-checked against the ios/ sources and src/ on main 93ec7fe7 (Oct 8, 2026). Re-checked again
+after the integrations and Connect tiles landed (vedu #6612, branch vedu-ios-optimize): see **Oct 8 re-check** below.
 
 **Verdict: not ready yet, and what's left is vedu's.** The code blockers from Oct 5 are all on main now: account
 deletion in the app and on the web, in-app reporting, muting, blocking and an offensive-words filter, an explicit OK
@@ -14,6 +15,35 @@ which would be rejected as it stands: add Sign in with Apple, or drop Google/Git
 (nothing is sold while Atteo is free for now; before paid plans start, Pro as an IAP or Pro kept out of the app), and
 **builds**, which need the paid Apple Developer account. Before submitting, vedu also reviews the two legal drafts
 (/privacy and /terms are still marked "Draft — review before publishing"), and privacy@atteo.dev has to be a real inbox.
+
+## Oct 8 re-check (vedu #6612)
+
+Fixed on the branch:
+- **3.1.1** — the app had one path to a Pro upsell: a plan-limit error from the server ("…or upgrade to Pro for unlimited
+  boards", `src/billing.ts`) shown as is. `API.withoutUpsell` keeps the limit and drops the upsell and link
+  (`ios/AtteoTests/AppStorePaymentsTests.swift`). Dormant today (`freeForNow`: no limits are hit).
+- **5.1.1(ii) / 5.1.2(i)** — the mic string now covers board calls (`CallView.swift`, Cloudflare Realtime) and asking
+  Atteo during a call (xAI), in all 8 languages.
+- **Privacy manifest** — Audio data declared (linked, app functionality): Talk and Atteo-in-a-call stream the voice to
+  xAI after consent. Matches the label advice below. Required-reason APIs unchanged (UserDefaults, file timestamps);
+  the extensions call none.
+- **5.2.1** — Settings' legal section says product names and logos only identify the tool you connect. The app shows
+  four marks (ChatGPT, Claude, Grok, Meta for Muse) on the connect tiles; the 41 agent tiles are on the web landing,
+  not in the app.
+- **/privacy** — new section on integrations a board's owner connects (Slack, Discord, Teams, Linear, Notion), what
+  each receives, and the link/tokens under "What we collect". They're named because they're destinations the owner
+  picks, not Atteo's processors (the category-only rule, #5410, is unchanged). The live page had no "Draft" marker.
+- **Languages** — the string catalog carries ~56 strings in 7 more languages (ar bn de id pt ru tr); "automatic" now
+  only picks one of the 8 complete ones, so those phones get English instead of a mix.
+
+Still vedu's: 4.8 (unchanged: Google/GitHub via the browser button, no Sign in with Apple); 3.1.1 for the Safari views
+the menu opens (/inbox, /approvals, /guide reach /me, which shows planned prices now and Upgrade buttons once
+`FREE_FOR_NOW=0`); the App Store language list (the 7 partial languages still ship .lproj folders, so App Store
+Connect will list 15 languages); Sentry (2.8 MB of the 12.1 MB binary, off without a DSN); the BIS self-classification
+report; builds. US storefront: since the May 2025 guideline update, 3.1.1(a) and 3.1.3 let US apps include buttons,
+links and other calls to action for buying outside IAP; everywhere else that's still barred unless an entitlement
+applies (3.1.1(a) StoreKit External Purchase Link, 3.1.3(a) reader apps), and 3.1.3(b) still needs Pro as an IAP if
+web Pro unlocks anything in the app.
 
 | Item | Guideline | Status | Evidence / fix | Owner |
 |---|---|---|---|---|

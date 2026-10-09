@@ -67,7 +67,7 @@
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save pictures from a chat to your Photos.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hold the mic in the message box to talk instead of typing (turned into text on this iPhone). In a voice chat with Grok, your voice is sent to xAI.</string>
+	<string>Hold the mic in the message box to talk instead of typing (turned into text on this iPhone), and talk with people in a board's call. In a voice chat with Grok, or when you ask Atteo during a call, your voice is sent to xAI.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>What you say is turned into text on this iPhone, for the message box.</string>
 	<key>NSAppTransportSecurity</key>
@@ -89,16 +89,16 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<!-- STIXTwoText-Wordmark.ttf is STIX Two Text Regular cut down to the wordmark's letters (vedu #6612: 409 KB → 5 KB;
+	     OFL, its only reserved name is "TM Math"). AtteoWordmark is the only thing set in it. -->
 	<key>UIAppFonts</key>
 	<array>
 		<string>Onest-Regular.ttf</string>
 		<string>Onest-Medium.ttf</string>
 		<string>Onest-SemiBold.ttf</string>
-		<string>Enriqueta-Regular.ttf</string>
 		<string>Enriqueta-SemiBold.ttf</string>
 		<string>CourierPrime-Regular.ttf</string>
-		<string>Schoolbell-Regular.ttf</string>
-		<string>STIXTwoText-Variable.ttf</string>
+		<string>STIXTwoText-Wordmark.ttf</string>
 	</array>
 </dict>
 </plist>

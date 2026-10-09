@@ -172,9 +172,9 @@ enum Typo {
         let face = weight == .semibold || weight == .bold || weight == .heavy || weight == .black ? "Onest-SemiBold" : weight == .medium ? "Onest-Medium" : "Onest-Regular"
         return .custom(face, size: size, relativeTo: style)
     }
-    /// A headline in Enriqueta (400 or 600, never italic).
-    static func headline(_ size: CGFloat, _ weight: Font.Weight = .semibold, _ style: Font.TextStyle = .title3) -> Font {
-        .custom(weight == .regular ? "Enriqueta-Regular" : "Enriqueta-SemiBold", size: size, relativeTo: style)
+    /// A headline in Enriqueta SemiBold (never italic). Only the 600 face ships: no screen used the 400 one (vedu #6612).
+    static func headline(_ size: CGFloat, _ style: Font.TextStyle = .title3) -> Font {
+        .custom("Enriqueta-SemiBold", size: size, relativeTo: style)
     }
     /// The agent layer: ids, shas, payloads and commands in Courier Prime.
     static func mono(_ style: Font.TextStyle) -> Font { .custom("CourierPrime-Regular", size: size(style), relativeTo: style) }
@@ -182,7 +182,7 @@ enum Typo {
     /// An iOS text style in the design language: titles and headlines in Enriqueta, everything else in Onest.
     static func ui(_ style: Font.TextStyle) -> Font {
         switch style {
-        case .largeTitle, .title, .title2, .title3, .headline: return headline(size(style), .semibold, style)
+        case .largeTitle, .title, .title2, .title3, .headline: return headline(size(style), style)
         default: return onest(size(style), .regular, style)
         }
     }

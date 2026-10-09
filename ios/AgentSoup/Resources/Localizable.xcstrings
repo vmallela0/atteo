@@ -48695,6 +48695,98 @@
         }
       }
     },
+    "Product names and logos belong to their owners and are shown only to say which tool you connect. No endorsement implied.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los nombres y logotipos de productos pertenecen a sus dueños y solo se muestran para indicar qué herramienta conectas. No implican respaldo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les noms et logos de produits appartiennent à leurs propriétaires et ne servent qu'à indiquer l'outil que vous connectez. Aucune approbation n'est sous-entendue."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "उत्पादों के नाम और लोगो उनके मालिकों के हैं और सिर्फ़ यह बताने के लिए दिखाए जाते हैं कि आप कौन-सा टूल जोड़ रहे हैं। इसका मतलब कोई समर्थन नहीं है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "製品名とロゴは各所有者に帰属し、接続するツールを示すためにのみ表示しています。推奨や提携を意味するものではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제품 이름과 로고는 각 소유자의 것이며, 연결하는 도구를 알려 주기 위해서만 표시됩니다. 보증을 의미하지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "产品名称和标志归其所有者所有，仅用于说明你连接的是哪个工具，不代表任何背书。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "產品名稱和標誌歸其所有者所有，僅用於說明你連接的是哪個工具，不代表任何背書。"
+          }
+        }
+      }
+    },
+    "That's past this plan's limit.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eso supera el límite de este plan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cela dépasse la limite de cette offre."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यह इस प्लान की सीमा से ज़्यादा है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプランの上限を超えています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 요금제의 한도를 넘었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已超出此方案的上限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已超出此方案的上限。"
+          }
+        }
+      }
+    },
     "Terms of Service": {
       "localizations": {
         "es": {

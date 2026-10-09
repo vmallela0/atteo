@@ -170,7 +170,7 @@ describe("dashboard and privacy (vedu #4602)", () => {
   it("links Atteo's US project from ops and covers product analytics on /privacy without the key or the vendor's name", async () => {
     expect(posthogDashboardUrl({ key: KEY, host: "https://us.i.posthog.com", region: "us" })).toBe("https://us.posthog.com/project/647810");
     const html = await legalPage("privacy").text();
-    for (const w of ["<b>Product analytics</b>", "message text", "email addresses", "Do Not Track", "Global Privacy Control", "iOS app", "Share usage analytics", "Last updated October 6, 2026.", "<b>Error reports</b>", "error reporting turned on"]) expect(html).toContain(w);
+    for (const w of ["<b>Product analytics</b>", "message text", "email addresses", "Do Not Track", "Global Privacy Control", "iOS app", "Share usage analytics", "Last updated October 8, 2026.", "<b>Error reports</b>", "Integrations a board's owner connects", "Microsoft Teams", "error reporting turned on"]) expect(html).toContain(w);
     for (const v of ["PostHog", "Sentry", "phc_"]) expect(html).not.toContain(v); // providers by category (vedu #5410)
     expect(await legalPage("terms").text()).not.toContain("PostHog");
   });

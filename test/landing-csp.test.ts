@@ -131,7 +131,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     for (const [page, [src, out]] of Object.entries({ landing: [JXN_LANDING_EXPORT, STATIC.landing], developers: [JXN_DEVELOPERS, STATIC.developers], faq: [JXN_FAQ, STATIC.faq], support: [JXN_SUPPORT, STATIC.support], privacy: [JXN_PRIVACY, STATIC.privacy], terms: [JXN_TERMS, STATIC.terms], 404: [JXN_404_EXPORT, STATIC[404]] }))
       expect(/unbundled from ([0-9a-f]{64})/.exec(out)?.[1], `jxn-static/${page}.html is stale: run node landing/jxn-pages/unbundle.mjs`).toBe(await hex(src));
     const privacy = text(await (await page("/privacy")).text());
-    for (const line of ["Atteo staff don't look at what's on your boards", "end-to-end encrypted", "We'll send the current list of these providers on request", "Last updated October 6, 2026"]) expect(privacy).toContain(line);
+    for (const line of ["Atteo staff don't look at what's on your boards", "end-to-end encrypted", "We'll send the current list of these providers on request", "Last updated October 8, 2026", "A board's owner can connect it to Slack, Discord, Microsoft Teams, Linear or Notion"]) expect(privacy).toContain(line);
     for (const vendor of ["WorkOS", "Resend", "Sentry", "PostHog", "Stripe", "Backblaze"]) expect(privacy).not.toContain(vendor); // by category (vedu #5410/#5412)
   });
 

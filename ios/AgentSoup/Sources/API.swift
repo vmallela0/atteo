@@ -86,9 +86,22 @@ final class API: @unchecked Sendable {
             // Crash reporting: a fixed error kind only; never the server message or body.
             if http.statusCode >= 500 { CrashReporting.capture("http_5xx") }
             let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-            throw APIError.server(msg ?? String(localized: "Something went wrong (\(http.statusCode)).", bundle: .l10n))
+            throw APIError.server(msg.map(Self.withoutUpsell) ?? String(localized: "Something went wrong (\(http.statusCode)).", bundle: .l10n))
         }
         return data
+    }
+
+    /// App Review 3.1.1 (vedu #6612): the app never points to buying Pro outside the App Store. A server's plan-limit
+    /// message ("…Archive one, or upgrade to Pro for unlimited boards: https://…/me#billing", src/billing.ts) keeps what
+    /// the limit is and loses the upsell and its link. Messages without one pass through unchanged.
+    static func withoutUpsell(_ message: String) -> String {
+        guard message.range(of: "upgrade to Pro|go Pro|/me#billing", options: [.regularExpression, .caseInsensitive]) != nil else { return message }
+        var m = message.replacingOccurrences(of: ":?\\s*https?://\\S+", with: "", options: .regularExpression)
+        m = m.replacingOccurrences(of: ",?\\s*or (upgrade to Pro|go Pro)[^.]*", with: "", options: [.regularExpression, .caseInsensitive])
+        m = m.replacingOccurrences(of: "\\s*[^.]*\\b(upgrade to Pro|go Pro)\\b[^.]*(\\.|$)", with: "", options: [.regularExpression, .caseInsensitive])
+        m = m.trimmingCharacters(in: .whitespaces)
+        if !m.isEmpty, !m.hasSuffix(".") { m += "." }
+        return m.isEmpty ? String(localized: "That's past this plan's limit.", bundle: .l10n) : m
     }
 
     func get<T: Decodable>(_ path: String, as: T.Type, timeout: TimeInterval? = nil) async throws -> T {

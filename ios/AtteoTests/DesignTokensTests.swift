@@ -1,6 +1,7 @@
 // Design language v1 (board #2508) in the app: the tokens' contrast holds (WCAG AA: 4.5:1 for text, 3:1 for glyphs,
 // strokes and large text) in light and dark, and the bundled fonts register and pick the right face per weight.
 
+import CoreText
 import SwiftUI
 import XCTest
 @testable import Atteo
@@ -94,9 +95,15 @@ final class DesignTokensTests: XCTestCase {
     }
 
     func testFontsRegister() {
-        for name in ["Onest-Regular", "Onest-Medium", "Onest-SemiBold", "Enriqueta-Regular", "Enriqueta-SemiBold", "CourierPrime-Regular", "Schoolbell-Regular", "STIXTwoText"] {
+        for name in ["Onest-Regular", "Onest-Medium", "Onest-SemiBold", "Enriqueta-SemiBold", "CourierPrime-Regular", "STIXTwoText"] {
             XCTAssertNotNil(UIFont(name: name, size: 17), "\(name) is bundled and registered (Info.plist UIAppFonts)")
         }
+        // STIX Two Text ships cut down to the wordmark's letters: every letter of "atteo" (and "Atteo") is still in it.
+        let stix = UIFont(name: "STIXTwoText", size: 17)! as CTFont
+        let chars = Array("atteoA".utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: chars.count)
+        XCTAssertTrue(CTFontGetGlyphsForCharacters(stix, chars, &glyphs, chars.count), "the wordmark's letters are in the subset")
+        XCTAssertFalse(glyphs.contains(0))
     }
 
     func testOnestWeightsPickTheirFace() {

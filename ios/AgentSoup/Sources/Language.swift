@@ -39,6 +39,9 @@ enum L10n {
     nonisolated(unsafe) private(set) static var bundle: Bundle?
     /// The language in use (an .lproj name: "en", "zh-Hans", …).
     nonisolated(unsafe) private(set) static var current = "en"
+    /// The language for atteo.dev pages opened from the app (?lang=): `current`, or on automatic the phone's own when the
+    /// web has it and the app doesn't (de, pt, ru, tr…).
+    nonisolated(unsafe) private(set) static var web = "en"
     private static let overrideKey = "AppleLanguages"
     /// What we last wrote as this app's AppleLanguages (so "auto" knows it may remove it).
     private static let wroteKey = "atteo-lang-override"
@@ -62,7 +65,10 @@ enum L10n {
     /// Use `pref` (a display.lang value) from now on.
     static func apply(_ pref: String) {
         installBundleOverride()
-        let have = Bundle.main.localizations.filter { $0 != "Base" }
+        // Only the languages the picker offers (Info.plist CFBundleLocalizations): the string catalog also carries a few
+        // dozen strings in the web's other languages (de, pt, ru, tr…), and a phone in one of those would otherwise get
+        // a half-translated app instead of English.
+        let have = Bundle.main.localizations.filter { $0 != "Base" && AppLanguage.values.contains($0) }
         var device = deviceLanguages
         #if DEBUG
         // UI tests: ATTEO_LANG=en pins "automatic" to English whatever the simulator's languages (an -AppleLanguages
@@ -72,6 +78,10 @@ enum L10n {
         let wanted = pref == "auto" || !AppLanguage.values.contains(pref) ? device : [pref]
         let lang = Bundle.preferredLocalizations(from: have, forPreferences: wanted).first ?? "en"
         current = lang
+        // The web's pages (the guide) come in more languages than the app: on automatic they follow the phone, as before.
+        web = pref == "auto" || !AppLanguage.values.contains(pref)
+            ? Bundle.preferredLocalizations(from: Bundle.main.localizations.filter { $0 != "Base" }, forPreferences: wanted).first ?? lang
+            : lang
         bundle = Bundle.main.path(forResource: lang, ofType: "lproj").flatMap(Bundle.init(path:))
         // From the next launch iOS uses it too (dates in code, the system's words). Never over a launch argument.
         let defaults = UserDefaults.standard

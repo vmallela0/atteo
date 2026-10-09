@@ -32,6 +32,17 @@ settings:
     # e.g. the phones' free-team build:
     #   xcodebuild … ATTEO_BUNDLE_ID=com.agentsoup.app DEVELOPMENT_TEAM=T3627N2VC4 -allowProvisioningUpdates
     ATTEO_BUNDLE_ID: com.atteo.app
+    # No build phase runs a script today; any added later runs sandboxed (declared inputs/outputs only).
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+  # Release (vedu #6612, measured on an unsigned archive): Xcode's defaults already give whole-module -O, dead-code
+  # stripping, stripped symbols with a dSYM, no testability and no assertions. On top of them: -Osize for Atteo's own
+  # code (UI-bound: its binary went 13.1 → 12.1 MB with no change a person can see; the packages keep their own -O), and
+  # the bundle validated as App Store Connect would. ASSETCATALOG_COMPILER_OPTIMIZATION=space was tried and made
+  # Assets.car 18 KB bigger (it's three app icons and four small SVGs), so it isn't set.
+  configs:
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: -Osize
+      VALIDATE_PRODUCT: YES
 targets:
   Atteo:
     type: application
