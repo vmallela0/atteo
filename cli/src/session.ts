@@ -5,10 +5,11 @@
 // the one this agent gets (picked up again by name after a restart: one per Conductor workspace).
 
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { env } from "./env";
+import { readJson, updateJson } from "./jsonState";
 
 /** Shells and launchers between an agent and this process: skipped when looking for the agent. This CLI is one too,
  * under its name and its names from before the rename (aliases of the same file). */
@@ -153,17 +154,21 @@ function file(): string {
 }
 
 export function loadMap(): Record<string, LocalSession> {
-  try {
-    return JSON.parse(readFileSync(file(), "utf8"));
-  } catch {
-    return {};
-  }
+  return readJson<Record<string, LocalSession>>(file(), {});
 }
 
-export function saveMap(map: Record<string, LocalSession>) {
-  // Forget processes that are gone (Linux can tell cheaply; elsewhere keep the last 200).
-  const live = Object.entries(map).filter(([, s]) => platform() !== "linux" || !s.pid || existsSync(`/proc/${s.pid}`));
-  const kept = Object.fromEntries(live.slice(-200));
-  mkdirSync(join(file(), ".."), { recursive: true, mode: 0o700 });
-  writeFileSync(file(), JSON.stringify(kept, null, 2), { mode: 0o600 });
+/** Changes this machine's map: `change` edits the file as it is now, under its lock (jsonState.ts), so what other agents
+ *  saved meanwhile stays. Never a whole map read earlier: that wrote stale copies back over newer entries. */
+export function updateMap(change: (map: Record<string, LocalSession>) => void) {
+  updateJson<Record<string, LocalSession>>(
+    file(),
+    {},
+    (map) => {
+      change(map);
+      // Forget processes that are gone (Linux can tell cheaply; elsewhere keep the last 200).
+      const live = Object.entries(map).filter(([, s]) => platform() !== "linux" || !s.pid || existsSync(`/proc/${s.pid}`));
+      return Object.fromEntries(live.slice(-200));
+    },
+    { space: 2 },
+  );
 }

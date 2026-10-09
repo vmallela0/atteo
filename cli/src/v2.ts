@@ -13,7 +13,7 @@ import { env } from "./env";
 import { flagLine, screenMail } from "./dispatch";
 import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, encHandoffQueue, folderBoard, getEntry, isEncrypted, joinLink, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, sealForMe, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
-import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
+import { caller, detectModel, loadMap, updateMap, type LocalSession } from "./session";
 import { keepSession } from "./sessionRetry";
 import { createHash } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
@@ -85,12 +85,13 @@ function adopt(s: ServerSession, prev?: LocalSession | null): LocalSession {
 }
 
 function remember(s: LocalSession) {
-  const map = loadMap();
-  if (currentKey && !currentKey.startsWith("explicit:")) map[currentKey] = s;
-  // A session named by ATTEO_SESSION that no process here started still keeps what it was told (the 📣 line once).
-  else if (currentKey && !Object.values(map).some((v) => v.id === s.id)) map[localKey(currentKey)] = s;
-  for (const [k, v] of Object.entries(map)) if (v.id === s.id) map[k] = { ...s, pid: v.pid };
-  saveMap(map);
+  const key = currentKey;
+  updateMap((map) => {
+    if (key && !key.startsWith("explicit:")) map[key] = s;
+    // A session named by ATTEO_SESSION that no process here started still keeps what it was told (the 📣 line once).
+    else if (key && !Object.values(map).some((v) => v.id === s.id)) map[localKey(key)] = s;
+    for (const [k, v] of Object.entries(map)) if (v.id === s.id) map[k] = { ...s, pid: v.pid };
+  });
   current = s;
   setSession(s);
 }
@@ -118,8 +119,10 @@ export async function session(opt: Opt, create = true): Promise<LocalSession | n
       const j = found || (await api(opt, "POST", "/api/sessions", { suggest: named || who.name, client: who.client, ...(model ? { model } : {}) }));
       // A named session picked up again hasn't been told this model yet: left unset here, so syncModel sends it.
       current = { ...adopt(j.session), pid: Number(who.key.split(":")[0]) || undefined, notified: Date.now() - 86400e3, model: found ? undefined : model };
-      map[currentKey] = current;
-      saveMap(map);
+      const key = currentKey, made = current;
+      updateMap((m) => {
+        m[key] = made; // on the file as it is now: what other agents saved since loadMap above stays
+      });
     }
   }
   setSession(current);
@@ -140,9 +143,11 @@ async function syncModel(opt: Opt, s: LocalSession) {
 
 /** Drops this agent's session locally (it ended on the server); the next command starts a new one. */
 export function forgetSession() {
-  const map = loadMap();
-  if (currentKey) delete map[currentKey];
-  saveMap(map);
+  const key = currentKey;
+  if (key)
+    updateMap((map) => {
+      delete map[key];
+    });
   current = null;
   setSession(null);
 }
@@ -612,7 +617,10 @@ async function sessionCmd(args: string[]) {
   if (verb === "end" && opt.all) {
     // Every session of yours (other agents keep their sign-in but start fresh sessions on their next command).
     const j = await api(opt, "DELETE", "/api/sessions");
-    saveMap(Object.fromEntries(Object.entries(loadMap()).filter(([k]) => !k.startsWith(`${creds().user}|`))));
+    const mine = `${creds().user}|`;
+    updateMap((map) => {
+      for (const k of Object.keys(map)) if (k.startsWith(mine)) delete map[k];
+    });
     return print(opt, j, `Ended all ${j.ended} of your agent sessions. To cut every agent off completely, use Disconnect all agents on your Account page.`);
   }
   if (verb === "end" && optStr(opt, "idle")) {
@@ -638,18 +646,18 @@ async function sessionCmd(args: string[]) {
     for (const s of idle) {
       if (await api(opt, "DELETE", `/api/sessions/${s.id}`).then(() => true, () => false)) ended++; // count only what really ended
     }
-    const map = loadMap();
-    for (const [k, v] of Object.entries(map)) if (idle.some((s) => s.id === v.id)) delete map[k];
-    saveMap(map);
+    updateMap((map) => {
+      for (const [k, v] of Object.entries(map)) if (idle.some((s) => s.id === v.id)) delete map[k];
+    });
     return print(opt, { ended, idle: idle.map((s) => ({ id: s.id, name: s.name, last_seen: s.last_seen })) }, `Ended ${ended} idle session${ended === 1 ? "" : "s"}${me ? ` (this one, ${me.name}, keeps running)` : ""}.`);
   }
   if (verb === "end") {
     const s = await session(opt, false);
     if (!s) return print(opt, { ok: true }, "This agent has no session.");
     await api(opt, "DELETE", `/api/sessions/${s.id}`).catch(() => {});
-    const map = loadMap();
-    for (const [k, v] of Object.entries(map)) if (v.id === s.id) delete map[k];
-    saveMap(map);
+    updateMap((map) => {
+      for (const [k, v] of Object.entries(map)) if (v.id === s.id) delete map[k];
+    });
     return print(opt, { ok: true }, `Ended session ${s.name}. The next command starts a new one.`);
   }
   throw new CliError('Usage: atteo session [show|list|new [name]|use <name>|rename <name>|status "<text>"|model "<model>"|end [--all]|end --idle <duration> [--yes]]');

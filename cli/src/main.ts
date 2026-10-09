@@ -23,6 +23,7 @@ import { agentCommand, HARNESSES, setUp, splitCommand } from "./harness";
 import { agentEnv, Standby, STANDBY_AFTER_S, STANDBY_MAX_PER_HOUR, standbyCommand, type LeaseState } from "./standby";
 import { agentKind, type Caps, checkMode, checkPrefix, Listener, type LocalAgent, localAgents, parsePs, SPAWN_CAPS, spawnCommand, type Spawned, toStop, uptime, workerPrompt } from "./spawn";
 import { myKey } from "./sealed";
+import { updateJson, writeJson } from "./jsonState";
 import { EncryptedTools } from "./e2emcp";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
@@ -93,7 +94,7 @@ function loadHarness(): HarnessChoice | null {
 }
 function saveHarness(h: HarnessChoice | null) {
   mkdirSync(configDirPath(), { recursive: true, mode: 0o700 });
-  if (h) writeFileSync(harnessFile(), JSON.stringify(h, null, 2), { mode: 0o600 });
+  if (h) writeJson(harnessFile(), h, { space: 2 });
   else rmSync(harnessFile(), { force: true });
 }
 /** "claude" (a preset), a command with {prompt}, or off. */
@@ -815,9 +816,9 @@ function loadSpawned(): Spawned[] {
     return [];
   }
 }
-function saveSpawned(list: Spawned[]) {
-  mkdirSync(spawnDir(), { recursive: true, mode: 0o700 });
-  writeFileSync(spawnedFile(), JSON.stringify(list, null, 1), { mode: 0o600 });
+/** Changes the list as it is on disk now, under its lock (jsonState.ts): agents started or stopped elsewhere meanwhile stay. */
+function updateSpawned(change: (list: Spawned[]) => Spawned[]) {
+  updateJson<Spawned[]>(spawnedFile(), [], (list) => change(Array.isArray(list) ? list : []), { space: 1 });
 }
 /** When a process started, as the OS tells it (Linux: /proc/<pid>/stat's start tick; else ps lstart), or null. Never
  *  its environment: that holds API keys and tokens, and we don't read other processes' secrets (opus-d #5742). */
@@ -851,7 +852,8 @@ async function liveSpawned(o: Record<string, string>): Promise<Spawned[]> {
   const list = loadSpawned();
   const live = list.filter(isRunning);
   for (const s of list) if (!live.includes(s)) await api(o, "DELETE", `/api/sessions/${s.session}`).catch(() => {});
-  if (live.length !== list.length) saveSpawned(live);
+  const ended = list.filter((s) => !live.includes(s));
+  if (ended.length) updateSpawned((now) => now.filter((s) => !ended.some((e) => e.name === s.name && e.pid === s.pid)));
   return live;
 }
 
@@ -939,7 +941,7 @@ async function startAgents(o: Record<string, string>, so: SpawnOpts, n: number, 
         child.once("error", reject);
       });
       child.unref();
-      saveSpawned([...loadSpawned(), { name: s.name, pid, proc_start: procStart(pid) ?? undefined, session: s.id, board, dir, log: logPath, agent: so.agent ?? "claude", mode: so.mode, started: Date.now() }]);
+      updateSpawned((now) => [...now, { name: s.name, pid, proc_start: procStart(pid) ?? undefined, session: s.id, board, dir, log: logPath, agent: so.agent ?? "claude", mode: so.mode, started: Date.now() }]);
       names.push(s.name);
     } catch (e) {
       await api(o, "DELETE", `/api/sessions/${s.id}`).catch(() => {});
@@ -1001,7 +1003,7 @@ async function spawnCmd(args: string[]) {
       }
       await api(o, "DELETE", `/api/sessions/${s.session}`).catch(() => {});
     }
-    saveSpawned(loadSpawned().filter((s) => !hit.some((h) => h.name === s.name)));
+    updateSpawned((now) => now.filter((s) => !hit.some((h) => h.name === s.name)));
     return console.log(`Stopped ${hit.map((s) => s.name).join(", ")}.`);
   }
 
@@ -1097,8 +1099,7 @@ function loadDispatched(): { ids: number[]; entries: string[] } {
   }
 }
 function saveDispatched(d: { ids: number[]; entries: string[] }) {
-  mkdirSync(configDirPath(), { recursive: true, mode: 0o700 });
-  writeFileSync(dispatchedFile(), JSON.stringify({ ids: d.ids.slice(-500), entries: d.entries.slice(-500) }), { mode: 0o600 });
+  writeJson(dispatchedFile(), { ids: d.ids.slice(-500), entries: d.entries.slice(-500) }); // one dispatcher (its lock): atomic is enough
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
