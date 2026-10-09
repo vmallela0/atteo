@@ -13,6 +13,10 @@ struct LegalRow: View {
                 Label("Terms of Service", systemImage: "doc.text").foregroundStyle(Theme.text)
             }
             .accessibilityIdentifier("settings-terms")
+        } footer: {
+            // App Review 5.2.1: the ChatGPT, Claude, Grok and Meta marks (BringAssistant.swift) only say which tool it is,
+            // as the web's footer says (vedu #6612).
+            Text("Product names and logos belong to their owners and are shown only to say which tool you connect. No endorsement implied.")
         }
         .listRowBackground(Theme.card)
     }

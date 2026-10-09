@@ -100,7 +100,7 @@ struct ForYouView: View {
             : (name.isEmpty ? String(localized: "Good evening", bundle: .l10n) : String(localized: "Good evening, \(name)", bundle: .l10n))
         return VStack(alignment: .leading, spacing: Space.xs) {
             Text(hello)
-                .font(Typo.headline(28, .semibold, .title)).foregroundStyle(Theme.text)
+                .font(Typo.headline(28, .title)).foregroundStyle(Theme.text)
                 .accessibilityIdentifier("greeting")
             Text(line).font(Typo.body).foregroundStyle(Theme.muted)
                 .contentTransition(.numericText())

@@ -2,6 +2,7 @@
 // keyboard) → for new people, a name. "Continue with Google, GitHub or SSO" below is the browser sheet (SignIn in
 // Auth.swift), for people who'd rather not wait for an email or whose company signs them in.
 
+import Combine
 import SwiftUI
 
 struct SignInView: View {
@@ -73,7 +74,8 @@ struct SignInView: View {
         .animation(still ? nil : .spring(duration: 0.45, bounce: 0.12), value: step)
         .animation(still ? nil : .spring(duration: 0.35, bounce: 0.1), value: typing)
         .animation(.easeOut(duration: 0.2), value: error)
-        .onReceive(tick) { now = $0 }
+        // Only while the resend countdown runs: the screen isn't redrawn every second for nothing.
+        .onReceive(tick) { t in if t.timeIntervalSince(sentAt) <= Self.resendAfter + 1 { now = t } }
         .onAppear { withAnimation(.spring(duration: 0.7, bounce: 0.3).delay(0.1)) { shown = true } }
     }
 

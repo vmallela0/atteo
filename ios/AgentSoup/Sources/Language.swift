@@ -62,7 +62,10 @@ enum L10n {
     /// Use `pref` (a display.lang value) from now on.
     static func apply(_ pref: String) {
         installBundleOverride()
-        let have = Bundle.main.localizations.filter { $0 != "Base" }
+        // Only the languages the picker offers (Info.plist CFBundleLocalizations): the string catalog also carries a few
+        // dozen strings in the web's other languages (de, pt, ru, tr…), and a phone in one of those would otherwise get
+        // a half-translated app instead of English.
+        let have = Bundle.main.localizations.filter { $0 != "Base" && AppLanguage.values.contains($0) }
         var device = deviceLanguages
         #if DEBUG
         // UI tests: ATTEO_LANG=en pins "automatic" to English whatever the simulator's languages (an -AppleLanguages

@@ -137,13 +137,30 @@ final class AppState: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             let trimmed = self.entries.mapValues { Array($0.filter { $0.pending != true }.suffix(60)) }
             let snap = Snapshot(inbox: self.inbox, approvals: self.approvals, contacts: self.contacts, sessions: self.sessions, boards: self.boards, entries: trimmed, me: self.me, tasks: self.tasks, displayNames: self.displayNames)
-            if let d = try? JSONEncoder().encode(snap) { try? d.write(to: Self.cacheURL, options: .atomic) }
+            // Encoding every board's last 60 messages and writing them out is the slow part: off the main thread, so
+            // scrolling and typing never wait on it (vedu #6612). The snapshot is a copy, so the screens can move on.
+            // One write at a time, in order: a newer snapshot never lands under an older one.
+            let previous = self.lastWrite, url = Self.cacheURL
+            self.lastWrite = Task.detached(priority: .utility) {
+                await previous?.value
+                guard !Task.isCancelled, let d = try? JSONEncoder().encode(snap), !Task.isCancelled else { return } // signed out meanwhile
+                try? d.write(to: url, options: .atomic)
+            }
         }
     }
+    private var lastWrite: Task<Void, Never>?
+
+    /// Callers waiting on the refresh that's already running (nil: none is running).
+    private var refreshWaiters: [CheckedContinuation<Void, Never>]?
 
     // MARK: - Refresh
 
     func refreshAll() async {
+        // Asked again while one is running (at launch the signed-in task and the scene turning active both ask; a pull
+        // to refresh can land on either): wait for that one instead of sending all seven requests twice (vedu #6612).
+        if refreshWaiters != nil { return await withCheckedContinuation { refreshWaiters?.append($0) } }
+        refreshWaiters = []
+        defer { let waiting = refreshWaiters ?? []; refreshWaiters = nil; waiting.forEach { $0.resume() } }
         async let a: Void = refreshInbox()
         async let b: Void = refreshAgents()
         async let c: Void = refreshBoards()
@@ -984,6 +1001,7 @@ final class AppState: ObservableObject {
         BoardCrypto.shared.forget()
         TrustCenter.shared.reset()
         Keychain.token = nil
+        saveTask?.cancel(); lastWrite?.cancel() // a save on its way doesn't bring the last person's cache back
         try? FileManager.default.removeItem(at: Self.cacheURL)
         // Display settings are the person's: the next one to sign in starts from the defaults (then their own).
         displaySave?.cancel()

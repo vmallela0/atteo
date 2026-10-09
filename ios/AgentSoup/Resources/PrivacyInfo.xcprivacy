@@ -121,6 +121,23 @@
 				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
+		<!-- Talk (Talk.swift, src/voice.ts) and asking Atteo in a board call (CallView.swift, src/calls.ts): after the
+		     person's OK (AIConsent.swift), their voice streams to xAI for the conversation. Atteo never stores it, but it
+		     leaves the phone for a third party, so it's declared (vedu #6612, docs/APP_STORE_READINESS.md). The session is
+		     opened with the person's own sign-in, so it counts as linked. Calls between people go through Atteo's hosting
+		     (Cloudflare Realtime) live and aren't recorded. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeAudioData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
 		<!-- Report a bug / Send feedback: what the person writes (and pictures they attach) reaches the Atteo team. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>

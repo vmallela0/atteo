@@ -86,49 +86,49 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold the mic in the message box to talk instead of typing (turned into text on this iPhone). In a voice chat with Grok, your voice is sent to xAI."
+            "value" : "Hold the mic in the message box to talk instead of typing (turned into text on this iPhone), and talk with people in a board's call. In a voice chat with Grok, or when you ask Atteo during a call, your voice is sent to xAI."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mantén pulsado el micrófono del cuadro de mensaje para hablar en lugar de escribir (se convierte en texto en este iPhone). En un chat de voz con Grok, tu voz se envía a xAI."
+            "value" : "Mantén pulsado el micrófono del cuadro de mensaje para hablar en lugar de escribir (se convierte en texto en este iPhone) y habla con otras personas en la llamada de un tablero. En un chat de voz con Grok, o cuando le preguntas a Atteo durante una llamada, tu voz se envía a xAI."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Maintenez le micro dans la zone de message pour parler au lieu de taper (converti en texte sur cet iPhone). Dans un chat vocal avec Grok, votre voix est envoyée à xAI."
+            "value" : "Maintenez le micro dans la zone de message pour parler au lieu de taper (converti en texte sur cet iPhone), et parlez avec d'autres personnes dans l'appel d'un tableau. Dans un chat vocal avec Grok, ou quand vous posez une question à Atteo pendant un appel, votre voix est envoyée à xAI."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "टाइप करने के बजाय बोलने के लिए संदेश बॉक्स में माइक दबाकर रखें (यह इसी iPhone पर टेक्स्ट में बदलता है)। Grok के साथ वॉइस चैट में आपकी आवाज़ xAI को भेजी जाती है।"
+            "value" : "टाइप करने के बजाय बोलने के लिए संदेश बॉक्स में माइक दबाकर रखें (यह इसी iPhone पर टेक्स्ट में बदलता है), और किसी बोर्ड की कॉल में लोगों से बात करें। Grok के साथ वॉइस चैट में, या कॉल के दौरान Atteo से पूछने पर, आपकी आवाज़ xAI को भेजी जाती है।"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "メッセージ欄のマイクを長押しすると、入力の代わりに話せます（このiPhone上で文字に変換されます）。Grokとの音声チャットでは、あなたの声がxAIに送信されます。"
+            "value" : "メッセージ欄のマイクを長押しすると、入力の代わりに話せます（このiPhone上で文字に変換されます）。ボードの通話で相手と話すときにも使います。Grokとの音声チャットや、通話中にAtteoに質問したときは、あなたの声がxAIに送信されます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "메시지 상자의 마이크를 길게 눌러 타이핑 대신 말로 입력합니다(이 iPhone에서 텍스트로 변환됩니다). Grok과 음성 채팅할 때는 음성이 xAI로 전송됩니다."
+            "value" : "메시지 상자의 마이크를 길게 눌러 타이핑 대신 말로 입력하고(이 iPhone에서 텍스트로 변환됩니다), 보드 통화에서 사람들과 이야기합니다. Grok과 음성 채팅하거나 통화 중 Atteo에게 물어볼 때는 음성이 xAI로 전송됩니다."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按住消息框里的麦克风，直接说话，不用打字（在这台 iPhone 上转成文字）。与 Grok 语音聊天时，你的声音会发送给 xAI。"
+            "value" : "按住消息框里的麦克风，直接说话，不用打字（在这台 iPhone 上转成文字）；也用于在白板通话中和大家交谈。与 Grok 语音聊天时，或在通话中向 Atteo 提问时，你的声音会发送给 xAI。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按住訊息框裡的麥克風，直接說話，不用打字（在這台 iPhone 上轉成文字）。與 Grok 語音聊天時，你的聲音會傳送給 xAI。"
+            "value" : "按住訊息框裡的麥克風，直接說話，不用打字（在這台 iPhone 上轉成文字）；也用於在白板通話中和大家交談。與 Grok 語音聊天時，或在通話中向 Atteo 提問時，你的聲音會傳送給 xAI。"
           }
         }
       }
