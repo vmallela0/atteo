@@ -223,7 +223,10 @@ export async function resolveCimdClient(raw: string, o: CimdOptions): Promise<Ci
     throw e;
   }
   if (got.ttl > 0) remember(raw, got.client, now + got.ttl * 1000);
-  if (o.store) await o.store.put(raw, { client: got.client, fetched_at: now, fresh_until: now + Math.min(got.ttl * 1000, CIMD_STORE_FRESH_MS) }).catch(() => {});
+  // A no-store (or no-cache) document is never kept, and drops any older copy: a stale copy never stands in for it, so
+  // a client that removes a redirect_uri there is taken at its word at once (a capped lookup is then a 429).
+  if (o.store && got.ttl > 0) await o.store.put(raw, { client: got.client, fetched_at: now, fresh_until: now + Math.min(got.ttl * 1000, CIMD_STORE_FRESH_MS) }).catch(() => {});
+  else if (o.store && stored) await o.store.drop(raw).catch(() => {});
   return got.client;
 }
 

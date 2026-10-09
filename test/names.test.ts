@@ -12,6 +12,19 @@ describe("one sanitizer for every name (review follow-up): tag characters, bidi 
     expect(stripInvisible("a​‌‍‎‏⁠⁤﻿­͏؜᠎￹￻\u{1D173}\u{E0100}️b")).toBe("ab");
     expect(stripInvisible("Ünïcödé 名前 مرحبا")).toBe("Ünïcödé 名前 مرحبا"); // visible text is untouched
   });
+  it("covers Default_Ignorable_Code_Point and Cc, plus shorthand and hieroglyph format controls", () => {
+    expect(stripInvisible("a\u{1BCA0}\u{1BCA1}\u{1BCA2}\u{1BCA3}b")).toBe("ab");
+    expect(stripInvisible("a\u{13430}\u{13438}\u{1343F}b")).toBe("ab");
+    expect(stripInvisible("a\u{E0FFF}\u{E01EF}\u0085\u2800\uFFFBb")).toBe("ab");
+  });
+  it("ZWJ and VS15/VS16 stay only where they build an emoji", () => {
+    expect(stripInvisible("pay\u200Dpal")).toBe("paypal");
+    expect(stripInvisible("pay\uFE0Fpal\uFE0E")).toBe("paypal");
+    expect(stripInvisible("\u200D\uFE0Fx")).toBe("x");
+    for (const e of ["👩‍💻", "❤️", "❤️‍🔥", "👩🏽‍💻", "🏳️‍🌈", "☺︎"]) expect(stripInvisible(e)).toBe(e);
+    expect(stripInvisible("👩‍‍💻")).toBe("👩‍💻"); // one ZWJ, not a pile
+    expect(cleanDisplay("Ve\u200Ddu 👩‍💻")).toBe("Vedu 👩‍💻");
+  });
   it("display_name", () => {
     expect(cleanDisplay(`Vee${TAGS} ${BIDI}Dee`)).toBe("Vee Dee");
     expect(cleanDisplay(`${TAGS}${BIDI}`)).toBeNull();

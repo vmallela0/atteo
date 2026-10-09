@@ -591,17 +591,24 @@ describe("the stored copy in D1 (cimd_documents): a capped client_id never fails
     clearCimdCache(); // another isolate
     expect((await resolveCimdClient(ID, full(env, m.f))).name).toBe("Smithery Connect");
     expect(m.calls).toHaveLength(1);
-    // Past five minutes it's fetched again (a document's own no-store means the copy is never "fresh").
+    // Past five minutes it's fetched again.
     clearCimdCache();
     const later = { ...full(env, m.f), now: () => Date.now() + 6 * 60_000 };
     await resolveCimdClient(ID, later);
     expect(m.calls).toHaveLength(2);
   });
 
+  // The copy is an hour old: past fresh, so every lookup would fetch, but within the day it may stand in.
+  const age = (db: any) => {
+    db.prepare(`UPDATE cimd_documents SET fetched_at = fetched_at - 3600000, fresh_until = 0`).run();
+    clearCimdCache();
+  };
+
   it("capped client_id with a stored copy: authorize, token and refresh all succeed without fetching", async () => {
     const { env, db } = fakeEnv();
-    const m = mock(() => json(DOC, { "cache-control": "no-store" })); // never fresh: every lookup would fetch
+    const m = mock(() => json(DOC));
     await resolveCimdClient(ID, full(env, m.f));
+    age(db);
     exhaust(db);
     const calls = m.calls.length;
     const lookup = full(env, m.f, "ada");
@@ -625,17 +632,35 @@ describe("the stored copy in D1 (cimd_documents): a capped client_id never fails
     expect(db.prepare(`SELECT COUNT(*) AS n FROM cimd_documents`).get().n).toBe(1);
   });
 
-  it("a fetch that finds a bad document drops the stored copy, so it can't stand in later", async () => {
+  it("a no-store document is never kept, and drops an older copy: a capped lookup is then a 429, never the stale copy", async () => {
     const { env, db } = fakeEnv();
-    let answer: () => Response = () => json(DOC, { "cache-control": "no-store" });
+    let answer: () => Response = () => json(DOC);
     const m = mock(() => answer());
     await resolveCimdClient(ID, full(env, m.f));
+    age(db);
+    // The client removes a redirect_uri and marks its document no-store.
+    answer = () => json({ ...DOC, redirect_uris: ["https://connect.smithery.ai/other"] }, { "cache-control": "no-store" });
+    expect((await resolveCimdClient(ID, full(env, m.f))).redirect_uris).toEqual(["https://connect.smithery.ai/other"]);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM cimd_documents`).get().n).toBe(0);
+    exhaust(db);
+    await expect(resolveCimdClient(ID, full(env, m.f))).rejects.toMatchObject({ status: 429 });
+    const { challenge } = pkce();
+    await expect(startAuthorize(env, "ada", authorizeParams(ID, CB, challenge), full(env, m.f, "ada"))).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("a fetch that finds a bad document drops the stored copy, so it can't stand in later", async () => {
+    const { env, db } = fakeEnv();
+    let answer: () => Response = () => json(DOC);
+    const m = mock(() => answer());
+    await resolveCimdClient(ID, full(env, m.f));
+    age(db);
     answer = () => json({ ...DOC, client_secret: "x" });
     await expect(resolveCimdClient(ID, full(env, m.f))).rejects.toMatchObject({ code: "invalid_client" });
     expect(db.prepare(`SELECT COUNT(*) AS n FROM cimd_documents`).get().n).toBe(0);
     // A host that's only down for now keeps it.
-    answer = () => json(DOC, { "cache-control": "no-store" });
+    answer = () => json(DOC);
     await resolveCimdClient(ID, full(env, m.f));
+    age(db);
     answer = () => json({}, {}, 503);
     await expect(resolveCimdClient(ID, full(env, m.f))).rejects.toMatchObject({ status: 503 });
     expect(db.prepare(`SELECT COUNT(*) AS n FROM cimd_documents`).get().n).toBe(1);

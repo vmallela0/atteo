@@ -111,27 +111,37 @@ export function stripBidiControls(s: string): string {
 }
 
 // Names (display names, agent names, board titles, OAuth client names) are stricter than messages: a name is short and
-// never needs hidden formatting, so everything invisible goes, stored that way. Controls; soft hyphen, CGJ, ALM and
-// the Hangul and Khmer fillers; Mongolian selectors; zero-width characters and LRM/RLM (U+200B–U+200F); bidi
-// embeddings, overrides and isolates (U+202A–U+202E, U+2066–U+2069) and the rest of U+2060–U+206F; braille blank;
-// interlinear annotation (U+FFF9–U+FFFB); musical format characters; tag characters (U+E0000–U+E007F, which can carry
-// hidden ASCII text); variation selectors. `NAME_GLUE` (ZWJ, VS15, VS16) is kept only where emoji may appear.
-const NAME_GLUE = "\\u200D\\uFE0E\\uFE0F";
-const NAME_INVISIBLE_SRC =
-  "\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B\\u200C\\u200E\\u200F\\u202A-\\u202E\\u2060-\\u206F" +
-  "\\u2800\\u3164\\uFE00-\\uFE0D\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{1D173}-\\u{1D17A}\\u{E0000}-\\u{E007F}\\u{E0100}-\\u{E01EF}";
-const NAME_INVISIBLE = new RegExp(`[${NAME_INVISIBLE_SRC}${NAME_GLUE}]`, "gu");
-const NAME_INVISIBLE_KEEP_EMOJI = new RegExp(`[${NAME_INVISIBLE_SRC}]`, "gu");
+// never needs hidden formatting, so everything invisible goes, stored that way. Unicode's Default_Ignorable_Code_Point
+// (soft hyphen, CGJ, ALM, Hangul and Khmer fillers, Mongolian and other variation selectors, zero-width characters,
+// LRM/RLM, bidi embeddings, overrides and isolates, invisible operators, BOM, shorthand format controls U+1BCA0–1BCA3,
+// musical format characters, tag characters U+E0000–E0FFF that can carry hidden ASCII), every control (Cc), and a few
+// invisible characters that aren't in that set: braille blank, interlinear annotation (U+FFF9–U+FFFB) and Egyptian
+// hieroglyph format controls (U+13430–U+1343F). ZWJ and VS15/VS16 stay only where they build an emoji: right after an
+// Extended_Pictographic character (a ZWJ also after VS16 or a skin tone, as in ❤️‍🔥 and 👩🏽‍💻), so "pay\u200Dpal" is paypal.
+const NAME_INVISIBLE = /[\p{Default_Ignorable_Code_Point}\p{Cc}\u2800\uFFF9-\uFFFB\u{13430}-\u{1343F}]/u;
+const EMOJI_BASE = /\p{Extended_Pictographic}/u;
+const SKIN_TONE = /\p{Emoji_Modifier}/u;
 
-/** A name without invisible or direction-changing characters (see above). `emoji`: keep ZWJ and VS15/VS16, so 👩‍💻 and
- *  ❤️ in a board title stay whole. */
-export function stripInvisible(s: string, o: { emoji?: boolean } = {}): string {
-  return s.replace(o.emoji ? NAME_INVISIBLE_KEEP_EMOJI : NAME_INVISIBLE, "");
+/** A name without invisible or direction-changing characters (see above); emoji stay whole. */
+export function stripInvisible(s: string): string {
+  if (!NAME_INVISIBLE.test(s)) return s;
+  let out = "";
+  let prev = ""; // the last character kept
+  for (const ch of s) {
+    if (NAME_INVISIBLE.test(ch)) {
+      const vs = ch === "\uFE0E" || ch === "\uFE0F";
+      const keep = (vs && EMOJI_BASE.test(prev)) || (ch === "\u200D" && (EMOJI_BASE.test(prev) || prev === "\uFE0F" || SKIN_TONE.test(prev)));
+      if (!keep) continue;
+    }
+    out += ch;
+    prev = ch;
+  }
+  return out;
 }
 
 /** A board's title as stored: invisible characters gone (emoji kept whole), one line, trimmed; "" when nothing's left. */
 export function cleanBoardTitle(s: string): string {
-  return stripInvisible(s.replace(/\s+/g, " "), { emoji: true }).replace(/\s+/g, " ").trim();
+  return stripInvisible(s.replace(/\s+/g, " ")).replace(/\s+/g, " ").trim();
 }
 
 /**
